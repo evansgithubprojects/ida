@@ -8,11 +8,13 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @eda-debugger/core && npm run build -w @eda-debugger/adapter-eventemitter && npm run build -w @eda-debugger/adapter-eventtarget",
+    "build": "npm run build -w @eda-debugger/core && npm run build -w @eda-debugger/adapter-eventemitter && npm run build -w @eda-debugger/adapter-eventtarget && npm run build -w @eda-debugger/cloud",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/adapter-eventemitter && tsc --noEmit -p packages/adapter-eventtarget && tsc --noEmit -p apps/viewer && tsc --noEmit -p apps/demo",
+    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/adapter-eventemitter && tsc --noEmit -p packages/adapter-eventtarget && tsc --noEmit -p packages/cloud && tsc --noEmit -p apps/viewer && tsc --noEmit -p apps/demo && tsc --noEmit -p apps/server",
     "demo": "npm run build && npm run sim -w @eda-debugger/demo && npm run dev -w @eda-debugger/viewer",
-    "demo:live": "npm run build && npm run live -w @eda-debugger/demo"
+    "demo:live": "npm run build && npm run live -w @eda-debugger/demo",
+    "server": "npm run build -w @eda-debugger/core && npm run dev -w @eda-debugger/server",
+    "web": "npm run dev -w @eda-debugger/viewer"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

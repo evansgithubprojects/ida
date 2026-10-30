@@ -41,6 +41,9 @@ export function Timeline() {
   }, [index, width, span]);
   const max = Math.max(1, ...bins);
 
+  // Uploaded from the offline spool after the fact, and stretches lost when the spool overflowed.
+  const late = useMemo(() => index.items.filter((i) => i.occ.late).map((i) => i.occ.ts), [index]);
+  const gaps = index.recording.gaps ?? [];
   const errors = useMemo(() => index.items.flatMap((i) => i.throws.filter((th) => !th.rethrown).map((th) => th.at)), [index]);
   const flagged = useMemo(
     () => index.items.filter((i) => index.findingsByOcc.has(i.occ.id)).map((i) => ({ at: i.occ.ts, high: index.findingsByOcc.get(i.occ.id)!.some((f) => f.priority === 'high') })),
@@ -93,6 +96,12 @@ export function Timeline() {
           {bins.map((c, i) => (
             <rect key={i} x={i * bw} width={Math.max(bw - 1, 1)} y={H - 14 - (c / max) * (H - 24)} height={(c / max) * (H - 24)} className="bar" />
           ))}
+          {gaps.map((g, i) => (
+            <rect key={`g${i}`} x={x(g.fromTs)} width={Math.max(x(g.toTs) - x(g.fromTs), 3)} y={0} height={H} className="gap">
+              <title>{g.dropped} events lost: the offline spool was full</title>
+            </rect>
+          ))}
+          {late.map((at, i) => <line key={`l${i}`} x1={x(at)} x2={x(at)} y1={0} y2={10} className="tick-late"><title>uploaded late, from the offline spool</title></line>)}
           <rect x={0} y={0} width={Math.max(x(window[0]), 0)} height={H} className="dim" />
           <rect x={x(window[1])} y={0} width={Math.max(width - x(window[1]), 0)} height={H} className="dim" />
           {errors.map((at, i) => <line key={`e${i}`} x1={x(at)} x2={x(at)} y1={H - 12} y2={H} className="tick-error"><title>handler threw</title></line>)}

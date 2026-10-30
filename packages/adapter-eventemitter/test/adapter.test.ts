@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createRecorder } from '@eda-debugger/core';
+import { connectRecorder, createRecorder, enable, setDefaultRecorder } from '@eda-debugger/core';
+import { resetRecorders } from '../../core/src/registry';
 import { enableEventEmitterRecording } from '../src';
 
 let uninstall: (() => void) | undefined;
@@ -57,5 +58,70 @@ describe('node adapter', () => {
     s.on('data', () => {});
     s.write('hi');
     expect(rec.export().occurrences).toHaveLength(0);
+  });
+
+  it('ignores the connection pools behind fetch, so an uploader never records its own uploads', async () => {
+    const { createServer } = await import('node:http');
+    const server = createServer((_req, res) => res.end('ok'));
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const rec = createRecorder();
+    uninstall = enableEventEmitterRecording(rec);
+    const { port } = server.address() as { port: number };
+    await (await fetch(`http://127.0.0.1:${port}`)).text();
+    await new Promise<void>((r) => server.close(() => r()));
+    expect(rec.export().processes.map((p) => p.label)).toEqual([]);
+  });
+});
+
+describe('routed by tracking', () => {
+  afterEach(() => {
+    resetRecorders();
+    setDefaultRecorder(null);
+  });
+
+  const names = (r: ReturnType<typeof createRecorder>) => {
+    const out = r.export();
+    return out.occurrences.map((o) => out.templates.find((t) => t.id === o.templateId)!.eventName);
+  };
+
+  it('records each emitter in the recorder that tracks it and the rest in the default one', () => {
+    uninstall = enableEventEmitterRecording();
+    const shared = enable();
+    const payments = connectRecorder('payments');
+    const bus = new EventEmitter();
+    const other = new EventEmitter();
+    payments.track(bus);
+    bus.on('charge', () => {});
+    other.on('ping', () => {});
+    bus.emit('charge', 1);
+    other.emit('ping');
+    expect(names(payments)).toEqual(['charge']);
+    expect(names(shared)).toEqual(['ping']);
+  });
+
+  it('records nothing for untracked emitters without a default recorder', () => {
+    uninstall = enableEventEmitterRecording();
+    const payments = connectRecorder('payments');
+    const e = new EventEmitter();
+    let ran = 0;
+    e.on('x', () => ran++);
+    e.emit('x');
+    expect(ran).toBe(1);
+    expect(payments.export().occurrences).toHaveLength(0);
+  });
+
+  it('runs listeners once when two recorders track the same emitter', () => {
+    uninstall = enableEventEmitterRecording();
+    const a = connectRecorder('a');
+    const b = connectRecorder('b');
+    const e = new EventEmitter();
+    a.track(e);
+    b.track(e);
+    let ran = 0;
+    e.on('x', () => ran++);
+    expect(e.emit('x')).toBe(true);
+    expect(ran).toBe(1);
+    expect(names(a)).toEqual(['x']);
+    expect(names(b)).toEqual(['x']);
   });
 });

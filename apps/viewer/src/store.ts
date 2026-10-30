@@ -107,8 +107,11 @@ interface State {
   /** Inspects a handler: zooms into its process if needed, selects it and pans the graph to it. */
   inspectNode(rawNodeId: string): void;
   dismissAllToasts(): void;
-  connectLive(url: string): void;
+  /** `name` is shown as the source instead of the URL. */
+  connectLive(url: string, name?: string): void;
   disconnectLive(): void;
+  /** Disconnects and forgets the current recording, so a page that loads another doesn't show this one meanwhile. */
+  unload(): void;
 }
 
 const sameSelection = (a: NonNullable<Selection>, b: NonNullable<Selection>) => a.type === b.type && a.id === b.id;
@@ -257,7 +260,7 @@ export const useStore = create<State>()((set, get) => {
     dismissAllToasts() { set({ toasts: [] }); },
     inspectNode(nodeId) { reveal({ type: 'node', id: nodeId }); },
 
-    connectLive(url) {
+    connectLive(url, name) {
       get().disconnectLive();
       set({ live: 'connecting' });
       const es = new EventSource(url);
@@ -269,7 +272,7 @@ export const useStore = create<State>()((set, get) => {
         if (msg.type === 'snapshot') {
           pending = msg.recording;
           flush();
-          set({ sourceName: `live · ${url}` });
+          set({ sourceName: `live · ${name ?? url}` });
         } else if (msg.type === 'finding') {
           const base = pending ?? get().recording;
           // A finding re-sent under the same id is an existing one that was traced to its source error.
@@ -306,6 +309,10 @@ export const useStore = create<State>()((set, get) => {
       flushTimer = null;
       pending = null;
       if (get().live !== 'off') set({ live: 'off' });
+    },
+    unload() {
+      get().disconnectLive();
+      set({ recording: null, index: null, sourceName: '', selection: null, trail: [], toasts: [], focus: null, playing: false, level: { kind: 'process' } });
     },
   };
 });

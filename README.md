@@ -11,7 +11,9 @@ An event is **who called it and what it called, including payloads**. Handlers a
 | [`@eda-debugger/core`](packages/core/README.md) | Recorder, ring buffer, templates, causality, corruption detection, JSON export. No DOM dependency. |
 | [`@eda-debugger/adapter-eventemitter`](packages/adapter-eventemitter/README.md) | Records Node `EventEmitter`. |
 | [`@eda-debugger/adapter-eventtarget`](packages/adapter-eventtarget/README.md) | Records DOM `EventTarget` (native events and `dispatchEvent`). |
-| `apps/viewer` | Standalone React replay viewer. |
+| [`@eda-debugger/cloud`](packages/cloud/README.md) | Uploads recorders to a project on the server; spools locally while offline. |
+| `apps/server` | Ingest and project API (Node, Hono, Postgres), with Supabase sign-in. See [its README](apps/server/README.md). |
+| `apps/viewer` | The web app: projects, recorders and recordings, plus the replay viewer (also usable locally, without an account). |
 | `apps/demo` | Simulated event stream and a browser page that produce recordings. |
 
 ## Quick start
@@ -28,6 +30,22 @@ fs.writeFileSync('recording.json', JSON.stringify(recorder.export()));
 ```
 
 Open `recording.json` in the viewer (drag and drop), or stream live with `startBridge` from `@eda-debugger/core/bridge-node` and press **Connect live**.
+
+### Projects: upload recorders to the web app
+
+Create a project in the web app, make an ingest key, and add:
+
+```ts
+import { configure } from '@eda-debugger/cloud';
+import { connectRecorder } from '@eda-debugger/core';
+import { enableEventEmitterRecording } from '@eda-debugger/adapter-eventemitter';
+
+configure({ projectKey: process.env.EDA_PROJECT_KEY!, endpoint: 'https://your-server' });
+enableEventEmitterRecording();
+connectRecorder('payments').track(paymentsBus); // anywhere: same key, same recorder
+```
+
+Each recorder appears under the project with one recording per run of your app, and can be watched live. If the server can't be reached, batches are kept on disk (Node) or in IndexedDB (browser), the console says so, and they are uploaded in order once the connection is back. The viewer marks events that arrived late and gaps where data was lost.
 
 ### Storage: templates, not full copies
 
@@ -66,6 +84,11 @@ npm run build            # core + adapters (ESM, CJS, .d.ts)
 npm run demo             # generate a sample recording and open the viewer
 npm run demo:live        # stream a looping simulation; press "Connect live" in the viewer
 npm run dom -w @eda-debugger/demo   # browser page using the DOM adapter
+
+# Projects web app (copy apps/server/.env.example and apps/viewer/.env.example first)
+npm run server           # API on :8787, embedded PGlite unless DATABASE_URL is set
+npm run web              # web app on :5173
+EDA_PROJECT_KEY=eda_… npm run cloud -w @eda-debugger/demo -- --outage   # upload the demo, with simulated outages
 ```
 
 Replay never re-runs your code: it plays recorded data back against the graph.

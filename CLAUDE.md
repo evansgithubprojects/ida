@@ -62,6 +62,16 @@ These are suggestions from the planning discussion, not final decisions.
   - Adapters: Node `EventEmitter`, DOM `EventTarget`, then buses like mitt / eventemitter3, then framework events (Vue `emit`, React).
 - **Setup should be near zero:** hook the dispatcher so one line enables recording, rather than instrumenting each emit call.
 
+## Projects and keyed recorders
+
+- **Recorders are keyed:** `connectRecorder(key)` returns the same recorder for the same key anywhere in an app (no prop drilling). `enable()` is `connectRecorder('default')` and sets it as the default recorder.
+- **Routing:** adapters installed without a recorder send each emit to the recorders that `track()` its emitter, else to the default recorder. Several recorders may track one emitter; listeners still run once (`dispatchAll` nests the dispatches). Parent links don't cross recorders.
+- **Projects** are created in the web app (`apps/viewer`), which signs users in with Supabase Auth (sign-in only). Every data request goes to our own server (`apps/server`: Node + Hono + Postgres, PGlite when there is no `DATABASE_URL`).
+- **Uploads:** `@eda-debugger/cloud` (`configure({ projectKey, endpoint })`) uploads every keyed recorder over plain HTTP with a per-project, write-only ingest key. No Supabase dependency in published packages. Each app run is one session; the shared wire format is `IngestBatch` in core's types.
+- **Offline:** failed batches go to a spool (files in Node, IndexedDB in browsers), the developer is told on the console, and batches are uploaded in order on recovery. `(sessionId, seq)` makes replays idempotent; spooled occurrences are marked `late`, and spool overflow is recorded as `gaps`, both shown in the viewer.
+- The Node adapter ignores Node internals, including the connection pools behind `fetch`, so the uploader never records its own uploads.
+- Not built yet: multi-instance live fan-out (Postgres `LISTEN/NOTIFY`), retention limits, sharing projects with other users.
+
 ## First milestone
 
 - Core recorder with templates

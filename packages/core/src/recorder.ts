@@ -4,6 +4,7 @@ import { SyncStackContext, type CausalityContext } from './causality';
 import { CorruptionEngine, SuspectedCorruptionError, type EngineOptions, type Observation } from './corruption';
 import { Registry } from './ids';
 import { toJsonSafe } from './json';
+import { trackEmitter, untrackEmitter } from './routing';
 import { payloadShape, TemplateRegistry, type TemplateKeyFn } from './templates';
 import {
   RECORDING_VERSION, type ErrorInfo, type Finding, type HandlerResult, type Occurrence,
@@ -53,6 +54,11 @@ export interface CorruptionOptions extends EngineOptions {
 }
 
 export interface RecorderOptions {
+  /**
+   * Names the recorder. `connectRecorder(key)` sets it; uploads use it to file recordings under this recorder.
+   * @default 'unnamed'
+   */
+  key?: string;
   /**
    * How much history to keep, in milliseconds. Older events are dropped as new ones arrive.
    * @default 300000 (5 minutes)
@@ -127,6 +133,18 @@ export interface Frame {
 }
 
 export interface Recorder {
+  /** The name given with `connectRecorder(key)` or the `key` option. */
+  readonly key: string;
+  /**
+   * Claim an emitter: adapters installed without a recorder send its events here instead of to the default recorder.
+   * Several recorders may track the same emitter; each records its events and the listeners still run once.
+   * Parent links don't cross recorders: an event caused by one recorded in another starts a new chain.
+   * @example
+   * connectRecorder('payments').track(paymentsBus);
+   */
+  track(emitter: object): void;
+  /** Stop claiming an emitter. */
+  untrack(emitter: object): void;
   /**
    * For adapter authors: records one emit and runs it. `run` must call each listener through `invoke` so its timing,
    * errors and emits are attributed to it. Returns whatever `run` returns.
@@ -324,7 +342,10 @@ export function createRecorder(opts: RecorderOptions = {}): Recorder {
     }
   }
 
-  return {
+  const self: Recorder = {
+    key: opts.key ?? 'unnamed',
+    track(emitter) { trackEmitter(self, emitter); },
+    untrack(emitter) { untrackEmitter(self, emitter); },
     dispatch,
     start() { recording = true; },
     stop() { recording = false; },
@@ -356,4 +377,5 @@ export function createRecorder(opts: RecorderOptions = {}): Recorder {
     labelHandler: (f, l) => registry.labelHandler(f, l),
     markExternal: (t) => { (typeof t === 'function' ? externalHandlers : externalEmitters).add(t); },
   };
+  return self;
 }

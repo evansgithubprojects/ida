@@ -6,10 +6,12 @@
   "scripts": {
     "sim": "tsx src/simulate.ts",
     "live": "tsx src/simulate.ts --live",
-    "dom": "vite browser"
+    "dom": "vite browser",
+    "cloud": "tsx src/cloud.ts"
   },
   "dependencies": {
     "@eda-debugger/adapter-eventemitter": "*",
+    "@eda-debugger/cloud": "*",
     "@eda-debugger/core": "*"
   },
   "devDependencies": {
