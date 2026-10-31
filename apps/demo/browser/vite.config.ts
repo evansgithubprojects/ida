@@ -1,15 +1,8 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 
-const src = (p: string) => fileURLToPath(new URL(p, import.meta.url));
-
-// Use the packages' sources directly so the demo needs no build step.
+// The demo imports the built packages, like an npm user. Settings come from apps/demo/.env.
 export default defineConfig({
-  resolve: {
-    alias: {
-      '@eda-debugger/core': src('../../../packages/core/src/index.ts'),
-      '@eda-debugger/adapter-eventtarget': src('../../../packages/adapter-eventtarget/src/index.ts'),
-    },
-  },
+  envDir: fileURLToPath(new URL('..', import.meta.url)),
   server: { port: 5174 },
 });

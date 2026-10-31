@@ -1,14 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Replay } from '../components/Replay';
-import { loadFile, loadSample, Toolbar } from '../components/Toolbar';
+import { loadFile, Toolbar } from '../components/Toolbar';
 
-/** Recordings that never touch the server: a dropped JSON export, the demo sample, or a local `startBridge` stream. */
+/** Recordings that never touch the server: a dropped JSON export or a local `startBridge` stream. */
 export function Local() {
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-
-  // `npm run demo` writes a sample next to the viewer; open it straight away when it is there.
-  useEffect(() => { void loadSample(); }, []);
 
   return (
     <div

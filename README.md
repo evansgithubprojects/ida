@@ -14,7 +14,7 @@ An event is **who called it and what it called, including payloads**. Handlers a
 | [`@eda-debugger/cloud`](packages/cloud/README.md) | Uploads recorders to a project on the server; spools locally while offline. |
 | `apps/server` | Ingest and project API (Node, Hono, Postgres), with Supabase sign-in. See [its README](apps/server/README.md). |
 | `apps/viewer` | The web app: projects, recorders and recordings, plus the replay viewer (also usable locally, without an account). |
-| `apps/demo` | Simulated event stream and a browser page that produce recordings. |
+| `apps/demo` | A stand-in user app (Node and browser) that uses the built packages and uploads to a project. Dev only. |
 
 ## Quick start
 
@@ -79,17 +79,32 @@ Core cannot see inside a handler, so declare what talks to the outside world (`e
 
 ```bash
 npm install
-npm test                 # all workspaces
-npm run build            # core + adapters (ESM, CJS, .d.ts)
-npm run demo             # generate a sample recording and open the viewer
-npm run demo:live        # stream a looping simulation; press "Connect live" in the viewer
-npm run dom -w @eda-debugger/demo   # browser page using the DOM adapter
-
-# Projects web app (copy apps/server/.env.example and apps/viewer/.env.example first)
-npm run server           # API on :8787, embedded PGlite unless DATABASE_URL is set
-npm run web              # web app on :5173
-EDA_PROJECT_KEY=eda_… npm run cloud -w @eda-debugger/demo -- --outage   # upload the demo, with simulated outages
+cp apps/server/.env.example apps/server/.env        # dev Supabase project URL
+cp apps/viewer/.env.example apps/viewer/.env.local  # same project's publishable key
+npm run dev
 ```
+
+`npm run dev` builds the packages, then runs everything and rebuilds on change:
+
+| Part | Where |
+| --- | --- |
+| Packages (`core`, adapters, `cloud`) | `tsup --watch` |
+| Server | http://localhost:8787 (embedded PGlite unless `DATABASE_URL` is set) |
+| Web app | http://localhost:5173 |
+| Demo codebase (`apps/demo`) | Node shop plus a browser page at http://localhost:5174, both using the built packages |
+
+The demo uploads to a project, so: sign in at :5173, create a project, make an ingest key, then `cp apps/demo/.env.example apps/demo/.env` and paste the key. Until then the demo waits and says so. For a simulated outage run `npm run node -w @eda-debugger/demo -- --outage`.
+
+Other scripts: `npm test`, `npm run typecheck`.
+
+## Production
+
+```bash
+npm run build   # packages (dist/), server (apps/server/dist), web app (apps/viewer/dist)
+npm start       # runs the server: node apps/server/dist/main.js
+```
+
+Set `NODE_ENV=production`, `SUPABASE_URL`, `DATABASE_URL`, `STREAM_SECRET` and `WEB_ORIGINS` for the server (see `apps/server/.env.example`). Build the web app with `VITE_*` set for production and serve `apps/viewer/dist` from any static host. Publish packages with `npm publish -w @eda-debugger/<name>`.
 
 Replay never re-runs your code: it plays recorded data back against the graph.
 

@@ -6,7 +6,8 @@ Receives uploads from [`@eda-debugger/cloud`](../../packages/cloud/README.md), s
 
 ```bash
 cp apps/server/.env.example apps/server/.env   # set SUPABASE_URL
-npm run server                                 # from the repo root: builds core, then watches src/
+npm run dev                                    # from the repo root: the whole app, server included
+npm run build && npm start                     # production: compiles to apps/server/dist and runs it
 ```
 
 | Variable | | |

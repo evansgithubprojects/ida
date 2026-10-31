@@ -2,16 +2,6 @@ import type { Recording } from '@eda-debugger/core';
 import { useRef, useState } from 'react';
 import { useStore } from '../store';
 
-export async function loadSample(): Promise<boolean> {
-  try {
-    const res = await fetch(`${import.meta.env.BASE_URL}samples/demo.json`);
-    if (!res.ok) return false;
-    useStore.getState().load((await res.json()) as Recording, 'sample: demo.json');
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export async function loadFile(file: File): Promise<string | null> {
   try {
@@ -49,7 +39,6 @@ export function Toolbar({ onError }: { onError: (msg: string | null) => void }) 
         }}
       />
       <button onClick={() => input.current?.click()}>Open recording…</button>
-      <button onClick={async () => onError((await loadSample()) ? null : 'No sample found. Run `npm run demo` to generate one.')}>Load sample</button>
       <span className="live-box">
         <input value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Live stream URL" size={22} />
         {live === 'off' || live === 'error' ? (

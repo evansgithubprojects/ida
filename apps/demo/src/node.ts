@@ -2,18 +2,19 @@ import type { EventEmitter } from 'node:events';
 import { configure } from '@eda-debugger/cloud';
 import { connectRecorder, setDefaultRecorder } from '@eda-debugger/core';
 import { enableEventEmitterRecording } from '@eda-debugger/adapter-eventemitter';
-import { createShop } from './app';
+import { createShop } from './shop';
 
 /**
  * The shop, uploaded to a project. Payments get their own recorder; everything else goes to `shop`.
- *   EDA_PROJECT_KEY=eda_… npm run cloud -w @eda-debugger/demo [-- --outage]
+ *   npm run node -w @eda-debugger/demo [-- --outage]   (reads EDA_PROJECT_KEY from apps/demo/.env)
  * `--outage` cuts the connection for 8 s out of every 20, to watch the spool and the recovery.
  */
-const projectKey = process.env.EDA_PROJECT_KEY;
-if (!projectKey) {
-  console.error('[demo] set EDA_PROJECT_KEY to an ingest key from your project page');
-  process.exit(1);
-}
+try { process.loadEnvFile(); } catch { /* no .env */ }
+const waitForKey = (): Promise<never> => {
+  console.log('[demo] No EDA_PROJECT_KEY. Create a project in the web app, make an ingest key, and put it in apps/demo/.env (see .env.example). Waiting...');
+  return new Promise<never>(() => setInterval(() => {}, 1 << 30));
+};
+const projectKey = process.env.EDA_PROJECT_KEY || (await waitForKey());
 const endpoint = process.env.EDA_ENDPOINT ?? 'http://localhost:8787';
 const outage = process.argv.includes('--outage');
 

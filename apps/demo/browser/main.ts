@@ -1,7 +1,15 @@
-import { createRecorder } from '@eda-debugger/core';
+import { configure } from '@eda-debugger/cloud';
+import { connectRecorder } from '@eda-debugger/core';
 import { enableEventTargetRecording } from '@eda-debugger/adapter-eventtarget';
 
-const recorder = createRecorder({
+const projectKey = import.meta.env.VITE_EDA_PROJECT_KEY as string | undefined;
+if (projectKey) {
+  configure({ projectKey, endpoint: (import.meta.env.VITE_EDA_ENDPOINT as string | undefined) ?? 'http://localhost:8787' });
+} else {
+  console.warn('[demo] No VITE_EDA_PROJECT_KEY: recording locally only. Put an ingest key in apps/demo/.env (see .env.example).');
+}
+
+const recorder = connectRecorder('page', {
   deepLogging: { events: ['cart:changed', 'order:placed'] },
   corruption: { notify: 'console' },
 });
