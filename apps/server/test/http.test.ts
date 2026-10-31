@@ -259,6 +259,13 @@ describe('web-app CORS', () => {
     expect((await pre(WEB)).headers.get('access-control-allow-origin')).toBe(WEB);
     expect((await pre('https://evil.example')).headers.get('access-control-allow-origin')).toBeNull();
   });
+
+  it('lets the web app open the live stream from its own origin', async () => {
+    // The stream is opened with EventSource, which the browser blocks without these headers; even a rejected token must carry them.
+    const get = (origin: string) => fetch(`${base}/v1/live?token=nope`, { headers: { Origin: origin } });
+    expect((await get(WEB)).headers.get('access-control-allow-origin')).toBe(WEB);
+    expect((await get('https://evil.example')).headers.get('access-control-allow-origin')).toBeNull();
+  });
 });
 
 describe('live stream over HTTP', () => {

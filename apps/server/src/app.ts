@@ -90,6 +90,8 @@ export function createApp(opts: AppOptions) {
 
   // --- Live stream (web app, authenticated by a short-lived stream token) ---
 
+  // The viewer opens this with EventSource from the web app's origin, so the browser needs CORS headers on the stream itself.
+  app.use('/v1/live', cors({ origin: opts.webOrigins ?? [], allowMethods: ['GET'] }));
   app.get('/v1/live', async (c) => {
     const recorderId = verifyStreamToken(streamSecret, c.req.query('token') ?? '', now());
     if (!recorderId) return c.json({ error: 'invalid or expired stream token' }, 401);
