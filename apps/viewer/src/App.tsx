@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { BrowserRouter, Link, Navigate, NavLink, Route, Routes } from 'react-router';
 import { RequireAuth, useSession } from './cloud/auth';
 import { supabase } from './cloud/supabase';
+import { Connect } from './pages/Connect';
 import { Local } from './pages/Local';
 import { Project } from './pages/Project';
 import { Projects } from './pages/Projects';
@@ -18,6 +19,7 @@ export function App() {
         <Route path="/login" element={<Shell><SignIn /></Shell>} />
         <Route path="/projects" element={<Shell><RequireAuth><Projects /></RequireAuth></Shell>} />
         <Route path="/projects/:projectId" element={<Shell><RequireAuth><Project /></RequireAuth></Shell>} />
+        <Route path="/projects/:projectId/connect" element={<Shell><RequireAuth><Connect /></RequireAuth></Shell>} />
         <Route path="/projects/:projectId/recorders/:recorderKey" element={<Shell><RequireAuth><Recorder /></RequireAuth></Shell>} />
         {/* The replay screens fill the window, so they bring their own header. */}
         <Route path="/projects/:projectId/recorders/:recorderKey/live" element={<RequireAuth><Session live /></RequireAuth>} />

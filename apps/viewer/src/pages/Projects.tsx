@@ -13,7 +13,7 @@ export function Projects() {
     e.preventDefault();
     try {
       const p = await api.createProject(name);
-      navigate(`/projects/${p.id}`);
+      navigate(`/projects/${p.id}/connect`);
     } catch (err) {
       setCreateError((err as Error).message);
     }

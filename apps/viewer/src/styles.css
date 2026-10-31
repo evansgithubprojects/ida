@@ -240,3 +240,18 @@ a.button.primary { background: #1f5f84; border-color: #2b87b8; }
 .gap { fill: var(--warn); opacity: .18; }
 .tick-late { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 2; }
 .crumbs a { color: var(--accent); }
+
+.secret.block { display: block; margin: 12px 0; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+.step-done { color: var(--ok); }
+.modal { max-width: 520px; width: calc(100% - 32px); background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; }
+.modal::backdrop { background: rgba(0, 0, 0, 0.6); }
+.modal h3 { margin: 0 0 8px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.menu { position: relative; }
+.menu summary { list-style: none; cursor: pointer; display: inline-block; border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; }
+.menu summary::-webkit-details-marker { display: none; }
+.menu summary.primary { background: #1f5f84; border-color: #2b87b8; }
+.menu ul { position: absolute; right: 0; top: calc(100% + 4px); z-index: 10; min-width: 240px; margin: 0; padding: 4px; list-style: none; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
+.menu li a { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; text-decoration: none; }
+.menu li a:hover { background: var(--bg); }
+.menu li a .muted { margin-left: auto; }
