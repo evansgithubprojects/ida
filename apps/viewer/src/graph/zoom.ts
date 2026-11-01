@@ -104,7 +104,7 @@ export function zoomFrames(focus: Rect, pane: { width: number; height: number })
 
 export const toKeyframes = (frames: Frame[]): Keyframe[] => frames.map((f) => ({ offset: f.offset, transform: f.transform, opacity: f.opacity }));
 
-const SAVED_KEY = 'eda-debugger:viewport';
+const SAVED_KEY = 'ida:viewport';
 
 /** The camera as it was when the page was last left, read once at load so later saves can't overwrite it first. */
 let fromLastLoad: { sig: string; viewport: Viewport } | null = (() => {

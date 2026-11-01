@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Navigate, useLocation } from 'react-router';
 import { useSession } from '../cloud/auth';
 import { supabase } from '../cloud/supabase';
+import { LogoMark } from '../components/Logo';
 
 export function SignIn() {
   const session = useSession();
@@ -30,7 +31,11 @@ export function SignIn() {
 
   return (
     <div className="page narrow">
-      <h2>{mode === 'in' ? 'Sign in' : 'Create an account'}</h2>
+      <div className="hero">
+        <LogoMark size={56} />
+        <h2>{mode === 'in' ? 'Welcome to Ida' : 'Grow with Ida'}</h2>
+        <p>Record every event in your app, watch how they branch, and trace each one back to its roots.</p>
+      </div>
       <form className="form" onSubmit={submit}>
         <label>Email<input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
         <label>

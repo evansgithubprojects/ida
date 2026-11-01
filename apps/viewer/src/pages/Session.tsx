@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { api } from '../cloud/api';
+import { LogoMark } from '../components/Logo';
 import { Replay } from '../components/Replay';
 import { useStore } from '../store';
 
@@ -58,6 +59,7 @@ export function Session({ live = false }: { live?: boolean }) {
   return (
     <div className="app">
       <header className="toolbar">
+        <Link className="home-mark" to="/" aria-label="Ida home"><LogoMark /></Link>
         <nav className="crumbs">
           <Link to="/projects">Projects</Link><span>›</span>
           <Link to={`/projects/${projectId}`}>Project</Link><span>›</span>

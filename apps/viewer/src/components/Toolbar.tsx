@@ -1,13 +1,14 @@
 import type { Recording } from '@eda-debugger/core';
 import { useRef, useState } from 'react';
 import { useStore } from '../store';
+import { Logo } from './Logo';
 
 
 export async function loadFile(file: File): Promise<string | null> {
   try {
     const data = JSON.parse(await file.text()) as Recording;
     if (!Array.isArray(data.occurrences) || !Array.isArray(data.templates) || !Array.isArray(data.nodes)) {
-      return 'That file is not an event chain recording.';
+      return 'That file is not an Ida recording.';
     }
     useStore.getState().load(data, file.name);
     return null;
@@ -24,7 +25,7 @@ export function Toolbar({ onError }: { onError: (msg: string | null) => void }) 
 
   return (
     <header className="toolbar">
-      <h1>Event Chain Debugger</h1>
+      <h1><Logo /></h1>
       <span className="spacer" />
       {sourceName && <span className="muted source">{sourceName}</span>}
       <input

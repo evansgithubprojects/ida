@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { BrowserRouter, Link, Navigate, NavLink, Route, Routes } from 'react-router';
 import { RequireAuth, useSession } from './cloud/auth';
 import { supabase } from './cloud/supabase';
+import { Logo } from './components/Logo';
 import { Connect } from './pages/Connect';
 import { Local } from './pages/Local';
 import { Project } from './pages/Project';
@@ -35,7 +36,7 @@ function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="shell">
       <header className="toolbar">
-        <h1><Link to="/">Event Chain Debugger</Link></h1>
+        <h1><Link to="/" aria-label="Ida home"><Logo /></Link></h1>
         {supabase && <NavLink to="/projects">Projects</NavLink>}
         <NavLink to="/local">Local</NavLink>
         <span className="spacer" />
