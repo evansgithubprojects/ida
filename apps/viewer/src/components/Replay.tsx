@@ -4,7 +4,6 @@ import { useStore } from '../store';
 import { GraphView } from './GraphView';
 import { Inspector } from './Inspector';
 import { Timeline } from './Timeline';
-import { Toasts } from './Toasts';
 
 /** The graph, inspector and timeline for whatever recording the store holds; `empty` shows until there is one. */
 export function Replay({ empty }: { empty: ReactNode }) {
@@ -31,7 +30,6 @@ export function Replay({ empty }: { empty: ReactNode }) {
           <Timeline />
         </>
       ) : empty}
-      <Toasts />
     </>
   );
 }

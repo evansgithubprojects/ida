@@ -73,7 +73,7 @@ createRecorder({
 });
 ```
 
-Core cannot see inside a handler, so declare what talks to the outside world (`external`, or `recorder.markExternal(fnOrEmitter)`). External findings use `console.error`, carry `priority: 'high'`, and show in the viewer as sticky red **EXTERNAL** toasts.
+Core cannot see inside a handler, so declare what talks to the outside world (`external`, or `recorder.markExternal(fnOrEmitter)`). External findings use `console.error`, carry `priority: 'high'`, and carry a red **EXTERNAL** badge in the viewer's inspector.
 
 ## Develop
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { centreViewport, FIT_MARGIN, fitViewport, MAX_ZOOM, MIN_ZOOM, rectOnScreen, viewportForRect, zoomFrames } from '../src/graph/zoom';
+import { centreViewport, FIT_MARGIN, fitViewport, MAX_FIT_ZOOM, MIN_ZOOM, rectOnScreen, viewportForRect, zoomFrames } from '../src/graph/zoom';
 
 /** Parses "translate(Xpx, Ypx) scale(S)". */
 function parse(transform: string) {
@@ -33,16 +33,24 @@ describe('zoom helpers', () => {
     for (const k of ['x', 'y', 'width', 'height'] as const) expect(landed[k]).toBeCloseTo(screen[k]);
   });
 
-  it('fits a graph as large as the pane allows, centred, within the zoom limits', () => {
-    const bounds = { x: -300, y: -300, width: 600, height: 600 };
+  it('shrinks a graph bigger than the pane until it fits, centred', () => {
+    const bounds = { x: -600, y: -600, width: 1200, height: 1200 };
     const vp = fitViewport(bounds, 1000, 800);
     const landed = rectOnScreen(bounds, vp);
     expect(landed.x + landed.width / 2).toBeCloseTo(500);
     expect(landed.y + landed.height / 2).toBeCloseTo(400);
-    expect(landed.height).toBeLessThan(800);
     expect(landed.height).toBeCloseTo(800 - 2 * FIT_MARGIN);
-    expect(fitViewport({ x: 0, y: 0, width: 1, height: 1 }, 1000, 800).zoom).toBe(MAX_ZOOM);
     expect(fitViewport({ x: 0, y: 0, width: 1e6, height: 1e6 }, 1000, 800).zoom).toBe(MIN_ZOOM);
+  });
+
+  it('shows a small graph at natural size in the middle instead of enlarging it to fill the pane', () => {
+    const bounds = { x: 100, y: 50, width: 300, height: 200 };
+    const vp = fitViewport(bounds, 1000, 800);
+    expect(vp.zoom).toBe(MAX_FIT_ZOOM);
+    const landed = rectOnScreen(bounds, vp);
+    expect(landed.width).toBeCloseTo(300);
+    expect(landed.x + landed.width / 2).toBeCloseTo(500);
+    expect(landed.y + landed.height / 2).toBeCloseTo(400);
   });
 });
 

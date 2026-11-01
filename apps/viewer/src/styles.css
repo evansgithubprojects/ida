@@ -148,12 +148,6 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-si
 .tick-warn { stroke: var(--warn); stroke-width: 2; }
 .tick-high { stroke: #ff7a45; stroke-width: 3; }
 
-/* toasts */
-.toasts { position: fixed; top: 56px; right: 14px; width: 360px; max-width: calc(100vw - 28px); display: flex; flex-direction: column; gap: 8px; z-index: 40; }
-.toast { background: var(--panel-2); border: 1px solid var(--warn); border-radius: var(--radius); padding: 10px 12px; box-shadow: 0 6px 24px #0008; }
-.toast-high { border: 2px solid var(--error); background: #2a1519; }
-.toast-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.toast p { margin: 8px 0; font-size: 12.5px; overflow-wrap: anywhere; }
 
 .run-error { color: #ff8a96; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mini { cursor: ew-resize; touch-action: none; width: 100%; height: 34px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; }
@@ -165,7 +159,6 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-si
   .inspector { width: auto; max-width: none; max-height: 40%; border-left: 0; border-top: 1px solid var(--border); }
 }
 
-.toast-more { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel-2); font-size: 12.5px; }
 
 .entity-ref { display: inline-flex; align-items: center; gap: 5px; }
 .node-scope { color: var(--muted); font-weight: 400; }

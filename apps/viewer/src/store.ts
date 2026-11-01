@@ -1,4 +1,4 @@
-import type { Finding, RecorderMessage, Recording } from '@eda-debugger/core';
+import type { RecorderMessage, Recording } from '@eda-debugger/core';
 import { create } from 'zustand';
 import type { Level } from './graph/model';
 import { ZOOM_MS } from './graph/zoom';
@@ -59,16 +59,6 @@ function scopeFor(index: ReplayIndex | null, level: Level, sel: NonNullable<Sele
   return sel.type === 'node' || sel.type === 'run' || sel.type === 'throw' || sel.type === 'finding' ? { kind: 'handlers', processId } : null;
 }
 
-export interface Toast {
-  id: number;
-  finding: Finding;
-  summary: string;
-  /** External-system findings stay until dismissed. */
-  sticky: boolean;
-  /** The same finding repeating folds into one toast with a counter. */
-  count: number;
-}
-
 type LiveStatus = 'off' | 'connecting' | 'on' | 'error';
 
 interface State {
@@ -83,7 +73,6 @@ interface State {
   selection: Selection;
   /** Everything inspected at this zoom level, oldest first; `selection` is always its last entry. */
   trail: NonNullable<Selection>[];
-  toasts: Toast[];
   /** A node or pathway the graph should pan to and pulse; `seq` makes repeat requests for the same one count. */
   focus: (FocusTarget & { seq: number }) | null;
   live: LiveStatus;
@@ -103,10 +92,8 @@ interface State {
   seekToOccurrence(id: string): void;
   /** Selects `selection` and moves the playhead to the occurrence it is about, widening the window to include it. */
   selectAt(selection: NonNullable<Selection>, occurrenceId: string): void;
-  dismissToast(id: number): void;
   /** Inspects a handler: zooms into its process if needed, selects it and pans the graph to it. */
   inspectNode(rawNodeId: string): void;
-  dismissAllToasts(): void;
   /** `name` is shown as the source instead of the URL. */
   connectLive(url: string, name?: string): void;
   disconnectLive(): void;
@@ -133,31 +120,9 @@ export function pickSpeed(rangeMs: number): number {
   return fit.length ? (fit[fit.length - 1] as number) : (SPEEDS[0] as number);
 }
 
-let toastSeq = 0;
 let source: EventSource | null = null;
 
 export const useStore = create<State>()((set, get) => {
-  const toastFor = (finding: Finding): Toast => ({
-    id: ++toastSeq,
-    finding,
-    summary: finding.summary,
-    sticky: finding.priority === 'high',
-    count: 1,
-  });
-
-  const pushToast = (finding: Finding) => {
-    const toast = toastFor(finding);
-    const same = get().toasts.find((t) => t.summary === toast.summary);
-    if (same) {
-      // Newest occurrence wins so "Jump to it" goes to the latest one.
-      set((s) => ({ toasts: s.toasts.map((t) => (t.id === same.id ? { ...t, finding, count: t.count + 1 } : t)) }));
-      return;
-    }
-    // High priority first, and only high priority stays; the rest clear themselves.
-    set((s) => ({ toasts: [toast, ...s.toasts].sort((a, b) => Number(b.sticky) - Number(a.sticky)).slice(0, 20) }));
-    if (!toast.sticky) setTimeout(() => get().dismissToast(toast.id), 8000);
-  };
-
   /** Asks the graph to pan to and pulse `target`; `seq` makes repeat requests count, and the request clears itself. */
   let focusSeq = 0; // never reset, so a request is told apart from every earlier one even after focus clears
   const setFocus = (target: FocusTarget, extraMs = 0) => {
@@ -211,7 +176,7 @@ export const useStore = create<State>()((set, get) => {
 
   return {
     recording: null, index: null, sourceName: '', t: 0, playing: false, speed: 1, window: [0, 0],
-    level: { kind: 'process' }, selection: null, trail: [], toasts: [], focus: null, live: 'off', following: true,
+    level: { kind: 'process' }, selection: null, trail: [], focus: null, live: 'off', following: true,
 
     load(recording, name) {
       get().disconnectLive();
@@ -256,8 +221,6 @@ export const useStore = create<State>()((set, get) => {
         window: [Math.min(w0, item.occ.ts), Math.max(w1, item.occ.ts)],
       });
     },
-    dismissToast(id) { set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })); },
-    dismissAllToasts() { set({ toasts: [] }); },
     inspectNode(nodeId) { reveal({ type: 'node', id: nodeId }); },
 
     connectLive(url, name) {
@@ -277,7 +240,6 @@ export const useStore = create<State>()((set, get) => {
           const base = pending ?? get().recording;
           // A finding re-sent under the same id is an existing one that was traced to its source error.
           const known = (base?.findings ?? []).some((f) => f.id === msg.finding.id);
-          if (!known) pushToast(msg.finding);
           if (base) {
             const list = base.findings ?? [];
             pending = { ...base, findings: known ? list.map((f) => (f.id === msg.finding.id ? msg.finding : f)) : [...list, msg.finding] };
@@ -312,7 +274,7 @@ export const useStore = create<State>()((set, get) => {
     },
     unload() {
       get().disconnectLive();
-      set({ recording: null, index: null, sourceName: '', selection: null, trail: [], toasts: [], focus: null, playing: false, level: { kind: 'process' } });
+      set({ recording: null, index: null, sourceName: '', selection: null, trail: [], focus: null, playing: false, level: { kind: 'process' } });
     },
   };
 });
