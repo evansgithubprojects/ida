@@ -1,4 +1,4 @@
-# Event Chain Debugger
+# Ida
 
 A debugging tool that makes event-driven JavaScript code easy to follow. It records every event in a time window, shows how events connect, and replays the timeline visually so you can watch pathways light up as events fire.
 

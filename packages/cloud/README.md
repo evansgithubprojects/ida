@@ -1,6 +1,6 @@
 # @eda-debugger/cloud
 
-Uploads [Event Chain Debugger](../../README.md) recorders to a project on the eda-debugger server, so you can browse their recordings and watch them live in the web app. Works in Node and browsers.
+Uploads [Ida](../../README.md) recorders to a project on the Ida server, so you can browse their recordings and watch them live in the web app. Works in Node and browsers.
 
 ```bash
 npm install @eda-debugger/core @eda-debugger/cloud

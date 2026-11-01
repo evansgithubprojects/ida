@@ -1,4 +1,4 @@
-# eda-debugger server
+# Ida server
 
 Receives uploads from [`@eda-debugger/cloud`](../../packages/cloud/README.md), stores them in Postgres, and serves projects, recordings and live streams to the web app (`apps/viewer`). Users sign in with Supabase Auth; the server checks their tokens against the Supabase project's published signing keys.
 

@@ -1,6 +1,6 @@
 # @eda-debugger/core
 
-Recorder for the [Event Chain Debugger](../../README.md): templates, causality, corruption detection and JSON export. No DOM or Node-only imports, except the optional `@eda-debugger/core/bridge-node`.
+Recorder for [Ida](../../README.md): templates, causality, corruption detection and JSON export. No DOM or Node-only imports, except the optional `@eda-debugger/core/bridge-node`.
 
 ```bash
 npm install @eda-debugger/core

@@ -1,6 +1,6 @@
 # @eda-debugger/adapter-eventemitter
 
-Records every emit on Node `EventEmitter`s (and anything built on them) with its handlers, timings, errors and cause. Part of the [Event Chain Debugger](../../README.md).
+Records every emit on Node `EventEmitter`s (and anything built on them) with its handlers, timings, errors and cause. Part of [Ida](../../README.md).
 
 ```bash
 npm install @eda-debugger/core @eda-debugger/adapter-eventemitter
