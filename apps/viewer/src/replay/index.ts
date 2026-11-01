@@ -248,9 +248,10 @@ export function activeAt(index: ReplayIndex, t: number, opts: ActiveOptions): Ac
     m.set(k, { count: cur.count + 1, high: cur.high || high });
   };
 
-  for (const { occ, hops, throws } of index.items) {
-    if (occ.ts > t) break; // sorted by ts: nothing later can have happened yet
-    if (occ.ts < w0 || occ.ts > w1) continue;
+  // Sorted by ts, so start at the window's first event: the cost follows the window, not the recording.
+  for (let at = firstAtOrAfter(index.items, w0); at < index.items.length; at++) {
+    const { occ, hops, throws } = index.items[at] as IndexedOccurrence;
+    if (occ.ts > t || occ.ts > w1) break; // nothing later can have happened yet
     const flags = index.findingsByOcc.get(occ.id);
     const high = !!flags?.some((f) => f.priority === 'high');
     const age = t - occ.ts;
@@ -282,9 +283,86 @@ export function activeAt(index: ReplayIndex, t: number, opts: ActiveOptions): Ac
   return out;
 }
 
+/** One mark on the timeline: every point that lands on the same pixel column, drawn once. */
+export interface Tick { x: number; count: number; rank: number }
+
+/**
+ * Collapses points to at most one tick per pixel column, so thousands of events draw as a bounded number of
+ * marks. A merged tick keeps how many points it stands for and the highest `rank` among them. Sorted by `x`.
+ */
+export function mergeTicks(points: { x: number; rank?: number }[]): Tick[] {
+  const byColumn = new Map<number, Tick>();
+  for (const { x, rank = 0 } of points) {
+    const col = Math.round(x);
+    const tick = byColumn.get(col);
+    if (tick) {
+      tick.count++;
+      tick.rank = Math.max(tick.rank, rank);
+    } else {
+      byColumn.set(col, { x: col, count: 1, rank });
+    }
+  }
+  return [...byColumn.values()].sort((a, b) => a.x - b.x);
+}
+
+/** The position of the first item at or after `ts` (`items.length` when there is none). `items` is sorted by `ts`. */
+function firstAtOrAfter(items: IndexedOccurrence[], ts: number): number {
+  let lo = 0;
+  let hi = items.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if ((items[mid] as IndexedOccurrence).occ.ts < ts) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** The position of the first item after `ts`. */
+function firstAfter(items: IndexedOccurrence[], ts: number): number {
+  let lo = 0;
+  let hi = items.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if ((items[mid] as IndexedOccurrence).occ.ts <= ts) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
 /** Items inside the replay window, for lists and the histogram. */
 export function inWindow(index: ReplayIndex, window: [number, number]): IndexedOccurrence[] {
-  return index.items.filter((i) => i.occ.ts >= window[0] && i.occ.ts <= window[1]);
+  return index.items.slice(firstAtOrAfter(index.items, window[0]), firstAfter(index.items, window[1]));
+}
+
+/** The most events a live view keeps in memory: a few windows' worth, so scrubbing back a little still works. */
+export const MAX_KEPT_EVENTS = 2000;
+
+/**
+ * `recording` with only its newest `max` occurrences, and the findings about them. Everything the viewer derives
+ * (the index, the timeline overview) then stays bounded however long a live stream runs. Processes, handlers and
+ * templates are few, so they stay.
+ */
+export function keepNewest(recording: Recording, max = MAX_KEPT_EVENTS): Recording {
+  if (recording.occurrences.length <= max) return recording;
+  const occurrences = [...recording.occurrences].sort((a, b) => a.ts - b.ts).slice(-max);
+  const kept = new Set(occurrences.map((o) => o.id));
+  return { ...recording, occurrences, findings: recording.findings?.filter((f) => kept.has(f.occurrenceId)) };
+}
+
+/** The most events a replay window holds. Everything the viewer draws or lists comes from the window, so this bounds its work. */
+export const MAX_WINDOW_EVENTS = 500;
+
+/**
+ * `window`, narrowed to hold at most `max` events. `keep` is the side that stays where it is; the other edge moves in
+ * (so dragging a handle makes the opposite one follow, and a live window keeps its newest events).
+ */
+export function capWindow(index: ReplayIndex, window: [number, number], keep: 'start' | 'end', max = MAX_WINDOW_EVENTS): [number, number] {
+  const lo = firstAtOrAfter(index.items, window[0]);
+  const hi = firstAfter(index.items, window[1]);
+  if (hi - lo <= max) return window;
+  return keep === 'end'
+    ? [(index.items[hi - max] as IndexedOccurrence).occ.ts, window[1]]
+    : [window[0], (index.items[lo + max - 1] as IndexedOccurrence).occ.ts];
 }
 
 /**

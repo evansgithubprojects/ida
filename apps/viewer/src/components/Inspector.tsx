@@ -1,5 +1,5 @@
 import type { Finding } from '@eda-debugger/core';
-import { useMemo, useRef, useState } from 'react';
+import { memo, useMemo, useRef, useState } from 'react';
 import { useModel } from '../hooks';
 import type { GraphModel } from '../graph/model';
 import { activityOf, chainOf, errorCode, throwIdFor, countFired, edgeId, eventKey, eventLabel, inWindow, isProblemRun, notifications, parseRunId, parseThrowId, recipientsOf, runById, throwId, type IndexedOccurrence, type Notification, type ReplayIndex, type Run, type Tier } from '../replay';
@@ -107,28 +107,42 @@ function Overview({ index }: { index: ReplayIndex }) {
 
 /** Throws and suspected corrupt payloads in the order given; clicking one inspects it. */
 function NotificationList({ index, title, list, empty }: { index: ReplayIndex; title: string; list: Notification[]; empty: string }) {
-  const selectAt = useStore((s) => s.selectAt);
   return (
     <Section title={title} aside={list.length}>
       {list.length === 0 && <p className="hint">{empty}</p>}
       <ul className="list">
-        {list.map((n) => (
-          <li key={`${n.kind}:${n.id}`}>
-            <button className={`row ${n.external ? 'row-high' : ''}`} onClick={() => selectAt({ type: n.kind, id: n.id }, n.occurrenceId)}>
-              <span className="row-head">
-                {n.kind === 'throw' ? <><Badge tone="error">✕ Error</Badge><ErrorId id={n.id} /></> : <Badge tone="warn">⚠ Corrupt Payload</Badge>}
-                <TierBadge tier={n.tier} />
-                {n.external && <Badge tone="external">EXTERNAL</Badge>}
-                <span className="muted">{fmtMs(n.rank.ts - index.start)}</span>
-              </span>
-              <span className="row-text">{n.finding ? <FindingSummary index={index} finding={n.finding} /> : n.text}</span>
-            </button>
-          </li>
-        ))}
+        {list.map((n) => <NotificationRow key={`${n.kind}:${n.id}`} index={index} start={index.start} n={n} />)}
       </ul>
     </Section>
   );
 }
+
+/**
+ * One notification. A live view rebuilds the index several times a second and the list can hold hundreds of
+ * rows, so a row only re-renders when its own notification changes (or the recording's start moves, which
+ * shifts its time). `index` is left out of the comparison: what a row reads from it is fixed for its finding.
+ */
+const NotificationRow = memo(
+  function NotificationRow({ index, start, n }: { index: ReplayIndex; start: number; n: Notification }) {
+    const selectAt = useStore((s) => s.selectAt);
+    return (
+      <li>
+        <button className={`row ${n.external ? 'row-high' : ''}`} onClick={() => selectAt({ type: n.kind, id: n.id }, n.occurrenceId)}>
+          <span className="row-head">
+            {n.kind === 'throw' ? <><Badge tone="error">✕ Error</Badge><ErrorId id={n.id} /></> : <Badge tone="warn">⚠ Corrupt Payload</Badge>}
+            <TierBadge tier={n.tier} />
+            {n.external && <Badge tone="external">EXTERNAL</Badge>}
+            <span className="muted">{fmtMs(n.rank.ts - start)}</span>
+          </span>
+          <span className="row-text">{n.finding ? <FindingSummary index={index} finding={n.finding} /> : n.text}</span>
+        </button>
+      </li>
+    );
+  },
+  (a, b) =>
+    a.start === b.start && a.n.kind === b.n.kind && a.n.id === b.n.id && a.n.tier === b.n.tier && a.n.external === b.n.external
+    && a.n.rank.ts === b.n.rank.ts && a.n.text === b.n.text && a.n.finding === b.n.finding && a.n.occurrenceId === b.n.occurrenceId,
+);
 
 /** How many notifications the event inspector lists, newest first. */
 const RECENT_NOTIFICATIONS = 20;

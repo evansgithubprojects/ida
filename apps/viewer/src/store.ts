@@ -2,7 +2,7 @@ import type { RecorderMessage, Recording } from '@eda-debugger/core';
 import { create } from 'zustand';
 import type { Level } from './graph/model';
 import { ZOOM_MS } from './graph/zoom';
-import { buildIndex, parseRunId, parseThrowId, type ReplayIndex } from './replay';
+import { buildIndex, capWindow, keepNewest, parseRunId, parseThrowId, type ReplayIndex } from './replay';
 
 export const SPEEDS = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4];
 /** Wall-clock lengths of the lit fade and the red flash, scaled to recording time by playback speed. */
@@ -84,7 +84,8 @@ interface State {
   pause(): void;
   tick(wallMs: number): void;
   setSpeed(speed: number): void;
-  setWindow(window: [number, number]): void;
+  /** Sets the replay window, narrowed to the event cap: `keep` is the side that stays put, the other edge follows. */
+  setWindow(window: [number, number], keep?: 'start' | 'end'): void;
   setLevel(level: Level): void;
   /** `fromGraph` marks a click on the graph itself: everything drawn there sits directly under the level, so it starts a new trail. */
   select(selection: Selection, opts?: { fromGraph?: boolean }): void;
@@ -154,18 +155,24 @@ export const useStore = create<State>()((set, get) => {
     if (!flushTimer) flushTimer = setTimeout(flush, 250);
   };
 
-  function applyRecording(recording: Recording, live: boolean, name?: string) {
+  function applyRecording(streamed: Recording, live: boolean, name?: string) {
+    // A live stream never ends, so only its newest events are kept. A saved recording is loaded whole.
+    const recording = live ? keepNewest(streamed) : streamed;
     const index = buildIndex(recording);
     const s = get();
     const keepView = live && s.index !== null;
     const following = keepView ? s.following : true;
-    const full: [number, number] = [index.start, index.end];
+    // The newest events: a big recording opens on its latest stretch, and a following live view slides along.
+    const full = capWindow(index, [index.start, index.end], 'end');
+    // Old events leave as new ones arrive, so a window left behind is pulled back inside what is still kept.
+    const stay: [number, number] = [Math.max(s.window[0], index.start), Math.min(s.window[1], index.end)];
+    const kept = stay[0] <= stay[1] ? stay : full;
     set({
       recording, index,
       sourceName: name ?? s.sourceName,
-      window: keepView && !following ? s.window : full,
-      t: keepView && !following ? Math.min(Math.max(s.t, index.start), index.end) : following && live ? index.end : index.start,
-      speed: keepView ? s.speed : pickSpeed(index.end - index.start),
+      window: keepView && !following ? kept : full,
+      t: keepView && !following ? Math.min(Math.max(s.t, kept[0]), kept[1]) : following && live ? index.end : full[0],
+      speed: keepView ? s.speed : pickSpeed(full[1] - full[0]),
       level: keepView ? s.level : { kind: 'process' },
       selection: keepView ? s.selection : null,
       trail: keepView ? s.trail : [],
@@ -200,10 +207,11 @@ export const useStore = create<State>()((set, get) => {
       else set({ t: next });
     },
     setSpeed(speed) { set({ speed }); },
-    setWindow(window) {
-      const [a, b] = window;
-      const { t } = get();
-      set({ window: [Math.min(a, b), Math.max(a, b)], t: Math.min(Math.max(t, Math.min(a, b)), Math.max(a, b)), following: false });
+    setWindow(window, keep = 'end') {
+      const { t, index } = get();
+      const sorted: [number, number] = [Math.min(...window), Math.max(...window)];
+      const [a, b] = index ? capWindow(index, sorted, keep) : sorted;
+      set({ window: [a, b], t: Math.min(Math.max(t, a), b), following: false });
     },
     setLevel(level) { set({ level, selection: null, trail: [] }); },
     select(selection, opts) {
@@ -215,10 +223,12 @@ export const useStore = create<State>()((set, get) => {
     selectAt(selection, occurrenceId) {
       const item = get().index?.byId.get(occurrenceId);
       if (!item) return;
-      const [w0, w1] = get().window;
+      const { window: [w0, w1], index } = get();
+      const ts = item.occ.ts;
+      // Widen to take in the event, then trim from the far side so the window slides there instead of growing.
       reveal(selection, {
-        t: item.occ.ts, playing: false, following: false,
-        window: [Math.min(w0, item.occ.ts), Math.max(w1, item.occ.ts)],
+        t: ts, playing: false, following: false,
+        window: index ? capWindow(index, [Math.min(w0, ts), Math.max(w1, ts)], ts < w0 ? 'start' : 'end') : [Math.min(w0, ts), Math.max(w1, ts)],
       });
     },
     inspectNode(nodeId) { reveal({ type: 'node', id: nodeId }); },

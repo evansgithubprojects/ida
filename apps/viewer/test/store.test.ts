@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createRecorder } from '@eda-debugger/core';
-import { runId } from '../src/replay';
+import { inWindow, MAX_WINDOW_EVENTS, runId } from '../src/replay';
 import { extendTrail, focusTargetOf, TRAIL_MAX, useStore, type Selection } from '../src/store';
 
 type Sel = NonNullable<Selection>;
@@ -133,5 +133,54 @@ describe('links across scopes', () => {
     expect(useStore.getState().level).toEqual({ kind: 'handlers', processId: node('boom').processId });
     expect(useStore.getState().selection).toEqual({ type: 'node', id: node('boom').id });
     s.select(null);
+  });
+});
+
+describe('the replay window cap', () => {
+  const many = (n: number) => {
+    let t = 0;
+    const rec = createRecorder({ now: () => (t += 10) });
+    const bus = {};
+    const handler = function onTick() {};
+    for (let i = 0; i < n; i++) rec.dispatch({ emitter: bus, label: 'Bus', eventName: 'tick', handlers: [handler], payload: { i } }, (invoke) => invoke(handler, () => handler()));
+    return rec.export();
+  };
+  const load = (n: number) => {
+    useStore.getState().load(many(n), 'test');
+    return useStore.getState();
+  };
+  const held = () => inWindow(useStore.getState().index!, useStore.getState().window).length;
+
+  it('opens a big recording on its newest events', () => {
+    const s = load(1500);
+    expect(held()).toBe(MAX_WINDOW_EVENTS);
+    expect(s.window[1]).toBe(s.index!.end);
+    expect(s.t).toBe(s.window[0]);
+  });
+
+  it('does not touch a recording that already fits', () => {
+    const s = load(200);
+    expect(s.window).toEqual([s.index!.start, s.index!.end]);
+  });
+
+  it('lets the dragged side stay and makes the other follow', () => {
+    const s = load(1500);
+    const first = s.index!.items[0]!.occ.ts;
+    useStore.getState().setWindow([first, s.index!.end], 'start');
+    expect(useStore.getState().window[0]).toBe(first);
+    expect(held()).toBe(MAX_WINDOW_EVENTS);
+    useStore.getState().setWindow([first, s.index!.end], 'end');
+    expect(useStore.getState().window[1]).toBe(s.index!.end);
+    expect(held()).toBe(MAX_WINDOW_EVENTS);
+  });
+
+  it('slides the window to an event outside it instead of growing', () => {
+    const s = load(1500);
+    const old = s.index!.items[10]!;
+    useStore.getState().selectAt({ type: 'occurrence', id: old.occ.id }, old.occ.id);
+    const after = useStore.getState();
+    expect(after.window[0]).toBe(old.occ.ts);
+    expect(after.t).toBe(old.occ.ts);
+    expect(held()).toBeLessThanOrEqual(MAX_WINDOW_EVENTS);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createRecorder, type Recording } from '@eda-debugger/core';
-import { activeAt, activityOf, buildIndex, callChain, chainOf, edgeId, isProblemRun, parseRunId, runById, runId, throwId, throwIdFor, errorCode, notifications } from '../src/replay';
+import { activeAt, activityOf, buildIndex, callChain, chainOf, edgeId, isProblemRun, parseRunId, runById, runId, throwId, throwIdFor, errorCode, capWindow, inWindow, keepNewest, MAX_WINDOW_EVENTS, mergeTicks, notifications } from '../src/replay';
 
 function recordShop(): Recording {
   let t = 0;
@@ -204,5 +204,118 @@ describe('an error that propagates', () => {
     expect(notifications(index, index.items).filter((n) => n.kind === 'throw')).toHaveLength(1);
     const active = activeAt(index, index.end + 1000, { fadeMs: 100, flashMs: 50 });
     expect([...active.thrownNodes.keys()]).toEqual([nodeId('inner')]);
+  });
+});
+
+describe('mergeTicks', () => {
+  it('draws one tick per pixel column, however many points land there', () => {
+    const points = Array.from({ length: 4000 }, (_, i) => ({ x: (i / 4000) * 300 }));
+    const ticks = mergeTicks(points);
+    expect(ticks.length).toBeLessThanOrEqual(301);
+    expect(ticks.reduce((n, t) => n + t.count, 0)).toBe(4000);
+  });
+
+  it('keeps the highest rank of the points it merges, sorted left to right', () => {
+    const ticks = mergeTicks([{ x: 40.2, rank: 0 }, { x: 10 }, { x: 39.8, rank: 1 }, { x: 40.4 }]);
+    expect(ticks).toEqual([{ x: 10, count: 1, rank: 0 }, { x: 40, count: 3, rank: 1 }]);
+  });
+
+  it('is empty when there is nothing to draw', () => {
+    expect(mergeTicks([])).toEqual([]);
+  });
+});
+
+/** `n` events, 10 ms apart: the i-th is at ts 10·(i + 1). */
+function recordMany(n: number): Recording {
+  let t = 0;
+  const rec = createRecorder({ now: () => (t += 10) });
+  const bus = {};
+  const handler = function onTick() {};
+  for (let i = 0; i < n; i++) {
+    rec.dispatch({ emitter: bus, label: 'Bus', eventName: 'tick', handlers: [handler], payload: { i } }, (invoke) => invoke(handler, () => handler()));
+  }
+  return rec.export();
+}
+
+describe('capWindow', () => {
+  const index = buildIndex(recordMany(1200));
+  const tsOf = (n: number) => index.items[n]!.occ.ts;
+  const count = (w: [number, number]) => inWindow(index, w).length;
+
+  it('leaves a window alone when it is within the cap', () => {
+    expect(capWindow(index, [tsOf(100), tsOf(400)], 'end')).toEqual([tsOf(100), tsOf(400)]);
+    expect(capWindow(index, [tsOf(0), tsOf(MAX_WINDOW_EVENTS - 1)], 'start')).toEqual([tsOf(0), tsOf(MAX_WINDOW_EVENTS - 1)]);
+  });
+
+  it('keeps the newest events when the end stays put', () => {
+    const w = capWindow(index, [index.start, index.end], 'end');
+    expect(w[1]).toBe(index.end);
+    expect(count(w)).toBe(MAX_WINDOW_EVENTS);
+    expect(inWindow(index, w).at(-1)).toBe(index.items.at(-1));
+  });
+
+  it('keeps the oldest events when the start stays put', () => {
+    const w = capWindow(index, [index.start, index.end], 'start');
+    expect(w[0]).toBe(index.start);
+    expect(count(w)).toBe(MAX_WINDOW_EVENTS);
+    expect(inWindow(index, w)[0]).toBe(index.items[0]);
+  });
+
+  it('honours a different cap and a window that starts mid-recording', () => {
+    const w = capWindow(index, [tsOf(300), tsOf(900)], 'start', 50);
+    expect(w).toEqual([tsOf(300), tsOf(349)]);
+    expect(count(w)).toBe(50);
+  });
+
+  it('handles an empty recording', () => {
+    const empty = buildIndex(recordMany(0));
+    expect(capWindow(empty, [empty.start, empty.end], 'end')).toEqual([empty.start, empty.end]);
+  });
+});
+
+describe('inWindow and activeAt on a window', () => {
+  const rec = recordMany(300);
+  const index = buildIndex(rec);
+  const hops = (w: [number, number]) => activeAt(index, index.end, { fadeMs: 1e9, flashMs: 0, window: w }).litEdges.size;
+
+  it('picks the same events a full scan would', () => {
+    const w: [number, number] = [index.items[100]!.occ.ts, index.items[199]!.occ.ts];
+    expect(inWindow(index, w)).toEqual(index.items.filter((i) => i.occ.ts >= w[0] && i.occ.ts <= w[1]));
+    expect(inWindow(index, w)).toHaveLength(100);
+  });
+
+  it('lights only what happened inside the window', () => {
+    const early: [number, number] = [index.items[0]!.occ.ts, index.items[9]!.occ.ts];
+    expect(hops(early)).toBe(1);
+    expect(activeAt(index, index.items[150]!.occ.ts, { fadeMs: 1e9, flashMs: 0, window: [index.items[100]!.occ.ts, index.end] }).litEdges.size).toBe(1);
+    expect(activeAt(index, index.items[50]!.occ.ts, { fadeMs: 1e9, flashMs: 0, window: [index.items[100]!.occ.ts, index.end] }).litEdges.size).toBe(0);
+  });
+});
+
+describe('keepNewest', () => {
+  const rec = recordMany(300);
+
+  it('returns the recording itself when it is within the limit', () => {
+    expect(keepNewest(rec, 300)).toBe(rec);
+  });
+
+  it('keeps the newest occurrences, in order, and drops findings about the rest', () => {
+    const first = rec.occurrences[0]!;
+    const last = rec.occurrences.at(-1)!;
+    const withFindings = {
+      ...rec,
+      findings: [first, last].map((o) => ({ id: `f-${o.id}`, occurrenceId: o.id })) as unknown as NonNullable<Recording['findings']>,
+    };
+    const kept = keepNewest(withFindings, 100);
+    expect(kept.occurrences).toHaveLength(100);
+    expect(kept.occurrences.at(-1)).toBe(last);
+    expect(kept.occurrences.map((o) => o.ts)).toEqual([...kept.occurrences.map((o) => o.ts)].sort((a, b) => a - b));
+    expect(kept.findings!.map((f) => f.occurrenceId)).toEqual([last.id]);
+    expect(kept.nodes).toBe(rec.nodes);
+  });
+
+  it('sorts by time first, so a late arrival is judged by when it happened', () => {
+    const shuffled = { ...rec, occurrences: [...rec.occurrences].reverse() };
+    expect(keepNewest(shuffled, 10).occurrences.map((o) => o.id)).toEqual(rec.occurrences.slice(-10).map((o) => o.id));
   });
 });
