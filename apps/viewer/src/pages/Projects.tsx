@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { api } from '../cloud/api';
-import { ago, useApi } from '../cloud/useApi';
+import { useApi } from '../cloud/useApi';
 
 export function Projects() {
   const { data: projects, error } = useApi(api.projects, []);
@@ -13,7 +13,7 @@ export function Projects() {
     e.preventDefault();
     try {
       const p = await api.createProject(name);
-      navigate(`/projects/${p.id}/connect`);
+      navigate(`/projects/${p.id}`, { state: { connect: true } });
     } catch (err) {
       setCreateError((err as Error).message);
     }
@@ -30,7 +30,6 @@ export function Projects() {
             <li key={p.id}>
               <Link className="card" to={`/projects/${p.id}`}>
                 <strong>{p.name}</strong>
-                <span className="muted">{p.recorders ?? 0} recorder{p.recorders === 1 ? '' : 's'} · last data {ago(p.lastSeenAt)}</span>
               </Link>
             </li>
           ))}

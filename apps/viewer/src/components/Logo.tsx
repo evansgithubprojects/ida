@@ -6,10 +6,10 @@ export function LogoMark({ size = 22 }: { size?: number }) {
   return (
     <svg className="logo-mark" viewBox="0 0 32 32" width={size} height={size} aria-hidden="true" focusable="false">
       <defs>
-        {/* Bioluminescent: cyan at the tip fading to sea-glass at the stem. */}
+        {/* Bioluminescent: pale jade at the tip deepening to canopy green at the stem. */}
         <linearGradient id="ida-leaf" x1="0.3" y1="0" x2="0.7" y2="1">
-          <stop offset="0" stopColor="#7fe6ff" />
-          <stop offset="1" stopColor="#4fe0c0" />
+          <stop offset="0" stopColor="#71f6ba" />
+          <stop offset="1" stopColor="#00ed64" />
         </linearGradient>
       </defs>
       <path className="logo-leaf" d="M16 2.5C24.6 7.2 27.6 15.2 24.1 22.6 21.9 27.1 18.6 29.1 16 29.6 13.4 29.1 10.1 27.1 7.9 22.6 4.4 15.2 7.4 7.2 16 2.5Z" />

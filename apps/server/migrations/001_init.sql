@@ -7,7 +7,7 @@ create table projects (
 );
 create index projects_owner on projects (owner_id);
 
--- Ingest keys look like `eda_<prefix>_<secret>`; only the prefix and a SHA-256 of the whole key are stored.
+-- Ingest keys look like `ida_<prefix>_<secret>`; only the prefix and a SHA-256 of the whole key are stored.
 create table project_keys (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references projects (id) on delete cascade,

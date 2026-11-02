@@ -2,16 +2,16 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
-/** A new ingest key, `eda_<prefix>_<secret>`. Only `prefix` and `hash` are stored; `key` is shown to the user once. */
+/** A new ingest key, `ida_<prefix>_<secret>`. Only `prefix` and `hash` are stored; `key` is shown to the user once. */
 export function newIngestKey(): { key: string; prefix: string; hash: string } {
   const prefix = randomBytes(6).toString('hex');
-  const key = `eda_${prefix}_${randomBytes(24).toString('base64url')}`;
+  const key = `ida_${prefix}_${randomBytes(24).toString('base64url')}`;
   return { key, prefix, hash: sha256(key) };
 }
 
-/** The prefix and hash to look up for a presented key, or null when it isn't shaped like one. */
+/** The prefix and hash to look up for a presented key, or null when it isn't shaped like one. Keys made before the rename start with `eda_` and still work. */
 export function parseIngestKey(key: string): { prefix: string; hash: string } | null {
-  const m = /^eda_([0-9a-f]{12})_[A-Za-z0-9_-]{32}$/.exec(key);
+  const m = /^(?:ida|eda)_([0-9a-f]{12})_[A-Za-z0-9_-]{32}$/.exec(key);
   return m ? { prefix: m[1]!, hash: sha256(key) } : null;
 }
 

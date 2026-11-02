@@ -184,7 +184,7 @@ export function createApp(opts: AppOptions) {
       'select id, prefix, label, created_at, last_used_at, revoked_at from project_keys where project_id = $1 order by created_at desc',
       [c.req.param('projectId')],
     );
-    return c.json(rows.map((k) => ({ id: k.id, prefix: `eda_${k.prefix}_`, label: k.label, createdAt: iso(k.created_at), lastUsedAt: iso(k.last_used_at), revokedAt: iso(k.revoked_at) })));
+    return c.json(rows.map((k) => ({ id: k.id, prefix: `ida_${k.prefix}_`, label: k.label, createdAt: iso(k.created_at), lastUsedAt: iso(k.last_used_at), revokedAt: iso(k.revoked_at) })));
   });
 
   app.post('/v1/projects/:projectId/keys', async (c) => {
@@ -196,7 +196,7 @@ export function createApp(opts: AppOptions) {
       [c.req.param('projectId'), prefix, hash, label],
     );
     // The only time the full key is returned.
-    return c.json({ id: row!.id, key, prefix: `eda_${prefix}_`, label, createdAt: iso(row!.created_at) }, 201);
+    return c.json({ id: row!.id, key, prefix: `ida_${prefix}_`, label, createdAt: iso(row!.created_at) }, 201);
   });
 
   app.delete('/v1/projects/:projectId/keys/:keyId', async (c) => {

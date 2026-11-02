@@ -26,12 +26,12 @@ export function IngestKeys({ projectId, onError }: { projectId: string; onError:
           <tbody>
             {active.map((k) => (
               <tr key={k.id}>
-                <td><code>{maskKey(k.prefix)}</code></td>
+                <td><code>{maskKey()}</code></td>
                 <td>{k.label || <span className="muted">—</span>}</td>
                 <td>{ago(k.createdAt)}</td>
                 <td>{ago(k.lastUsedAt)}</td>
                 <td>
-                  <button onClick={() => window.confirm(`Revoke ${k.prefix}…? Apps using it stop uploading.`) && act(async () => { await api.revokeKey(projectId, k.id); keys.reload(); })}>Revoke</button>
+                  <button onClick={() => window.confirm(`Revoke ${k.label ? `“${k.label}”` : 'this key'}? Apps using it stop uploading.`) && act(async () => { await api.revokeKey(projectId, k.id); keys.reload(); })}>Revoke</button>
                 </td>
               </tr>
             ))}

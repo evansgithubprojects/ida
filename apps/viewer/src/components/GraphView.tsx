@@ -1,5 +1,5 @@
 import {
-  Background, BaseEdge, Controls, EdgeLabelRenderer, Handle, Position, ReactFlow, ReactFlowProvider, useInternalNode, useReactFlow,
+  BaseEdge, Controls, EdgeLabelRenderer, Handle, Position, ReactFlow, ReactFlowProvider, useInternalNode, useReactFlow,
   type Edge, type EdgeProps, type InternalNode, type Node, type NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -293,7 +293,6 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
           if (m.kind === 'process' || m.kind === 'stub') setLevel({ kind: 'handlers', processId: m.processId });
         }}
       >
-        <Background gap={24} />
         <Controls showInteractive={false} />
       </ReactFlow>
     </ViewCtx.Provider>

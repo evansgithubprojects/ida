@@ -22,7 +22,7 @@ Migrations in `migrations/` run at startup.
 
 ## API
 
-Ingest, authenticated with a project key (`Authorization: Bearer eda_…`):
+Ingest, authenticated with a project key (`Authorization: Bearer ida_…`):
 
 - `POST /v1/ingest`: one `IngestBatch` (see `@eda-debugger/core`). A repeated `(sessionId, seq)` is acknowledged and not stored again. Limited to 2 MiB per batch and 600 batches per key per minute.
 

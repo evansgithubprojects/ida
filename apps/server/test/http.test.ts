@@ -165,7 +165,7 @@ describe('projects and keys', () => {
 
   it('shows a new key once, then only its prefix, and revokes it', async () => {
     const { project, key, keyId } = await projectWithKey();
-    expect(key).toMatch(/^eda_[0-9a-f]{12}_[A-Za-z0-9_-]{32}$/);
+    expect(key).toMatch(/^ida_[0-9a-f]{12}_[A-Za-z0-9_-]{32}$/);
     const list = (await call('GET', `/v1/projects/${project.id}/keys`, alice)).body;
     expect(list).toMatchObject([{ id: keyId, label: 'test', revokedAt: null, lastUsedAt: null }]);
     expect(JSON.stringify(list)).not.toContain(key.slice(-32));

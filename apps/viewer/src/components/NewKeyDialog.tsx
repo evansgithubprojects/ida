@@ -26,7 +26,7 @@ export function NewKeyDialog({ secret, onClose }: { secret: string; onClose: () 
       <code className="secret block">{secret}</code>
       <div className="modal-actions">
         <button onClick={() => void copy()}>{copied ? 'Copied ✓' : 'Copy'}</button>
-        <button className="primary" onClick={onClose}>{copied ? 'Done' : "I've saved it"}</button>
+        <button className="primary" onClick={onClose}>I've saved it</button>
       </div>
     </dialog>
   );

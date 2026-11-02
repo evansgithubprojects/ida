@@ -3,7 +3,7 @@ import { fitMessage, jsonBytes } from './fit';
 import { memoryStore, Spool, type SpoolStore } from './spool';
 
 export interface CloudOptions {
-  /** The project's ingest key from the web app (`eda_…`). It can only write, so it is safe in a browser bundle. */
+  /** The project's ingest key from the web app (`ida_…`). It can only write, so it is safe in a browser bundle. */
   projectKey: string;
   /** The server, e.g. `https://api.example.com`. */
   endpoint: string;

@@ -3,7 +3,6 @@ import { BrowserRouter, Link, Navigate, NavLink, Route, Routes } from 'react-rou
 import { RequireAuth, useSession } from './cloud/auth';
 import { supabase } from './cloud/supabase';
 import { Logo } from './components/Logo';
-import { Connect } from './pages/Connect';
 import { Local } from './pages/Local';
 import { Project } from './pages/Project';
 import { Projects } from './pages/Projects';
@@ -20,7 +19,8 @@ export function App() {
         <Route path="/login" element={<Shell><SignIn /></Shell>} />
         <Route path="/projects" element={<Shell><RequireAuth><Projects /></RequireAuth></Shell>} />
         <Route path="/projects/:projectId" element={<Shell><RequireAuth><Project /></RequireAuth></Shell>} />
-        <Route path="/projects/:projectId/connect" element={<Shell><RequireAuth><Connect /></RequireAuth></Shell>} />
+        {/* The connect walkthrough is a dialog on the project page now. */}
+        <Route path="/projects/:projectId/connect" element={<Navigate to=".." relative="path" replace />} />
         <Route path="/projects/:projectId/recorders/:recorderKey" element={<Shell><RequireAuth><Recorder /></RequireAuth></Shell>} />
         {/* The replay screens fill the window, so they bring their own header. */}
         <Route path="/projects/:projectId/recorders/:recorderKey/live" element={<RequireAuth><Session live /></RequireAuth>} />

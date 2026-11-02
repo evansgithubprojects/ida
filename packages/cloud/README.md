@@ -41,7 +41,7 @@ Recording carries on. Batches go to a spool, and the console says where:
 
 | Option | Default | |
 | --- | --- | --- |
-| `projectKey` | required | The project's ingest key (`eda_…`). |
+| `projectKey` | required | The project's ingest key (`ida_…`). |
 | `endpoint` | required | The server URL. |
 | `flushMs` | `1000` | How long messages wait to be batched. |
 | `maxBatch` | `500` | Most messages per batch; a full batch is sent at once. |
