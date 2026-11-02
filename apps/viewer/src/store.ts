@@ -8,6 +8,8 @@ export const SPEEDS = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4];
 /** Wall-clock lengths of the lit fade and the red flash, scaled to recording time by playback speed. */
 export const FADE_WALL_MS = 700;
 export const FLASH_WALL_MS = 900;
+/** How far behind the newest event a following live view's playhead may trail, so what just arrived still plays out. */
+export const LIVE_LAG_MS = 1500;
 
 /** How many steps of the inspection trail the inspector keeps. */
 export const TRAIL_MAX = 8;
@@ -171,7 +173,10 @@ export const useStore = create<State>()((set, get) => {
       recording, index,
       sourceName: name ?? s.sourceName,
       window: keepView && !following ? kept : full,
-      t: keepView && !following ? Math.min(Math.max(s.t, kept[0]), kept[1]) : following && live ? index.end : full[0],
+      // A following live view trails the newest events slightly and catches up in real time (see `tick`), so the pulses
+      // of what just arrived play out instead of the playhead jumping past them.
+      t: keepView && !following ? Math.min(Math.max(s.t, kept[0]), kept[1])
+        : following && live ? (keepView ? Math.min(Math.max(s.t, index.end - LIVE_LAG_MS), index.end) : index.end) : full[0],
       speed: keepView ? s.speed : pickSpeed(full[1] - full[0]),
       level: keepView ? s.level : { kind: 'process' },
       selection: keepView ? s.selection : null,
@@ -200,8 +205,12 @@ export const useStore = create<State>()((set, get) => {
     },
     pause() { set({ playing: false }); },
     tick(wallMs) {
-      const { t, speed, window, playing } = get();
-      if (!playing) return;
+      const { t, speed, window, playing, following, live, index } = get();
+      if (!playing) {
+        // A following live view runs in real time up to the newest event.
+        if (following && live === 'on' && index && t < index.end) set({ t: Math.min(t + wallMs, index.end) });
+        return;
+      }
       const next = t + wallMs * speed;
       if (next >= window[1]) set({ t: window[1], playing: false });
       else set({ t: next });

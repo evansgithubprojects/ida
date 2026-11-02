@@ -21,7 +21,10 @@ export function useModel(levelOverride?: Level): GraphModel | null {
 export function useActive(model: GraphModel | null): Active | null {
   const index = useStore((s) => s.index);
   const t = useStore((s) => s.t);
-  const speed = useStore((s) => s.speed);
+  const picked = useStore((s) => s.speed);
+  // A following live view plays in real time whatever speed was picked for it.
+  const realTime = useStore((s) => s.following && s.live === 'on');
+  const speed = realTime ? 1 : picked;
   const window = useStore((s) => s.window);
   return useMemo(
     () =>
@@ -32,9 +35,9 @@ export function useActive(model: GraphModel | null): Active | null {
   );
 }
 
-/** Advances the playhead with requestAnimationFrame while playing. */
+/** Advances the playhead with requestAnimationFrame while playing, or while a live view follows the stream. */
 export function usePlayback(): void {
-  const playing = useStore((s) => s.playing);
+  const playing = useStore((s) => s.playing || (s.following && s.live === 'on'));
   useEffect(() => {
     if (!playing) return;
     let last = performance.now();
