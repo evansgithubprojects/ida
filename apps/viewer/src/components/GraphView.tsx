@@ -112,6 +112,9 @@ function floatingPath(source: InternalNode, target: InternalNode): [string, numb
   return [`M ${sx} ${sy} Q ${qx} ${qy} ${tx} ${ty}`, 0.25 * sx + 0.5 * qx + 0.25 * tx, 0.25 * sy + 0.5 * qy + 0.25 * ty];
 }
 
+/** How much of a line the travelling pulse covers. */
+const PULSE_LENGTH = 0.2;
+
 const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgeProps<RouteEdge>) {
   const { edges, active, selectedId, focusedEdgeId, t, end } = useView();
   const from = useInternalNode(source);
@@ -122,9 +125,13 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
   const lit = active.litEdges.get(id) ?? 0;
   const flagged = active.flaggedEdges.get(id);
   const litFlagged = active.litFlaggedEdges.has(id);
-  const stroke = litFlagged ? 'var(--warn)' : lit > 0 ? 'var(--accent)' : flagged ? 'var(--warn-dim)' : 'var(--edge)';
+  // Lines stay dim and still; a lit one only means an event is on it right now, drawn as a pulse that travels from sender to receiver.
+  const pulseColor = litFlagged ? 'var(--warn)' : 'var(--accent)';
   // Thickness follows the total so lines don't change width while the counter ticks.
-  const width = 1.5 + Math.min(3, Math.log2(edge.count + 1) * 0.5) + lit * 2.5;
+  const width = 1.5 + Math.min(3, Math.log2(edge.count + 1) * 0.5);
+  // `lit` fades from 1 to 0 over the event's travel time, so how far along it is is what has faded.
+  const progress = 1 - lit;
+  const head = progress * (1 + PULSE_LENGTH);
   return (
     <>
       <BaseEdge
@@ -132,11 +139,17 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
         path={path}
         className={focusedEdgeId === id ? 'edge-focused' : undefined}
         style={{
-          stroke, strokeWidth: width, opacity: lit > 0 ? 0.55 + lit * 0.45 : 0.75,
+          stroke: flagged ? 'var(--warn-dim)' : 'var(--edge)', strokeWidth: width, opacity: 0.75,
           strokeDasharray: flagged ? '7 5' : undefined,
-          filter: lit > 0.05 ? `drop-shadow(0 0 ${3 + lit * 6}px ${stroke})` : undefined,
         }}
       />
+      {lit > 0 && (
+        <path
+          d={path} pathLength={1} fill="none" stroke={pulseColor} strokeWidth={width + 1.5} strokeLinecap="round"
+          strokeDasharray={`${PULSE_LENGTH} 2`} strokeDashoffset={PULSE_LENGTH - head}
+          style={{ pointerEvents: 'none', filter: `drop-shadow(0 0 5px ${pulseColor})` }}
+        />
+      )}
       <EdgeLabelRenderer>
         <div className={`edge-label ${selectedId === id ? 'selected' : ''} ${focusedEdgeId === id ? 'focused' : ''}`} style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}>
           <span title={`${edge.count} in this window`}>{countFired(edge.times, t, end)}</span>
