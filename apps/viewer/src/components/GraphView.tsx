@@ -47,12 +47,11 @@ const NodeCard = memo(function NodeCard({ id }: NodeProps<RouteNode>) {
   const { nodes, active, selectedId, focusedId } = useView();
   const model = nodes.get(id);
   if (!model) return null;
-  const lit = active.litNodes.get(id) ?? 0;
   const flashing = active.flashingNodes.has(id);
   const thrown = active.thrownNodes.get(id) ?? 0;
   const cls = ['node-card', `kind-${model.kind}`, flashing && 'flash', thrown > 0 && 'has-thrown', model.idle && 'idle', selectedId === id && 'selected', focusedId === id && 'focused'];
   return (
-    <div className={cls.filter(Boolean).join(' ')} style={{ width: NODE_W, height: NODE_H, ['--lit' as string]: lit }}>
+    <div className={cls.filter(Boolean).join(' ')} style={{ width: NODE_W, height: NODE_H }}>
       <Handle type="target" position={Position.Left} isConnectable={false} style={hiddenHandle} />
       <div className="node-title" title={model.label}>{model.kind === 'process' || model.kind === 'stub' ? model.label : <NodeRef id={model.id} label={model.label} qualify={false} />}</div>
       <div className="node-detail">{model.detail}</div>
@@ -114,6 +113,8 @@ function floatingPath(source: InternalNode, target: InternalNode): [string, numb
 
 /** How much of a line the travelling pulse covers. */
 const PULSE_LENGTH = 0.2;
+/** Most pulses drawn on one line at once. */
+const MAX_PULSES = 8;
 
 const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgeProps<RouteEdge>) {
   const { edges, active, selectedId, focusedEdgeId, t, end } = useView();
@@ -122,16 +123,14 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
   const edge = edges.get(id);
   if (!edge || !from || !to) return null;
   const [path, lx, ly] = floatingPath(from, to);
-  const lit = active.litEdges.get(id) ?? 0;
   const flagged = active.flaggedEdges.get(id);
   const litFlagged = active.litFlaggedEdges.has(id);
   // Lines stay dim and still; a lit one only means an event is on it right now, drawn as a pulse that travels from sender to receiver.
   const pulseColor = litFlagged ? 'var(--warn)' : 'var(--accent)';
   // Thickness follows the total so lines don't change width while the counter ticks.
   const width = 1.5 + Math.min(3, Math.log2(edge.count + 1) * 0.5);
-  // `lit` fades from 1 to 0 over the event's travel time, so how far along it is is what has faded.
-  const progress = 1 - lit;
-  const head = progress * (1 + PULSE_LENGTH);
+  // Every event still on its way gets its own pulse, so a busy route shows them all instead of restarting one.
+  const flights = (active.pulses.get(id) ?? []).slice(-MAX_PULSES);
   return (
     <>
       <BaseEdge
@@ -143,13 +142,14 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
           strokeDasharray: flagged ? '7 5' : undefined,
         }}
       />
-      {lit > 0 && (
+      {flights.map((progress, i) => (
         <path
+          key={i}
           d={path} pathLength={1} fill="none" stroke={pulseColor} strokeWidth={width + 1.5} strokeLinecap="round"
-          strokeDasharray={`${PULSE_LENGTH} 2`} strokeDashoffset={PULSE_LENGTH - head}
+          strokeDasharray={`${PULSE_LENGTH} 2`} strokeDashoffset={PULSE_LENGTH - progress * (1 + PULSE_LENGTH)}
           style={{ pointerEvents: 'none', filter: `drop-shadow(0 0 5px ${pulseColor})` }}
         />
-      )}
+      ))}
       <EdgeLabelRenderer>
         <div className={`edge-label ${selectedId === id ? 'selected' : ''} ${focusedEdgeId === id ? 'focused' : ''}`} style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}>
           <span title={`${edge.count} in this window`}>{countFired(edge.times, t, end)}</span>

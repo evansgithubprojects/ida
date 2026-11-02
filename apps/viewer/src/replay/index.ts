@@ -219,6 +219,8 @@ export interface ActiveOptions {
 export interface Active {
   /** 0..1 brightness. */
   litEdges: Map<string, number>;
+  /** How far along each event still travelling an edge is, 0 (just sent) to 1 (arrived): one entry per event in flight. */
+  pulses: Map<string, number[]>;
   litNodes: Map<string, number>;
   /**
    * Throws that just happened: grab attention. Only the handler that threw is marked, not the pathway into it: a
@@ -238,7 +240,7 @@ export function activeAt(index: ReplayIndex, t: number, opts: ActiveOptions): Ac
   const map = opts.mapNode ?? ((id: string) => id);
   const [w0, w1] = opts.window ?? [-Infinity, Infinity];
   const out: Active = {
-    litEdges: new Map(), litNodes: new Map(), flashingNodes: new Set(),
+    litEdges: new Map(), pulses: new Map(), litNodes: new Map(), flashingNodes: new Set(),
     thrownNodes: new Map(), flaggedEdges: new Map(),
     litFlaggedEdges: new Set(),
   };
@@ -265,6 +267,8 @@ export function activeAt(index: ReplayIndex, t: number, opts: ActiveOptions): Ac
       if (age >= 0 && age < opts.fadeMs) {
         const v = 1 - age / opts.fadeMs;
         out.litEdges.set(id, Math.max(out.litEdges.get(id) ?? 0, v));
+        const inFlight = out.pulses.get(id);
+        if (inFlight) inFlight.push(age / opts.fadeMs); else out.pulses.set(id, [age / opts.fadeMs]);
         out.litNodes.set(src, Math.max(out.litNodes.get(src) ?? 0, v));
         out.litNodes.set(dst, Math.max(out.litNodes.get(dst) ?? 0, v));
         if (flags) out.litFlaggedEdges.add(id);
