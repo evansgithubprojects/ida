@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { api } from '../cloud/api';
+import { useApi } from '../cloud/useApi';
 import { LogoMark } from '../components/Logo';
 import { Replay } from '../components/Replay';
 import { useStore } from '../store';
@@ -15,6 +16,7 @@ export function Session({ live = false }: { live?: boolean }) {
   const [attempt, setAttempt] = useState(0);
   const status = useStore((s) => s.live);
   const index = useStore((s) => s.index);
+  const project = useApi(() => api.project(projectId), [projectId]);
   const base = `/projects/${projectId}/recorders/${encodeURIComponent(recorderKey)}`;
 
   useEffect(() => {
@@ -62,7 +64,7 @@ export function Session({ live = false }: { live?: boolean }) {
         <Link className="home-mark" to="/" aria-label="Ida home"><LogoMark /></Link>
         <nav className="crumbs">
           <Link to="/projects">Projects</Link><span>›</span>
-          <Link to={`/projects/${projectId}`}>Project</Link><span>›</span>
+          <Link to={`/projects/${projectId}`}>{project.data?.name ?? 'Project'}</Link><span>›</span>
           <Link to={base}><code>{recorderKey}</code></Link><span>›</span>
           <span>{live ? 'Live' : 'Recording'}</span>
         </nav>
