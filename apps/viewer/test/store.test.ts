@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createRecorder } from '@eda-debugger/core';
 import { inWindow, MAX_WINDOW_EVENTS, runId } from '../src/replay';
 import { extendTrail, focusTargetOf, TRAIL_MAX, useStore, type Selection } from '../src/store';
@@ -192,5 +192,37 @@ describe('graph settings', () => {
     expect(useStore.getState().hideHealthy).toBe(true);
     useStore.getState().setHideHealthy(false);
     expect(useStore.getState().hideHealthy).toBe(false);
+  });
+});
+
+describe('inspector setting', () => {
+  it('is open by default and flips', () => {
+    expect(useStore.getState().inspectorOpen).toBe(true);
+    useStore.getState().setInspectorOpen(false);
+    expect(useStore.getState().inspectorOpen).toBe(false);
+    useStore.getState().setInspectorOpen(true);
+  });
+
+  it('opens when something on the graph is clicked, but not when the selection is cleared', () => {
+    useStore.getState().setInspectorOpen(false);
+    useStore.getState().select(null, { fromGraph: true }); // a click on empty canvas
+    expect(useStore.getState().inspectorOpen).toBe(false);
+    useStore.getState().select({ type: 'node', id: 'n1' }, { fromGraph: true });
+    expect(useStore.getState().inspectorOpen).toBe(true);
+    useStore.getState().select(null);
+  });
+
+  it('is saved together with the graph settings, each keeping the other', () => {
+    const saved = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => saved.get(k) ?? null, setItem: (k: string, v: string) => void saved.set(k, v) });
+    try {
+      useStore.getState().setHideHealthy(true);
+      useStore.getState().setInspectorOpen(false);
+      expect(JSON.parse(saved.get('ida_graph_settings')!)).toEqual({ hideHealthy: true, inspectorOpen: false });
+    } finally {
+      vi.unstubAllGlobals();
+      useStore.getState().setHideHealthy(false);
+      useStore.getState().setInspectorOpen(true);
+    }
   });
 });

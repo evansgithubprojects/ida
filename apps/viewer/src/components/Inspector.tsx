@@ -10,7 +10,7 @@ export function Inspector() {
   const index = useStore((s) => s.index)!;
   const selection = useStore((s) => s.selection);
   return (
-    <aside className="inspector">
+    <aside className="inspector" id="inspector">
       <Crumbs index={index} />
       {!selection && <Overview index={index} />}
       {selection?.type === 'event' && <EventDetail index={index} id={selection.id} />}

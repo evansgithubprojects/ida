@@ -79,6 +79,8 @@ interface State {
   level: Level;
   /** Graph setting: hide the count and the pulse on pathways with no suspect payloads. Persists across reloads. */
   hideHealthy: boolean;
+  /** Whether the inspector panel is shown. Persists across reloads. */
+  inspectorOpen: boolean;
   selection: Selection;
   /** Everything inspected at this zoom level, oldest first; `selection` is always its last entry. */
   trail: NonNullable<Selection>[];
@@ -102,6 +104,7 @@ interface State {
   setWindow(window: [number, number], keep?: 'start' | 'end'): void;
   setLevel(level: Level): void;
   setHideHealthy(hide: boolean): void;
+  setInspectorOpen(open: boolean): void;
   /** `fromGraph` marks a click on the graph itself: everything drawn there sits directly under the level, so it starts a new trail. */
   select(selection: Selection, opts?: { fromGraph?: boolean }): void;
   /** Inspects an occurrence and moves the playhead to it; see `selectAt`. */
@@ -140,14 +143,14 @@ let source: EventSource | null = null;
 
 const SETTINGS_KEY = 'ida_graph_settings';
 
-interface Settings { hideHealthy: boolean }
+interface Settings { hideHealthy: boolean; inspectorOpen: boolean }
 
 function loadSettings(): Settings {
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') as Partial<Settings>;
-    return { hideHealthy: saved.hideHealthy === true };
+    return { hideHealthy: saved.hideHealthy === true, inspectorOpen: saved.inspectorOpen !== false };
   } catch {
-    return { hideHealthy: false };
+    return { hideHealthy: false, inspectorOpen: true };
   }
 }
 
@@ -291,10 +294,16 @@ export const useStore = create<State>()((set, get) => {
       set({ hideHealthy });
       saveSettings({ hideHealthy });
     },
+    setInspectorOpen(inspectorOpen) {
+      set({ inspectorOpen });
+      saveSettings({ inspectorOpen });
+    },
     select(selection, opts) {
       // Clicking the graph itself needs no pan; anything else (a link in the inspector) shows where it is.
       if (selection && !opts?.fromGraph) reveal(selection);
       else set((s) => ({ selection, trail: !selection ? [] : [selection] }));
+      // Clicking something on the graph is asking to see it, so a hidden inspector opens.
+      if (selection && opts?.fromGraph && !get().inspectorOpen) get().setInspectorOpen(true);
     },
     seekToOccurrence(id) { get().selectAt({ type: 'occurrence', id }, id); },
     selectAt(selection, occurrenceId) {
