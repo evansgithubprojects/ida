@@ -137,6 +137,9 @@ export interface Recorder {
   readonly key: string;
   /**
    * Claim an emitter: adapters installed without a recorder send its events here instead of to the default recorder.
+   * Optional for your own emitters: one nobody tracks is still recorded, by the default recorder (the one `enable()`
+   * sets up), when there is one. Tracking also forces in an emitter an installed package created, which the Node
+   * adapter otherwise skips unless your code listens to it. It doesn't name the emitter (see `labelEmitter`).
    * Several recorders may track the same emitter; each records its events and the listeners still run once.
    * Parent links don't cross recorders: an event caused by one recorded in another starts a new chain.
    * @example
@@ -166,7 +169,12 @@ export interface Recorder {
    */
   subscribe(listener: (message: RecorderMessage) => void): () => void;
   /**
-   * Name an emitter's process in the viewer.
+   * Name an emitter's process in the viewer. Optional: labeling only renames, it doesn't decide what is recorded.
+   * Adapters record every emitter your code creates (each emit goes to the recorders that `track()` it, else the
+   * default recorder), so unlabeled ones show up too, under the adapter's guess: usually the class name plus a
+   * counter, like `EventEmitter#3`. Emitters created by installed packages or Node itself are skipped by the Node
+   * adapter unless your code listens to them or a recorder tracks them.
+   * Call it before the emitter's first recorded emit; once the recorder has seen an emitter, its name is fixed.
    * @example
    * recorder.labelEmitter(paymentsBus, 'Payments');
    */

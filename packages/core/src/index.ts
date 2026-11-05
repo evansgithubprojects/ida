@@ -22,7 +22,7 @@ export type { CausalityContext } from './causality';
 
 // For adapter authors
 export type { DispatchInfo, Frame, Invoke } from './recorder';
-export { dispatchAll, recordersFor } from './routing';
+export { dispatchAll, isTracked, recordersFor } from './routing';
 
 /** The key `enable()` uses for the shared recorder. */
 export const DEFAULT_RECORDER_KEY = 'default';

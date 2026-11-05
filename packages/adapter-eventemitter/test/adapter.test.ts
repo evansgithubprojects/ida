@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { createRequire } from 'node:module';
 import { afterEach, describe, expect, it } from 'vitest';
 import { connectRecorder, createRecorder, enable, setDefaultRecorder } from '@eda-debugger/core';
 import { resetRecorders } from '../../core/src/registry';
@@ -68,6 +69,11 @@ describe('node adapter', () => {
     uninstall = enableEventEmitterRecording(rec);
     const { port } = server.address() as { port: number };
     await (await fetch(`http://127.0.0.1:${port}`)).text();
+    // An aborted request emits on undici's per-request `Fetch` emitter, which no blocklist names.
+    const ac = new AbortController();
+    const pending = fetch(`http://127.0.0.1:${port}/slow`, { signal: ac.signal }).catch(() => {});
+    ac.abort();
+    await pending;
     await new Promise<void>((r) => server.close(() => r()));
     expect(rec.export().processes.map((p) => p.label)).toEqual([]);
   });
@@ -123,5 +129,89 @@ describe('routed by tracking', () => {
     expect(ran).toBe(1);
     expect(names(a)).toEqual(['x']);
     expect(names(b)).toEqual(['x']);
+  });
+});
+
+const lib = createRequire(import.meta.url)('./fixtures/node_modules/fake-lib') as {
+  LibClient: new () => EventEmitter & { tick(): void };
+  makeBus: () => EventEmitter;
+};
+const eventNames = (rec: ReturnType<typeof createRecorder>) => {
+  const r = rec.export();
+  return r.occurrences.map((o) => r.templates.find((t) => t.id === o.templateId)!.eventName);
+};
+
+describe('which emitters are recorded', () => {
+  it("records the app's own emitters", () => {
+    const rec = createRecorder();
+    uninstall = enableEventEmitterRecording(rec);
+    class Bus extends EventEmitter {}
+    new Bus().emit('a');
+    new EventEmitter().emit('b');
+    expect(eventNames(rec)).toEqual(['a', 'b']);
+  });
+
+  it('skips emitters a package created when only the package listens', () => {
+    const rec = createRecorder();
+    uninstall = enableEventEmitterRecording(rec);
+    new lib.LibClient().tick();
+    lib.makeBus().emit('ping');
+    expect(eventNames(rec)).toEqual([]);
+  });
+
+  it("records a package's events that app code listens to", () => {
+    const rec = createRecorder();
+    uninstall = enableEventEmitterRecording(rec);
+    const client = new lib.LibClient();
+    client.on('tick', function appOnTick() {});
+    const bus = lib.makeBus();
+    bus.once('ping', function appOnPing() {});
+    client.tick();
+    bus.emit('ping');
+    bus.emit('other');
+    expect(eventNames(rec)).toEqual(['tick', 'ping']);
+  });
+
+  it("records an app subclass of a package's emitter", () => {
+    const rec = createRecorder();
+    uninstall = enableEventEmitterRecording(rec);
+    class MyClient extends lib.LibClient {}
+    new MyClient().tick();
+    expect(eventNames(rec)).toEqual(['tick']);
+  });
+
+  it('records package emitters when asked: tracked, includeLibraries, or isAppFile', () => {
+    const rec = createRecorder();
+    setDefaultRecorder(rec);
+    try {
+      uninstall = enableEventEmitterRecording();
+      const tracked = new lib.LibClient();
+      connectRecorder('lib-tracker').track(tracked);
+      tracked.tick();
+      expect(eventNames(connectRecorder('lib-tracker'))).toEqual(['tick']);
+      uninstall();
+
+      const all = createRecorder();
+      uninstall = enableEventEmitterRecording(all, { includeLibraries: true });
+      new lib.LibClient().tick();
+      expect(eventNames(all)).toEqual(['tick']);
+      uninstall();
+
+      const mine = createRecorder();
+      uninstall = enableEventEmitterRecording(mine, { isAppFile: () => true });
+      new lib.LibClient().tick();
+      expect(eventNames(mine)).toEqual(['tick']);
+    } finally {
+      setDefaultRecorder(null);
+      resetRecorders();
+    }
+  });
+
+  it('restores EventEmitter.init and the listener methods on uninstall', () => {
+    const init = (EventEmitter as unknown as { init: unknown }).init;
+    const { on, once, addListener, prependListener, prependOnceListener } = EventEmitter.prototype;
+    enableEventEmitterRecording(createRecorder())();
+    expect((EventEmitter as unknown as { init: unknown }).init).toBe(init);
+    expect(EventEmitter.prototype).toMatchObject({ on, once, addListener, prependListener, prependOnceListener });
   });
 });

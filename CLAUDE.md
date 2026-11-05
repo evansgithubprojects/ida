@@ -70,6 +70,7 @@ These are suggestions from the planning discussion, not final decisions.
 - **Uploads:** `@eda-debugger/cloud` (`configure({ projectKey, endpoint })`) uploads every keyed recorder over plain HTTP with a per-project, write-only ingest key. No Supabase dependency in published packages. Each app run is one session; the shared wire format is `IngestBatch` in core's types.
 - **Offline:** failed batches go to a spool (files in Node, IndexedDB in browsers), the developer is told on the console, and batches are uploaded in order on recovery. `(sessionId, seq)` makes replays idempotent; spooled occurrences are marked `late`, and spool overflow is recorded as `gaps`, both shown in the viewer.
 - The Node adapter ignores Node internals, including the connection pools behind `fetch`, so the uploader never records its own uploads.
+- The Node adapter records only emitters the app created, decided by where each emitter's class is defined (outside `node_modules` and Node). An emitter a package or Node created is recorded only for events app code listens to, or when tracked. `includeLibraries` / `isAppFile` override this.
 - Not built yet: multi-instance live fan-out (Postgres `LISTEN/NOTIFY`), retention limits, sharing projects with other users.
 
 ## First milestone

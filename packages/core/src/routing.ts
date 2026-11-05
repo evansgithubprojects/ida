@@ -32,6 +32,11 @@ export function getDefaultRecorder(): Recorder | null {
   return fallback;
 }
 
+/** For adapter authors: whether any recorder claimed this emitter with `track()`, which means "record it" whatever its origin. */
+export function isTracked(emitter: object): boolean {
+  return !!tracking.get(emitter)?.size;
+}
+
 /**
  * For adapter authors: the recorders an emit on `emitter` belongs to, in the order they claimed it. That is every
  * recorder tracking it, or else the default recorder, and only those currently recording.
