@@ -46,13 +46,12 @@ export function Project() {
         {recorders.data?.length === 0 && <p className="muted">Nothing has been uploaded yet. Use “Connect an app” to add the setup to your app; recorders show up here once they send data.</p>}
         {!!recorders.data?.length && (
           <table className="table">
-            <thead><tr><th>Key</th><th>Last data</th><th /></tr></thead>
+            <thead><tr><th>Key</th><th>Last data</th></tr></thead>
             <tbody>
               {recorders.data.map((r) => (
                 <tr key={r.key}>
                   <td><Link to={`/projects/${projectId}/recorders/${encodeURIComponent(r.key)}`}><code>{r.key}</code></Link></td>
                   <td>{ago(r.lastSeenAt)}</td>
-                  <td>{r.live && <span className="live live-on">● live</span>}</td>
                 </tr>
               ))}
             </tbody>
