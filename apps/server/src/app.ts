@@ -3,6 +3,7 @@ import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
 import { streamSSE } from 'hono/streaming';
+import { allows, ensureUser, personalOrg, projectAccess, type Access } from './access';
 import type { User, VerifyUser } from './auth';
 import type { Db } from './db';
 import { ingest, parseBatch, SessionConflict } from './ingest';
@@ -127,26 +128,35 @@ export function createApp(opts: AppOptions) {
     const user = await verifyUser(bearer(c) ?? '');
     if (!user) return c.json({ error: 'sign in required' }, 401);
     c.set('user', user);
+    await ensureUser(db, user);
     await next();
   };
   app.use('/v1/projects', authed);
   app.use('/v1/projects/*', authed);
   app.use('/v1/sessions/*', authed);
 
-  /** The project when the signed-in user owns it. Others get the same 404 as a missing one. */
-  const ownProject = async (c: Context<Env>) => {
+  /**
+   * The project named in the URL when the signed-in user may do `need` in it. Someone with no access at all gets the
+   * same 404 as a missing project; someone who can see it but not do this gets a 403. Returns a response to send otherwise.
+   */
+  const guard = async (c: Context<Env>, need: Access): Promise<(ProjectRow & { access: Access }) | Response> => {
     const id = c.req.param('projectId');
-    if (!id || !UUID.test(id)) return null;
-    const [p] = await db.query<ProjectRow>('select id, name, created_at from projects where id = $1 and owner_id = $2', [id, c.get('user').id]);
-    return p ?? null;
+    if (!id || !UUID.test(id)) return notFound(c);
+    const access = await projectAccess(db, c.get('user').id, id);
+    if (!access) return notFound(c);
+    if (!allows(access, need)) return c.json({ error: 'you do not have permission to do that' }, 403);
+    const [p] = await db.query<ProjectRow>('select id, name, created_at, org_id from projects where id = $1', [id]);
+    return p ? { ...p, access } : notFound(c);
   };
   const notFound = (c: Context) => c.json({ error: 'not found' }, 404);
 
   app.get('/v1/projects', async (c) => {
     const rows = await db.query<ProjectRow & { recorders: number; last_seen_at: string | null }>(
-      `select p.id, p.name, p.created_at, count(r.id)::int as recorders, max(r.last_seen_at) as last_seen_at
+      `select p.id, p.name, p.created_at, p.org_id, count(r.id)::int as recorders, max(r.last_seen_at) as last_seen_at
        from projects p left join recorders r on r.project_id = p.id
-       where p.owner_id = $1 group by p.id order by p.created_at desc`,
+       where exists (select 1 from org_members om where om.org_id = p.org_id and om.user_id = $1
+                       and (om.role in ('owner', 'admin') or exists (select 1 from project_members pm where pm.project_id = p.id and pm.user_id = $1)))
+       group by p.id order by p.created_at desc`,
       [c.get('user').id],
     );
     return c.json(rows.map((r) => ({ ...project(r), recorders: r.recorders, lastSeenAt: iso(r.last_seen_at) })));
@@ -155,31 +165,37 @@ export function createApp(opts: AppOptions) {
   app.post('/v1/projects', async (c) => {
     const name = cleanName((await c.req.json().catch(() => ({}))).name);
     if (!name) return c.json({ error: 'name is required (1-100 characters)' }, 400);
-    const [p] = await db.query<ProjectRow>('insert into projects (owner_id, name) values ($1, $2) returning id, name, created_at', [c.get('user').id, name]);
-    return c.json(project(p!), 201);
+    // Until the web app picks an org, new projects go into the caller's personal org, where they are an owner.
+    const org = await personalOrg(db, c.get('user').id);
+    if (!org) return c.json({ error: 'no organization to create the project in' }, 409);
+    const [p] = await db.query<ProjectRow>('insert into projects (org_id, name, created_by) values ($1, $2, $3) returning id, name, created_at, org_id', [org, name, c.get('user').id]);
+    return c.json({ ...project(p!), access: 'admin' }, 201);
   });
 
   app.get('/v1/projects/:projectId', async (c) => {
-    const p = await ownProject(c);
-    return p ? c.json(project(p)) : notFound(c);
+    const p = await guard(c, 'viewer');
+    return p instanceof Response ? p : c.json({ ...project(p), access: p.access });
   });
 
   app.patch('/v1/projects/:projectId', async (c) => {
-    if (!(await ownProject(c))) return notFound(c);
+    const g = await guard(c, 'editor');
+    if (g instanceof Response) return g;
     const name = cleanName((await c.req.json().catch(() => ({}))).name);
     if (!name) return c.json({ error: 'name is required (1-100 characters)' }, 400);
-    const [p] = await db.query<ProjectRow>('update projects set name = $2 where id = $1 returning id, name, created_at', [c.req.param('projectId'), name]);
-    return c.json(project(p!));
+    const [p] = await db.query<ProjectRow>('update projects set name = $2 where id = $1 returning id, name, created_at, org_id', [c.req.param('projectId'), name]);
+    return c.json({ ...project(p!), access: g.access });
   });
 
   app.delete('/v1/projects/:projectId', async (c) => {
-    if (!(await ownProject(c))) return notFound(c);
+    const g = await guard(c, 'admin');
+    if (g instanceof Response) return g;
     await db.query('delete from projects where id = $1', [c.req.param('projectId')]);
     return c.body(null, 204);
   });
 
   app.get('/v1/projects/:projectId/keys', async (c) => {
-    if (!(await ownProject(c))) return notFound(c);
+    const g = await guard(c, 'editor');
+    if (g instanceof Response) return g;
     const rows = await db.query<{ id: string; prefix: string; label: string; created_at: string; last_used_at: string | null; revoked_at: string | null }>(
       'select id, prefix, label, created_at, last_used_at, revoked_at from project_keys where project_id = $1 order by created_at desc',
       [c.req.param('projectId')],
@@ -188,7 +204,8 @@ export function createApp(opts: AppOptions) {
   });
 
   app.post('/v1/projects/:projectId/keys', async (c) => {
-    if (!(await ownProject(c))) return notFound(c);
+    const g = await guard(c, 'editor');
+    if (g instanceof Response) return g;
     const label = String((await c.req.json().catch(() => ({}))).label ?? '').trim().slice(0, 100);
     const { key, prefix, hash } = newIngestKey();
     const [row] = await db.query<{ id: string; created_at: string }>(
@@ -200,7 +217,8 @@ export function createApp(opts: AppOptions) {
   });
 
   app.delete('/v1/projects/:projectId/keys/:keyId', async (c) => {
-    if (!(await ownProject(c))) return notFound(c);
+    const g = await guard(c, 'editor');
+    if (g instanceof Response) return g;
     const keyId = c.req.param('keyId');
     if (!UUID.test(keyId)) return notFound(c);
     const done = await db.query('update project_keys set revoked_at = coalesce(revoked_at, now()) where id = $1 and project_id = $2 returning id', [keyId, c.req.param('projectId')]);
@@ -208,7 +226,8 @@ export function createApp(opts: AppOptions) {
   });
 
   app.get('/v1/projects/:projectId/recorders', async (c) => {
-    if (!(await ownProject(c))) return notFound(c);
+    const g = await guard(c, 'viewer');
+    if (g instanceof Response) return g;
     const rows = await db.query<{ id: string; key: string; created_at: string; last_seen_at: string; sessions: number; processes: string[] }>(
       // The processes are those of the newest session, which is what the live view shows.
       `select r.id, r.key, r.created_at, r.last_seen_at, count(s.id)::int as sessions,
@@ -227,16 +246,17 @@ export function createApp(opts: AppOptions) {
     })));
   });
 
-  /** The recorder named in the URL, inside a project the user owns. */
-  const ownRecorder = async (c: Context<Env>) => {
-    if (!(await ownProject(c))) return null;
+  /** The recorder named in the URL, inside a project the user can view: its id, or the response to send instead. */
+  const ownRecorder = async (c: Context<Env>): Promise<{ id: string } | Response> => {
+    const g = await guard(c, 'viewer');
+    if (g instanceof Response) return g;
     const [r] = await db.query<{ id: string }>('select id from recorders where project_id = $1 and key = $2', [c.req.param('projectId'), c.req.param('recorderKey')]);
-    return r ?? null;
+    return r ?? notFound(c);
   };
 
   app.get('/v1/projects/:projectId/recorders/:recorderKey/sessions', async (c) => {
     const r = await ownRecorder(c);
-    if (!r) return notFound(c);
+    if (r instanceof Response) return r;
     const rows = await db.query<{ id: string; started_at: number; runtime: string; last_seen_at: string; occurrences: number; late: number; gaps: number }>(
       `select s.id, s.started_at, s.runtime, s.last_seen_at,
          (select count(*)::int from occurrences o where o.session_id = s.id) as occurrences,
@@ -253,19 +273,18 @@ export function createApp(opts: AppOptions) {
 
   app.post('/v1/projects/:projectId/recorders/:recorderKey/stream-token', async (c) => {
     const r = await ownRecorder(c);
-    if (!r) return notFound(c);
+    if (r instanceof Response) return r;
     return c.json({ token: signStreamToken(streamSecret, r.id, 60_000, now()) });
   });
 
   app.get('/v1/sessions/:sessionId/recording', async (c) => {
     const id = c.req.param('sessionId');
     if (!UUID.test(id)) return notFound(c);
-    const [owned] = await db.query(
-      `select 1 from sessions s join recorders r on r.id = s.recorder_id join projects p on p.id = r.project_id
-       where s.id = $1 and p.owner_id = $2`,
-      [id, c.get('user').id],
+    const [owner] = await db.query<{ project_id: string }>(
+      'select r.project_id from sessions s join recorders r on r.id = s.recorder_id where s.id = $1',
+      [id],
     );
-    if (!owned) return notFound(c);
+    if (!owner || !(await projectAccess(db, c.get('user').id, owner.project_id))) return notFound(c);
     return c.json(await sessionRecording(db, id));
   });
 
@@ -274,10 +293,10 @@ export function createApp(opts: AppOptions) {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-interface ProjectRow { id: string; name: string; created_at: string }
+interface ProjectRow { id: string; name: string; created_at: string; org_id: string }
 
 const iso = (v: string | Date | null) => (v ? new Date(v).toISOString() : null);
-const project = (p: ProjectRow) => ({ id: p.id, name: p.name, createdAt: iso(p.created_at) });
+const project = (p: ProjectRow) => ({ id: p.id, name: p.name, orgId: p.org_id, createdAt: iso(p.created_at) });
 const bearer = (c: Context) => /^Bearer (.+)$/.exec(c.req.header('Authorization') ?? '')?.[1];
 const cleanName = (v: unknown) => (typeof v === 'string' && v.trim().length > 0 && v.trim().length <= 100 ? v.trim() : null);
 

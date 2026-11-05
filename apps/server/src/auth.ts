@@ -3,6 +3,9 @@ import { createRemoteJWKSet, decodeJwt, jwtVerify } from 'jose';
 /** Who is calling the web-app API: the Supabase Auth user id. */
 export interface User {
   id: string;
+  /** From the token, when the sign-in provider shares it. Invites are matched against it. */
+  email?: string;
+  name?: string;
 }
 
 /** Turns a bearer token into a user, or null when it isn't valid. Swappable so tests don't need Supabase. */
@@ -19,7 +22,10 @@ export function supabaseVerifier(supabaseUrl: string): VerifyUser {
   return async (token) => {
     try {
       const { payload } = await jwtVerify(token, jwks, { issuer, audience: 'authenticated' });
-      return payload.sub ? { id: payload.sub } : null;
+      if (!payload.sub) return null;
+      const meta = (payload.user_metadata ?? {}) as { full_name?: unknown; name?: unknown };
+      const name = [meta.full_name, meta.name].find((n): n is string => typeof n === 'string' && n.length > 0);
+      return { id: payload.sub, ...(typeof payload.email === 'string' && { email: payload.email }), ...(name && { name }) };
     } catch {
       // The usual dev mistake: the web app signs in with a different Supabase project than this server trusts.
       if (!warned) {
