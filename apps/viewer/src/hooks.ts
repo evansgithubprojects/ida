@@ -1,7 +1,7 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { buildModel, type GraphModel, type Level } from './graph/model';
-import { activeAt, inWindow, type Active } from './replay';
-import { FADE_WALL_MS, FLASH_WALL_MS, useStore } from './store';
+import { activeAt, inWindow, rateSeries, RATE_STEP_MS, recentRates, shownRates, SPIKE_WINDOW_MS, type Active, type HeldSpikes, type Rates } from './replay';
+import { FADE_WALL_MS, FLASH_WALL_MS, LIVE_RESYNC_MS, useStore } from './store';
 
 /** The graph at `level`, or at the store's current level. A level passed in stays put while a zoom transition plays. */
 export function useModel(levelOverride?: Level): GraphModel | null {
@@ -56,4 +56,42 @@ export function usePlayback(): void {
     });
     return () => cancelAnimationFrame(raf);
   }, [playing]);
+}
+
+/**
+ * The graph's event rates (see `rateSeries`) for `model`. The 5 s series is recomputed only when the playhead crosses
+ * into the next step or the zoom level changes. The last second is checked for a spike once a second (see
+ * `shownRates`), so labels update on those two beats, never every frame.
+ */
+export function useRates(model: GraphModel | null, level: Level): Rates | null {
+  const step = useStore((s) => Math.floor(s.t / RATE_STEP_MS));
+  const second = useStore((s) => Math.floor(s.t / SPIKE_WINDOW_MS));
+  const hasIndex = useStore((s) => s.index !== null);
+  const latest = useRef(model);
+  latest.current = model;
+  const held = useRef<HeldSpikes | null>(null);
+  const process = level.kind === 'handlers' ? level.processId : '';
+
+  const series = useMemo(() => {
+    const { index, t, following, live, liveShift } = useStore.getState();
+    const m = latest.current;
+    if (!index || !m) return null;
+    // A following live view plays bursts later than recorded (see `liveShift`); count them when they play.
+    const shifted = following && live === 'on';
+    return rateSeries(index, t, { mapNode: m.mapNode, shiftOf: shifted ? (id) => liveShift.get(id) ?? 0 : undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, level.kind, process, hasIndex && !!model]);
+
+  return useMemo(() => {
+    const { index, t, following, live, liveShift } = useStore.getState();
+    const m = latest.current;
+    if (!index || !m || !series) return null;
+    const shifted = following && live === 'on';
+    const recent = recentRates(index, t, { mapNode: m.mapNode, shiftOf: shifted ? (id) => liveShift.get(id) ?? 0 : undefined, maxShiftMs: shifted ? LIVE_RESYNC_MS : 0 });
+    // Latching is idempotent, so running this twice (React's dev double-invoke) gives the same result.
+    const r = shownRates(series, recent, held.current, `${series.step}|${level.kind}|${process}`);
+    held.current = r.held;
+    return { series, shown: r.shown };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [series, second]);
 }

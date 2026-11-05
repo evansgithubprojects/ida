@@ -1,7 +1,7 @@
 import type { Finding, Occurrence } from '@eda-debugger/core';
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { callChain, errorCode, eventKey, recipientsOf, throwId, throwIdFor, type ReplayIndex } from '../replay';
+import { callChain, errorCode, eventKey, fmtRate, RATE_STEP_MS, recipientsOf, throwId, throwIdFor, type ReplayIndex } from '../replay';
 import { useStore } from '../store';
 
 export const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${ms.toFixed(ms < 10 ? 2 : 0)}ms`);
@@ -228,4 +228,61 @@ export function FindingChain({ index, finding }: { index: ReplayIndex; finding: 
     : item.template.handlerIds.map((id) => <HandlerLink key={id} id={id} during={item.occ.id} />);
   const source = finding.taintSource;
   return <CallChain index={index} occurrenceId={item.occ.id} threw={source?.handlerId} errorId={source ? throwId(source.occurrenceId, source.handlerId) : undefined} tail={recipients} />;
+}
+
+/** How long ago a step ended, e.g. "35s ago" or "2m 05s ago". */
+function agoLabel(ms: number): string {
+  const secs = Math.round(ms / 1000);
+  return secs < 60 ? `${secs}s ago` : `${Math.floor(secs / 60)}m ${String(secs % 60).padStart(2, '0')}s ago`;
+}
+
+const CHART_W = 240;
+const CHART_H = 48;
+
+/**
+ * Events per second over the last few minutes, oldest first, one value per `RATE_STEP_MS` step. The readout above
+ * shows the newest value, or the one under the pointer. `max` is passed in so charts shown side by side share a scale.
+ */
+export function RateChart({ label, values, max, current }: { label: string; values: number[]; max: number; current?: { value: number; spike: boolean } }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const n = values.length;
+  const top = max > 0 ? max : 1;
+  const x = (i: number) => (n > 1 ? (i / (n - 1)) * CHART_W : CHART_W);
+  // 2px headroom so a peak's stroke isn't clipped; the baseline sits on the bottom edge.
+  const y = (v: number) => CHART_H - 1 - (v / top) * (CHART_H - 3);
+  const path = values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const shown = hover ?? n - 1;
+  // The newest point reads what the graph's label shows, which can be a spike ahead of the last completed step.
+  const atNow = hover === null || hover === n - 1;
+  const readout = atNow && current ? current.value : values[shown] ?? 0;
+  const minutes = Math.round((n * RATE_STEP_MS) / 60_000);
+  return (
+    <figure className="rate-chart">
+      <figcaption>
+        <span>{label}</span>
+        <strong>{fmtRate(readout)}/s</strong>
+        <span className={current?.spike && atNow ? 'spike' : 'muted'}>{!atNow ? agoLabel((n - 1 - hover!) * RATE_STEP_MS) : current?.spike ? 'spike' : `last ${RATE_STEP_MS / 1000} s`}</span>
+      </figcaption>
+      <div className="rate-plot">
+        <svg
+          viewBox={`0 0 ${CHART_W} ${CHART_H}`}
+          preserveAspectRatio="none"
+          role="img"
+          aria-label={`${label}: ${fmtRate(values[n - 1] ?? 0)} events per second now, peak ${fmtRate(max)} per second over the last ${minutes} minutes`}
+          onPointerMove={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setHover(Math.min(n - 1, Math.max(0, Math.round(((e.clientX - r.left) / r.width) * (n - 1)))));
+          }}
+          onPointerLeave={() => setHover(null)}
+        >
+          <line x1={0} x2={CHART_W} y1={CHART_H - 0.5} y2={CHART_H - 0.5} className="rate-baseline" vectorEffect="non-scaling-stroke" />
+          {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={0} y2={CHART_H} className="rate-crosshair" vectorEffect="non-scaling-stroke" />}
+          <path d={path} className="rate-line" vectorEffect="non-scaling-stroke" />
+        </svg>
+        {/* In HTML so the stretched SVG doesn't squash it into an oval. */}
+        <span className="rate-dot" style={{ left: `${(x(shown) / CHART_W) * 100}%`, top: `${(y(values[shown] ?? 0) / CHART_H) * 100}%` }} />
+      </div>
+      <div className="rate-axis muted"><span>{minutes} min ago</span><span>peak {fmtRate(max)}/s</span><span>now</span></div>
+    </figure>
+  );
 }

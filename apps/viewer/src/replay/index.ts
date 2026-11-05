@@ -524,3 +524,147 @@ export function recipientsOf(index: ReplayIndex, findings: Finding[]): Recipient
   }
   return [...byLabel.values()].sort((a, b) => Number(b.external) - Number(a.external) || b.count - a.count || a.label.localeCompare(b.label));
 }
+
+/** How often the graph's rates update, in recording ms. Each rate is the average over one such step. */
+export const RATE_STEP_MS = 5000;
+/** How many past rates the inspector charts: 60 steps of 5 s, the last five minutes. */
+export const RATE_HISTORY = 60;
+
+/**
+ * Events per second, per pathway and per node as receiver (`in`) and sender (`out`), for each of the last
+ * `RATE_HISTORY` completed `RATE_STEP_MS` steps before `t`, oldest first. Steps are fixed to recording time, so the
+ * newest value only changes when the playhead crosses into the next step. Counted like the window totals in
+ * `buildModel`: a node's traffic inside its own process counts towards it, but not towards a pathway.
+ */
+export interface RateSeries {
+  /** The step `t` is in; the newest value covers the step before it. */
+  step: number;
+  edges: Map<string, number[]>;
+  in: Map<string, number[]>;
+  out: Map<string, number[]>;
+}
+
+interface RateOptions {
+  mapNode?: MapNode;
+  shiftOf?: (occurrenceId: string) => number;
+}
+
+/** Calls `visit` for every hop of every event that plays in `[lo, hi)`, scanning from item `scanFrom`. */
+function eachPlayedHop(index: ReplayIndex, lo: number, hi: number, opts: RateOptions, scanFrom: number, visit: (src: string, dst: string, at: number) => void): void {
+  const map = opts.mapNode ?? ((id: string) => id);
+  for (let i = scanFrom; i < index.items.length; i++) {
+    const { occ, hops } = index.items[i] as IndexedOccurrence;
+    if (occ.ts >= hi) break; // sorted by ts, and a shift only ever delays
+    const at = occ.ts + (opts.shiftOf?.(occ.id) ?? 0);
+    if (at < lo || at >= hi) continue;
+    for (const hop of hops) {
+      const src = map(hop.src);
+      const dst = map(hop.dst);
+      if (src && dst) visit(src, dst, at);
+    }
+  }
+}
+
+export function rateSeries(index: ReplayIndex, t: number, opts: RateOptions = {}): RateSeries {
+  const step = Math.floor(t / RATE_STEP_MS);
+  const hi = step * RATE_STEP_MS;
+  const lo = hi - RATE_HISTORY * RATE_STEP_MS;
+  const out: RateSeries = { step, edges: new Map(), in: new Map(), out: new Map() };
+  const add = (m: Map<string, number[]>, k: string, slot: number) => {
+    let row = m.get(k);
+    if (!row) m.set(k, (row = new Array<number>(RATE_HISTORY).fill(0)));
+    row[slot]! += 1;
+  };
+  eachPlayedHop(index, lo, hi, opts, 0, (src, dst, at) => {
+    const slot = Math.floor((at - lo) / RATE_STEP_MS);
+    add(out.in, dst, slot);
+    add(out.out, src, slot);
+    if (src !== dst) add(out.edges, edgeId(src, dst), slot);
+  });
+  // Counted whole, then turned into per-second rates, so a steady 4/s reads exactly 4.
+  for (const m of [out.edges, out.in, out.out]) for (const row of m.values()) for (let i = 0; i < row.length; i++) row[i] = row[i]! * 1000 / RATE_STEP_MS;
+  return out;
+}
+
+/** The last second is checked for a spike this precisely: a rate at least this many events per second... */
+export const SPIKE_MIN = 10;
+/** ...and at least this many times the shown 5 s rate, gets shown at once instead of at the next step. */
+export const SPIKE_RATIO = 2;
+/** How far back a spike check looks, in ms. */
+export const SPIKE_WINDOW_MS = 1000;
+
+/** Events per second over the last `SPIKE_WINDOW_MS` up to `t`, counted like `rateSeries`. */
+export interface RecentRates {
+  edges: Map<string, number>;
+  in: Map<string, number>;
+  out: Map<string, number>;
+}
+
+// Nudges both edges of the window so it covers (t - window, t]: an event exactly `window` ago is out, one at `t` is in.
+const NUDGE = 1e-6;
+
+/** `maxShiftMs` is how much later than recorded an event can play, which sets how far back the scan has to start. */
+export function recentRates(index: ReplayIndex, t: number, opts: RateOptions & { maxShiftMs?: number } = {}): RecentRates {
+  const lo = t - SPIKE_WINDOW_MS + NUDGE;
+  const out: RecentRates = { edges: new Map(), in: new Map(), out: new Map() };
+  const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1000 / SPIKE_WINDOW_MS);
+  eachPlayedHop(index, lo, t + NUDGE, opts, firstAtOrAfter(index.items, lo - (opts.maxShiftMs ?? 0)), (src, dst) => {
+    bump(out.in, dst);
+    bump(out.out, src);
+    if (src !== dst) bump(out.edges, edgeId(src, dst));
+  });
+  return out;
+}
+
+/** What a label shows, and whether it is a spike shown ahead of its step. */
+export interface Shown { value: number; spike: boolean }
+export interface ShownRates {
+  edges: Map<string, Shown>;
+  in: Map<string, Shown>;
+  out: Map<string, Shown>;
+}
+
+/** The spikes latched so far in one step at one zoom level (`key`), per pathway and per node. */
+export interface HeldSpikes {
+  key: string;
+  edges: Map<string, number>;
+  in: Map<string, number>;
+  out: Map<string, number>;
+}
+
+/**
+ * What the graph's labels show: the 5 s rate, except where the last second spiked. A spike is latched the first time
+ * it meets both limits within a step and held until the step changes (`key` changes), when the label goes back to the
+ * new step's average. Pass the `held` from the previous call; it is ignored once `key` differs.
+ */
+export function shownRates(series: RateSeries, recent: RecentRates, held: HeldSpikes | null, key: string): { shown: ShownRates; held: HeldSpikes } {
+  const next: HeldSpikes = held && held.key === key
+    ? { key, edges: new Map(held.edges), in: new Map(held.in), out: new Map(held.out) }
+    : { key, edges: new Map(), in: new Map(), out: new Map() };
+  const shown: ShownRates = { edges: new Map(), in: new Map(), out: new Map() };
+  for (const kind of ['edges', 'in', 'out'] as const) {
+    const ids = new Set([...series[kind].keys(), ...recent[kind].keys(), ...next[kind].keys()]);
+    for (const id of ids) {
+      const base = series[kind].get(id)?.at(-1) ?? 0;
+      let spike = next[kind].get(id);
+      if (spike === undefined) {
+        const r = recent[kind].get(id) ?? 0;
+        if (r >= SPIKE_MIN && r >= SPIKE_RATIO * base) { next[kind].set(id, r); spike = r; }
+      }
+      shown[kind].set(id, { value: spike ?? base, spike: spike !== undefined });
+    }
+  }
+  return { shown, held: next };
+}
+
+/** The graph's rates: the series the inspector charts, and what the labels show. */
+export interface Rates {
+  series: RateSeries;
+  shown: ShownRates;
+}
+
+/** A rate for display: one decimal below 10/s, whole numbers above. */
+export function fmtRate(perSecond: number): string {
+  if (perSecond === 0) return '0';
+  return perSecond < 10 ? perSecond.toFixed(1).replace(/\.0$/, '') : String(Math.round(perSecond));
+}

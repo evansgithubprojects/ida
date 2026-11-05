@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createRecorder, type Recording } from '@eda-debugger/core';
-import { activeAt, activityOf, buildIndex, callChain, chainOf, edgeId, isProblemRun, parseRunId, runById, runId, throwId, throwIdFor, errorCode, capWindow, inWindow, keepNewest, MAX_WINDOW_EVENTS, mergeTicks, notifications, MAX_PULSES } from '../src/replay';
+import { activeAt, activityOf, buildIndex, callChain, chainOf, edgeId, isProblemRun, parseRunId, runById, runId, throwId, throwIdFor, errorCode, capWindow, inWindow, keepNewest, MAX_WINDOW_EVENTS, mergeTicks, notifications, rateSeries, fmtRate, RATE_STEP_MS, RATE_HISTORY, recentRates, shownRates, MAX_PULSES, SPIKE_MIN, SPIKE_RATIO, type HeldSpikes, type RateSeries, type RecentRates } from '../src/replay';
 
 function recordShop(): Recording {
   let t = 0;
@@ -326,6 +326,114 @@ describe('keepNewest', () => {
   it('sorts by time first, so a late arrival is judged by when it happened', () => {
     const shuffled = { ...rec, occurrences: [...rec.occurrences].reverse() };
     expect(keepNewest(shuffled, 10).occurrences.map((o) => o.id)).toEqual(rec.occurrences.slice(-10).map((o) => o.id));
+  });
+});
+
+describe('rateSeries', () => {
+  /** One event every `gap` ms on a single pathway, for `ms` of recording time. */
+  function steady(gap: number, ms: number): Recording {
+    let t = 0;
+    const rec = createRecorder({ now: () => t });
+    const bus = {};
+    const h = function onTick() {};
+    for (; t < ms; t += gap) rec.dispatch({ emitter: bus, eventName: 'tick', handlers: [h], payload: undefined }, (invoke) => invoke(h, () => h()));
+    return rec.export();
+  }
+
+  it('averages each completed 5 s step into events per second, oldest first', () => {
+    const rec = steady(250, 30_000); // 4 events/s
+    const index = buildIndex(rec);
+    const emitter = rec.nodes.find((n) => n.kind === 'emitter')!.id;
+    const handler = rec.nodes.find((n) => n.kind === 'handler')!.id;
+    const s = rateSeries(index, 30_000);
+    const row = s.edges.get(edgeId(emitter, handler))!;
+    expect(row).toHaveLength(RATE_HISTORY);
+    expect(row.slice(-6)).toEqual([4, 4, 4, 4, 4, 4]);
+    expect(row[0]).toBe(0); // before the recording began
+    expect(s.out.get(emitter)!.at(-1)).toBe(4);
+    expect(s.in.get(handler)!.at(-1)).toBe(4);
+  });
+
+  it('only moves on when the playhead enters the next step', () => {
+    const index = buildIndex(steady(250, 30_000));
+    expect(rateSeries(index, 12_000).step).toBe(rateSeries(index, 14_999).step);
+    expect(rateSeries(index, 15_000).step).toBe(rateSeries(index, 14_999).step + 1);
+    expect(RATE_STEP_MS).toBe(5000);
+  });
+
+  it('counts a shifted event in the step it plays in', () => {
+    const rec = steady(250, 10_000);
+    const index = buildIndex(rec);
+    const late = rateSeries(index, 20_000, { shiftOf: () => 5000 });
+    const plain = rateSeries(index, 20_000);
+    const [row] = [...late.edges.values()];
+    const [base] = [...plain.edges.values()];
+    expect(row!.slice(-2)).toEqual(base!.slice(-3, -1));
+  });
+
+  it('formats rates for the graph', () => {
+    expect([fmtRate(0), fmtRate(0.2), fmtRate(4), fmtRate(12.6)]).toEqual(['0', '0.2', '4', '13']);
+  });
+});
+
+describe('spikes', () => {
+  function steady(gap: number, ms: number): Recording {
+    let t = 0;
+    const rec = createRecorder({ now: () => t });
+    const bus = {};
+    const h = function onTick() {};
+    for (; t < ms; t += gap) rec.dispatch({ emitter: bus, eventName: 'tick', handlers: [h], payload: undefined }, (invoke) => invoke(h, () => h()));
+    return rec.export();
+  }
+  const ids = (rec: Recording) => ({ emitter: rec.nodes.find((n) => n.kind === 'emitter')!.id, handler: rec.nodes.find((n) => n.kind === 'handler')!.id });
+
+  it('counts only the last second, per second', () => {
+    const rec = steady(250, 10_000); // 4/s
+    const index = buildIndex(rec);
+    const { emitter, handler } = ids(rec);
+    const r = recentRates(index, 8000);
+    expect(r.edges.get(edgeId(emitter, handler))).toBe(4);
+    expect(r.out.get(emitter)).toBe(4);
+    expect(recentRates(index, 20_000).edges.size).toBe(0);
+  });
+
+  it('counts a shifted event when it plays, scanning back far enough to find it', () => {
+    const rec = steady(250, 4000);
+    const index = buildIndex(rec);
+    const { emitter, handler } = ids(rec);
+    const shiftOf = () => 5000;
+    expect(recentRates(index, 4000, { shiftOf }).edges.size).toBe(0); // nothing has played yet
+    expect(recentRates(index, 6000, { shiftOf, maxShiftMs: 5000 }).edges.get(edgeId(emitter, handler))).toBe(4);
+    expect(recentRates(index, 6000, { shiftOf, maxShiftMs: 0 }).edges.size).toBe(0); // a scan that starts too late misses it
+  });
+
+  describe('shownRates', () => {
+    const series = (step: number, value: number): RateSeries => ({ step, edges: new Map([['e', [value]]]), in: new Map(), out: new Map() });
+    const recent = (value: number): RecentRates => ({ edges: new Map([['e', value]]), in: new Map(), out: new Map() });
+    const show = (s: RateSeries, r: RecentRates, held: HeldSpikes | null) => shownRates(s, r, held, `${s.step}|process|`);
+
+    it('shows the 5 s rate unless the last second jumped past both limits', () => {
+      expect(show(series(1, 2), recent(SPIKE_MIN - 1), null).shown.edges.get('e')).toEqual({ value: 2, spike: false }); // under the floor
+      expect(show(series(1, 8), recent(SPIKE_MIN), null).shown.edges.get('e')).toEqual({ value: 8, spike: false }); // not 2x
+      expect(show(series(1, 2), recent(SPIKE_MIN), null).shown.edges.get('e')).toEqual({ value: SPIKE_MIN, spike: true });
+      expect(SPIKE_RATIO).toBe(2);
+    });
+
+    it('holds the first spike until the step changes, then shows the new average', () => {
+      const first = show(series(1, 2), recent(30), null);
+      // The spike is over and a later one is bigger, but the latched value stays within the step.
+      const during = show(series(1, 2), recent(0), first.held);
+      expect(during.shown.edges.get('e')).toEqual({ value: 30, spike: true });
+      expect(show(series(1, 2), recent(80), during.held).shown.edges.get('e')).toEqual({ value: 30, spike: true });
+      // Next step: back to the average.
+      expect(show(series(2, 7), recent(0), during.held).shown.edges.get('e')).toEqual({ value: 7, spike: false });
+    });
+
+    it('still shows a held spike on a pathway the series has never seen', () => {
+      const s: RateSeries = { step: 1, edges: new Map(), in: new Map(), out: new Map() };
+      const first = show(s, recent(25), null);
+      expect(show(s, { edges: new Map(), in: new Map(), out: new Map() }, first.held).shown.edges.get('e')).toEqual({ value: 25, spike: true });
+    });
   });
 });
 

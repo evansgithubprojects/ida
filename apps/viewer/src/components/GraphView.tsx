@@ -9,8 +9,8 @@ import { processNodeId, type Level, type ModelEdge, type ModelNode } from '../gr
 import {
   centreViewport, fitViewport, MAX_ZOOM, sameViewport, saveViewport, takeSavedViewport, MIN_ZOOM, motion, rectOnScreen, toKeyframes, ZOOM_MS, zoomFrames, type Rect, type Viewport,
 } from '../graph/zoom';
-import { useActive, useModel } from '../hooks';
-import { countFired, type Active } from '../replay';
+import { useActive, useModel, useRates } from '../hooks';
+import { fmtRate, type Active, type ShownRates } from '../replay';
 import { useStore } from '../store';
 import { NodeRef } from './common';
 
@@ -23,13 +23,12 @@ interface ViewState {
   nodes: Map<string, ModelNode>;
   edges: Map<string, ModelEdge>;
   active: Active;
+  /** What the n/s labels show: the last 5 s step, or a spike ahead of it (see `shownRates`). */
+  rates: ShownRates | null;
   selectedId: string | null;
   /** Briefly set after a "show on graph" request. */
   focusedId: string | null;
   focusedEdgeId: string | null;
-  /** Playhead and the end of the replay window, for the pathway counters. */
-  t: number;
-  end: number;
 }
 
 const ViewCtx = createContext<ViewState | null>(null);
@@ -44,9 +43,11 @@ const RING_ID = '__ring';
 const hiddenHandle = { opacity: 0, pointerEvents: 'none' } as const;
 
 const NodeCard = memo(function NodeCard({ id }: NodeProps<RouteNode>) {
-  const { nodes, active, selectedId, focusedId } = useView();
+  const { nodes, active, rates, selectedId, focusedId } = useView();
   const model = nodes.get(id);
   if (!model) return null;
+  const rateIn = rates?.in.get(id);
+  const rateOut = rates?.out.get(id);
   const flashing = active.flashingNodes.has(id);
   const thrown = active.thrownNodes.get(id) ?? 0;
   const cls = ['node-card', `kind-${model.kind}`, flashing && 'flash', thrown > 0 && 'has-thrown', model.idle && 'idle', selectedId === id && 'selected', focusedId === id && 'focused'];
@@ -54,7 +55,9 @@ const NodeCard = memo(function NodeCard({ id }: NodeProps<RouteNode>) {
     <div className={cls.filter(Boolean).join(' ')} style={{ width: NODE_W, height: NODE_H }}>
       <Handle type="target" position={Position.Left} isConnectable={false} style={hiddenHandle} />
       <div className="node-title" title={model.label}>{model.kind === 'process' || model.kind === 'stub' ? model.label : <NodeRef id={model.id} label={model.label} qualify={false} />}</div>
-      <div className="node-detail">{model.detail}</div>
+      <div className={`node-detail ${rateIn?.spike || rateOut?.spike ? 'spike' : ''}`} title={rateIn?.spike || rateOut?.spike ? 'Spike, held until the next update' : undefined}>
+        {model.kind === 'stub' ? model.detail : `${fmtRate(rateIn?.value ?? 0)}/s in · ${fmtRate(rateOut?.value ?? 0)}/s out`}
+      </div>
       {thrown > 0 && <span className="corner corner-error" title={`${thrown} throw(s) so far`}>✕ {thrown}</span>}
       <Handle type="source" position={Position.Right} isConnectable={false} style={hiddenHandle} />
     </div>
@@ -115,7 +118,7 @@ function floatingPath(source: InternalNode, target: InternalNode): [string, numb
 const PULSE_LENGTH = 0.2;
 
 const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgeProps<RouteEdge>) {
-  const { edges, active, selectedId, focusedEdgeId, t, end } = useView();
+  const { edges, active, rates, selectedId, focusedEdgeId } = useView();
   const from = useInternalNode(source);
   const to = useInternalNode(target);
   const edge = edges.get(id);
@@ -128,6 +131,7 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
   // Thickness follows the total so lines don't change width while the counter ticks.
   const width = 1.5 + Math.min(3, Math.log2(edge.count + 1) * 0.5);
   // Every event still on its way gets its own pulse, so a busy route shows them all instead of restarting one.
+  const shown = rates?.edges.get(id);
   const flights = active.pulses.get(id) ?? [];
   return (
     <>
@@ -150,7 +154,7 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
       ))}
       <EdgeLabelRenderer>
         <div className={`edge-label ${selectedId === id ? 'selected' : ''} ${focusedEdgeId === id ? 'focused' : ''}`} style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}>
-          <span title={`${edge.count} in this window`}>{countFired(edge.times, t, end)}</span>
+          <span className={shown?.spike ? 'spike' : undefined} title={shown?.spike ? `Spike: ${fmtRate(shown.value)}/s, held until the next update` : `${edge.count} in this window`}>{fmtRate(shown?.value ?? 0)}/s</span>
           {flagged && <span className="mark mark-warn" title={`Suspected corrupt payloads on this route${flagged.high ? ', some reaching an external system' : ''}`}>⚠{flagged.count}</span>}
         </div>
       </EdgeLabelRenderer>
@@ -185,9 +189,8 @@ interface LayerProps {
 function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
   const model = useModel(level);
   const active = useActive(model);
+  const rates = useRates(model, level);
   const index = useStore((s) => s.index);
-  const t = useStore((s) => s.t);
-  const end = useStore((s) => s.window[1]);
   const selection = useStore((s) => s.selection);
   const select = useStore((s) => s.select);
   const focus = useStore((s) => s.focus);
@@ -290,11 +293,11 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
 
   const view = useMemo<ViewState | null>(
     () => (model && active ? {
-      nodes: new Map(model.nodes.map((n) => [n.id, n])), edges: new Map(model.edges.map((e) => [e.id, e])), active,
+      nodes: new Map(model.nodes.map((n) => [n.id, n])), edges: new Map(model.edges.map((e) => [e.id, e])), active, rates: rates?.shown ?? null,
       selectedId: selection && selection.type !== 'occurrence' && selection.type !== 'event' ? selection.id : null,
-      focusedId, focusedEdgeId: focusedEdge?.id ?? null, t, end,
+      focusedId, focusedEdgeId: focusedEdge?.id ?? null,
     } : null),
-    [model, active, selection, focusedId, focusedEdge, t, end],
+    [model, active, rates, selection, focusedId, focusedEdge],
   );
 
   if (!model || !view || !lay) return null;

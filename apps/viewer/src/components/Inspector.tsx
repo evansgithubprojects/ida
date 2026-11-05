@@ -1,10 +1,10 @@
 import type { Finding } from '@eda-debugger/core';
 import { memo, useDeferredValue, useMemo, useRef, useState } from 'react';
-import { useModel } from '../hooks';
+import { useModel, useRates } from '../hooks';
 import type { GraphModel } from '../graph/model';
-import { activityOf, chainOf, errorCode, throwIdFor, countFired, edgeId, eventKey, eventLabel, inWindow, isProblemRun, notifications, parseRunId, parseThrowId, recipientsOf, runById, throwId, type IndexedOccurrence, type Notification, type ReplayIndex, type Run, type Tier } from '../replay';
+import { RATE_HISTORY, activityOf, chainOf, errorCode, throwIdFor, countFired, edgeId, eventKey, eventLabel, inWindow, isProblemRun, notifications, parseRunId, parseThrowId, recipientsOf, runById, throwId, type IndexedOccurrence, type Notification, type ReplayIndex, type Run, type Tier } from '../replay';
 import { TRAIL_MAX, useStore, type Selection } from '../store';
-import { Badge, CallChain, ErrorId, CaptureBadge, EventLink, EventRef, FindingBadges, FindingChain, FindingSummary, fmtMs, HandlerLink, InspectLink, Json, NodeRef, Section, shortValue } from './common';
+import { Badge, CallChain, ErrorId, CaptureBadge, EventLink, EventRef, FindingBadges, FindingChain, FindingSummary, fmtMs, HandlerLink, InspectLink, Json, NodeRef, RateChart, Section, shortValue } from './common';
 
 export function Inspector() {
   const index = useStore((s) => s.index)!;
@@ -167,6 +167,29 @@ function ShowMore({ total, cap, onMore }: { total: number; cap: number; onMore()
 /** How many notifications the event inspector lists, newest first. */
 const RECENT_NOTIFICATIONS = 20;
 
+const NO_RATES: number[] = new Array<number>(RATE_HISTORY).fill(0);
+const peak = (...rows: number[][]) => Math.max(0, ...rows.flat());
+
+/** The node's or pathway's events per second over the last few minutes, from the same series the graph shows. */
+function RateSection({ id, kind }: { id: string; kind: 'node' | 'edge' }) {
+  const model = useModel();
+  const level = useStore((s) => s.level);
+  const rates = useRates(model, level);
+  if (kind === 'edge') {
+    const values = rates?.series.edges.get(id) ?? NO_RATES;
+    return <Section title="Rate"><RateChart label="Events" values={values} max={peak(values)} current={rates?.shown.edges.get(id)} /></Section>;
+  }
+  const ins = rates?.series.in.get(id) ?? NO_RATES;
+  const outs = rates?.series.out.get(id) ?? NO_RATES;
+  const max = peak(ins, outs);
+  return (
+    <Section title="Rate">
+      <RateChart label="In" values={ins} max={max} current={rates?.shown.in.get(id)} />
+      <RateChart label="Out" values={outs} max={max} current={rates?.shown.out.get(id)} />
+    </Section>
+  );
+}
+
 /** A graph node by name: a handler links to its inspector, a process to the process node's. */
 function NodeName({ model, id }: { model: GraphModel; id: string }) {
   const select = useStore((s) => s.select);
@@ -262,6 +285,7 @@ function NodeDetail({ index, id }: { index: ReplayIndex; id: string }) {
         </dl>
         {(m.kind === 'process' || m.kind === 'stub') && <button className="primary" onClick={() => setLevel({ kind: 'handlers', processId: m.processId })}>Zoom into process</button>}
       </Section>
+      {m.kind !== 'stub' && <RateSection id={id} kind="node" />}
       <EventList title="Receiving" events={receiving} />
       <EventList title="Sending" events={sending} />
       {runs && <ActivitySection index={index} runs={runs} window={window} />}
@@ -457,6 +481,7 @@ function EdgeDetail({ index, id }: { index: ReplayIndex; id: string }) {
         <p className="route"><NodeName model={model} id={edge.source} /> → <NodeName model={model} id={edge.target} /></p>
         <dl className="facts"><dt>Events</dt><dd>{edge.events.map((e, k) => <span key={e}>{k > 0 && ', '}<EventLink id={e} /></span>)}</dd><dt>Fired</dt><dd><FiredCount times={edge.times} end={window[1]} /> of {edge.count}×</dd></dl>
       </Section>
+      <RateSection id={id} kind="edge" />
       <Section title="Payloads" aside={showAll ? items.length : `${problems.length} of ${items.length}`}>
         <CleanToggle shown={problems.length} total={items.length} noun="payloads" checked={showAll} onChange={setShowAll} empty="No suspected corrupt payloads on this pathway in this window." />
         <ul className="list">
