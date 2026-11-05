@@ -104,6 +104,11 @@ export function zoomFrames(focus: Rect, pane: { width: number; height: number })
 
 export const toKeyframes = (frames: Frame[]): Keyframe[] => frames.map((f) => ({ offset: f.offset, transform: f.transform, opacity: f.opacity }));
 
+/** Whether two cameras are the same to within a pixel and a hair of zoom, so a camera we placed reads as unmoved. */
+export function sameViewport(a: Viewport, b: Viewport | null): boolean {
+  return !!b && Math.abs(a.x - b.x) < 1 && Math.abs(a.y - b.y) < 1 && Math.abs(a.zoom - b.zoom) < 0.001;
+}
+
 const SAVED_KEY = 'ida:viewport';
 
 /** The camera as it was when the page was last left, read once at load so later saves can't overwrite it first. */

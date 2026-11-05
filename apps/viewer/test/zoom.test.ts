@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { centreViewport, FIT_MARGIN, fitViewport, MAX_FIT_ZOOM, MIN_ZOOM, rectOnScreen, viewportForRect, zoomFrames } from '../src/graph/zoom';
+import { centreViewport, FIT_MARGIN, fitViewport, MAX_FIT_ZOOM, MIN_ZOOM, rectOnScreen, sameViewport, viewportForRect, zoomFrames } from '../src/graph/zoom';
 
 /** Parses "translate(Xpx, Ypx) scale(S)". */
 function parse(transform: string) {
@@ -104,5 +104,15 @@ describe('zoomFrames', () => {
       expect(paneCentre.x).toBeCloseTo(cardCentre.x);
       expect(paneCentre.y).toBeCloseTo(cardCentre.y);
     }
+  });
+});
+
+describe('sameViewport', () => {
+  it('treats a camera within a pixel and a hair of zoom as unmoved', () => {
+    const fit = { x: 100, y: 50, zoom: 0.8 };
+    expect(sameViewport({ x: 100.4, y: 49.6, zoom: 0.8004 }, fit)).toBe(true);
+    expect(sameViewport({ x: 103, y: 50, zoom: 0.8 }, fit)).toBe(false);
+    expect(sameViewport({ x: 100, y: 50, zoom: 0.9 }, fit)).toBe(false);
+    expect(sameViewport(fit, null)).toBe(false);
   });
 });

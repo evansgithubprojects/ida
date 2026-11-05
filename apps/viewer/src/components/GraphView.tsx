@@ -4,10 +4,10 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { layout, layoutBounds, NODE_H, NODE_W, type Positions } from '../graph/layout';
+import { accumulate, layoutBounds, layoutSeen, NODE_H, NODE_W, type Positions, type Seen } from '../graph/layout';
 import { processNodeId, type Level, type ModelEdge, type ModelNode } from '../graph/model';
 import {
-  centreViewport, fitViewport, MAX_ZOOM, saveViewport, takeSavedViewport, MIN_ZOOM, motion, rectOnScreen, toKeyframes, ZOOM_MS, zoomFrames, type Rect, type Viewport,
+  centreViewport, fitViewport, MAX_ZOOM, sameViewport, saveViewport, takeSavedViewport, MIN_ZOOM, motion, rectOnScreen, toKeyframes, ZOOM_MS, zoomFrames, type Rect, type Viewport,
 } from '../graph/zoom';
 import { useActive, useModel } from '../hooks';
 import { countFired, type Active } from '../replay';
@@ -199,16 +199,34 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
     () => (model ? level.kind + '|' + model.nodes.map((n) => n.id).sort().join(',') + '|' + model.edges.map((e) => e.id).sort().join(',') : ''),
     [model, level.kind],
   );
+  // Nodes keep their place: the layout covers everything this layer has drawn, so one that leaves the window (or an
+  // attack bringing in new ones) doesn't move the rest. It restarts with a new session, whose events start over.
+  const session = index?.recording.startedAt;
+  const seenRef = useRef<{ session: number | undefined; seen: Seen | null }>({ session, seen: null });
+  const seen = useMemo(() => {
+    if (!model) return null;
+    if (seenRef.current.session !== session) seenRef.current = { session, seen: null };
+    seenRef.current.seen = accumulate(seenRef.current.seen, model);
+    return seenRef.current.seen;
+  }, [model, session]);
   const lay = useMemo(
-    () => (model ? layout(model, level.kind === 'handlers') : null),
+    () => (model && seen ? layoutSeen(seen, model.mapNode, level.kind === 'handlers') : null),
+    // Only a node seen for the first time re-spaces the circle; a new pathway between known nodes leaves it alone.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sig],
+    [seen?.sig],
   );
 
   // The camera is ours to place, so a transition can compute where every node is on screen without measuring.
   // After a reload the camera goes back where it was; otherwise the whole graph is fitted.
-  const [initialViewport] = useState<Viewport>(() => (lay ? takeSavedViewport(sig) ?? fitViewport(layoutBounds(lay), size.width, size.height) : { x: 0, y: 0, zoom: 1 }));
+  const [{ viewport: initialViewport, restored }] = useState(() => {
+    const saved = lay ? takeSavedViewport(sig) : null;
+    return { restored: saved !== null, viewport: saved ?? (lay ? fitViewport(layoutBounds(lay), size.width, size.height) : { x: 0, y: 0, zoom: 1 }) };
+  });
   const camera = useRef<Viewport>(initialViewport);
+  // The camera is fitted to the graph until the user takes it over (pans, zooms, or a "show on graph" pan; a camera
+  // restored after a reload counts too). From then on a changed graph leaves it where it is.
+  const fitted = useRef<Viewport | null>(restored ? null : initialViewport);
+  const userCamera = useRef(restored);
   useLayoutEffect(() => {
     if (!lay) return;
     geometry.set(layerKey, { positions: lay.positions, viewport: () => camera.current });
@@ -218,11 +236,14 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
   const first = useRef(true);
   useEffect(() => {
     if (first.current) { first.current = false; return; }
-    if (!lay || !refit) return;
-    camera.current = takeSavedViewport(sig) ?? fitViewport(layoutBounds(lay), size.width, size.height);
+    if (!lay || !refit || userCamera.current) return;
+    const saved = takeSavedViewport(sig);
+    camera.current = saved ?? fitViewport(layoutBounds(lay), size.width, size.height);
+    fitted.current = saved ? null : camera.current;
+    userCamera.current = saved !== null;
     void setViewport(camera.current, { duration: 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sig]);
+  }, [seen?.sig]);
 
   // Only the layer on top answers focus requests, and not mid-zoom: a request that zoomed in lands once it's done.
   const focusedId = focus?.nodeId && refit && model ? (model.nodes.some((n) => n.id === focus.nodeId) ? focus.nodeId : model.mapNode(focus.nodeId)) : null;
@@ -259,7 +280,7 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lay]);
+  }, [lay, sig]);
 
   const edges = useMemo<RouteEdge[]>(
     () => (model ? model.edges.map((e) => ({ id: e.id, source: e.source, target: e.target, type: 'route', data: {} })) : []),
@@ -288,7 +309,7 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
         edgeTypes={edgeTypes}
         colorMode="dark"
         defaultViewport={initialViewport}
-        onMoveEnd={(_, vp) => { camera.current = vp; if (refit) saveViewport(sig, vp); }}
+        onMoveEnd={(_, vp) => { camera.current = vp; userCamera.current = !sameViewport(vp, fitted.current); if (refit) saveViewport(sig, vp); }}
         minZoom={MIN_ZOOM}
         maxZoom={MAX_ZOOM}
         zoomOnDoubleClick={false}
