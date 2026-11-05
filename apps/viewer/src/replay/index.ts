@@ -258,6 +258,8 @@ export function activeAt(index: ReplayIndex, t: number, opts: ActiveOptions): Ac
     m.set(k, { count: cur.count + 1, high: cur.high || high });
   };
 
+  const flights = new Map<string, { progress: number; h: number }[]>();
+
   // Sorted by ts, so start at the window's first event: the cost follows the window, not the recording.
   for (let at = firstAtOrAfter(index.items, w0); at < index.items.length; at++) {
     const { occ, hops, throws } = index.items[at] as IndexedOccurrence;
@@ -277,8 +279,9 @@ export function activeAt(index: ReplayIndex, t: number, opts: ActiveOptions): Ac
       if (age >= 0 && age < opts.fadeMs) {
         const v = 1 - age / opts.fadeMs;
         out.litEdges.set(id, Math.max(out.litEdges.get(id) ?? 0, v));
-        const inFlight = out.pulses.get(id);
-        if (inFlight) inFlight.push(age / opts.fadeMs); else out.pulses.set(id, [age / opts.fadeMs]);
+        const flight = { progress: age / opts.fadeMs, h: hashId(occ.id) };
+        const inFlight = flights.get(id);
+        if (inFlight) inFlight.push(flight); else flights.set(id, [flight]);
         out.litNodes.set(src, Math.max(out.litNodes.get(src) ?? 0, v));
         out.litNodes.set(dst, Math.max(out.litNodes.get(dst) ?? 0, v));
         if (flags) out.litFlaggedEdges.add(id);
@@ -294,7 +297,30 @@ export function activeAt(index: ReplayIndex, t: number, opts: ActiveOptions): Ac
       }
     }
   }
+  for (const [id, list] of flights) out.pulses.set(id, samplePulses(list));
   return out;
+}
+
+/** Most pulses drawn on one pathway at once. */
+export const MAX_PULSES = 8;
+
+/** A 32-bit FNV-1a hash: the same occurrence always gets the same number. */
+function hashId(id: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x01000193);
+  return h >>> 0;
+}
+
+/**
+ * The pulses to draw on a pathway with `list` in flight, oldest first. A busy pathway has far more in flight than can be
+ * drawn, and taking the newest few would bunch them all at the start of the line. Instead keep the events whose hash
+ * is a multiple of a power of two, the smallest that leaves `MAX_PULSES` or fewer: the same events stay chosen from
+ * frame to frame (so pulses glide rather than swap places) and they are spread along the whole line.
+ */
+function samplePulses(list: { progress: number; h: number }[]): number[] {
+  let kept = list;
+  for (let stride = 2; kept.length > MAX_PULSES; stride *= 2) kept = list.filter((f) => f.h % stride === 0);
+  return kept.map((f) => f.progress);
 }
 
 /** One mark on the timeline: every point that lands on the same pixel column, drawn once. */

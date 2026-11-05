@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createRecorder, type Recording } from '@eda-debugger/core';
-import { activeAt, activityOf, buildIndex, callChain, chainOf, edgeId, isProblemRun, parseRunId, runById, runId, throwId, throwIdFor, errorCode, capWindow, inWindow, keepNewest, MAX_WINDOW_EVENTS, mergeTicks, notifications } from '../src/replay';
+import { activeAt, activityOf, buildIndex, callChain, chainOf, edgeId, isProblemRun, parseRunId, runById, runId, throwId, throwIdFor, errorCode, capWindow, inWindow, keepNewest, MAX_WINDOW_EVENTS, mergeTicks, notifications, MAX_PULSES } from '../src/replay';
 
 function recordShop(): Recording {
   let t = 0;
@@ -326,5 +326,44 @@ describe('keepNewest', () => {
   it('sorts by time first, so a late arrival is judged by when it happened', () => {
     const shuffled = { ...rec, occurrences: [...rec.occurrences].reverse() };
     expect(keepNewest(shuffled, 10).occurrences.map((o) => o.id)).toEqual(rec.occurrences.slice(-10).map((o) => o.id));
+  });
+});
+
+describe('pulses on a busy pathway', () => {
+  /** `n` events 4 ms apart (250/s) on one pathway. */
+  function burst(n: number): Recording {
+    let t = 0;
+    const rec = createRecorder({ now: () => t });
+    const bus = {};
+    const h = function onTick() {};
+    for (let i = 0; i < n; i++) { t += 4; rec.dispatch({ emitter: bus, eventName: 'tick', handlers: [h], payload: undefined }, (invoke) => invoke(h, () => h())); }
+    return rec.export();
+  }
+  const fade = { fadeMs: 700, flashMs: 900 };
+  const only = (a: ReturnType<typeof activeAt>) => [...a.pulses.values()][0]!;
+
+  it('draws a few pulses spread along the whole line, not the newest ones bunched at the start', () => {
+    const index = buildIndex(burst(600)); // 2.4 s of traffic
+    const at = 2000; // far more than MAX_PULSES in flight
+    const p = only(activeAt(index, at, fade));
+    expect(p.length).toBeGreaterThan(1);
+    expect(p.length).toBeLessThanOrEqual(MAX_PULSES);
+    expect(Math.min(...p)).toBeLessThan(0.25);
+    expect(Math.max(...p)).toBeGreaterThan(0.75);
+  });
+
+  it('keeps choosing the same events from frame to frame, so pulses glide', () => {
+    const index = buildIndex(burst(600));
+    const a = only(activeAt(index, 2000, fade));
+    const b = only(activeAt(index, 2016, fade)); // one frame later
+    // Each pulse that was drawn is drawn again, 16/700 further along (the first few may have just left the line).
+    const step = 16 / 700;
+    const matched = a.filter((x) => b.some((y) => Math.abs(y - x - step) < 1e-9));
+    expect(matched.length).toBeGreaterThanOrEqual(a.length - 2);
+  });
+
+  it('draws every pulse while few are in flight', () => {
+    const index = buildIndex(burst(600));
+    expect(only(activeAt(index, 20, fade)).length).toBe(5); // events at 4, 8, 12, 16 and 20 ms: under the cap, none dropped
   });
 });

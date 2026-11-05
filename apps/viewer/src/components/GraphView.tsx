@@ -113,8 +113,6 @@ function floatingPath(source: InternalNode, target: InternalNode): [string, numb
 
 /** How much of a line the travelling pulse covers. */
 const PULSE_LENGTH = 0.2;
-/** Most pulses drawn on one line at once. */
-const MAX_PULSES = 8;
 
 const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgeProps<RouteEdge>) {
   const { edges, active, selectedId, focusedEdgeId, t, end } = useView();
@@ -130,7 +128,7 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
   // Thickness follows the total so lines don't change width while the counter ticks.
   const width = 1.5 + Math.min(3, Math.log2(edge.count + 1) * 0.5);
   // Every event still on its way gets its own pulse, so a busy route shows them all instead of restarting one.
-  const flights = (active.pulses.get(id) ?? []).slice(-MAX_PULSES);
+  const flights = active.pulses.get(id) ?? [];
   return (
     <>
       <BaseEdge
