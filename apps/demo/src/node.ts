@@ -2,11 +2,15 @@ import type { EventEmitter } from 'node:events';
 import { configure } from '@eda-debugger/cloud';
 import { connectRecorder, setDefaultRecorder } from '@eda-debugger/core';
 import { enableEventEmitterRecording } from '@eda-debugger/adapter-eventemitter';
+import { createAttacks } from './attacks';
+import { createAuth } from './auth';
+import { startDashboard } from './dashboard';
 import { createShop } from './shop';
 
 /**
  * The shop, uploaded to a project. Payments get their own recorder; everything else goes to `shop`.
  *   npm run node -w @eda-debugger/demo [-- --outage]   (reads EDA_PROJECT_KEY from apps/demo/.env)
+ * The attack simulator is served at http://localhost:5175 (DEMO_PORT): brute force and corrupt-request overload.
  * `--outage` cuts the connection for 8 s out of every 20, to watch the spool and the recovery.
  */
 try { process.loadEnvFile(); } catch { /* no .env */ }
@@ -36,23 +40,39 @@ configure({
   }) as typeof fetch,
 });
 
-const options = { deepLogging: { events: ['order:confirmed', 'charge', 'notify'] }, corruption: { notify: 'console' as const } };
+/** During an attack the console would print hundreds of lines, so suspect payloads are summed up once a second instead. */
+let suspects = 0;
+setInterval(() => {
+  if (suspects) console.log(`[demo] ${suspects} suspect payload${suspects === 1 ? '' : 's'} in the last second`);
+  suspects = 0;
+}, 1000).unref();
+
+const options = {
+  deepLogging: { events: ['order:confirmed', 'charge', 'notify', 'request', 'login:attempt', 'session:created'] },
+  corruption: { notify: [() => { suspects++; }] },
+};
 const shop = connectRecorder('shop', options);
 const payments = connectRecorder('payments', options);
 setDefaultRecorder(shop);
 enableEventEmitterRecording();
 
-const app = createShop(
-  (e: EventEmitter, name: string) => {
-    if (name === 'Payments') payments.track(e);
-    (name === 'Payments' ? payments : shop).labelEmitter(e, name);
-  },
-  (fn) => { shop.markExternal(fn); payments.markExternal(fn); },
-);
+const label = (e: EventEmitter, name: string) => {
+  if (name === 'Payments') payments.track(e);
+  (name === 'Payments' ? payments : shop).labelEmitter(e, name);
+};
+const markExternal = (fn: Function) => { shop.markExternal(fn); payments.markExternal(fn); };
+
+const auth = createAuth(label, markExternal);
+const app = createShop(auth, label, markExternal);
+const attacks = createAttacks(auth);
+
+let rounds = 0;
+startDashboard({ port: Number(process.env.DEMO_PORT) || 5175, attacks, auth, idaUrl: process.env.IDA_URL ?? 'http://localhost:5173', normal: () => ({ rounds }) });
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 console.log(`[demo] uploading to ${endpoint}${outage ? ' with simulated outages' : ''}; open the project in the web app`);
 for (let round = 1; ; round++) {
+  rounds = round;
   for (let i = 1; i <= 3; i++) {
     app.login(round * 10 + i);
     for (const total of [20 + i, 35 + i, 50 + i]) {

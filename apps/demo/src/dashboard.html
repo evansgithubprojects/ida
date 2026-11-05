@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Attack Simulator</title>
+  <style>
+    :root { --bg: #f6f7f6; --card: #fff; --text: #14201b; --muted: #5b6b64; --border: #d9dfdb; --accent: #00684a; --danger: #b3261e; --track: #e6ebe8; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #001e2b; --card: #112733; --text: #e8edeb; --muted: #889397; --border: #3d4f58; --accent: #00ed64; --danger: #ff6960; --track: #1c2d38; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, sans-serif; }
+    main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    .lede { color: var(--muted); margin: 0 0 20px; }
+    .lede a { color: var(--accent); }
+    .cards { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+    .card h2 { font-size: 16px; margin: 0 0 4px; }
+    .card p { margin: 0 0 12px; color: var(--muted); font-size: 14px; }
+    button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer; }
+    button.attack { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 600; }
+    button:disabled { opacity: .55; cursor: default; }
+    .state { display: flex; justify-content: space-between; margin: 12px 0 6px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .state strong { color: var(--text); }
+    .bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
+    .bar > i { display: block; height: 100%; width: 0; background: var(--danger); transition: width .4s linear; }
+    .meta { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px 24px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+    .meta strong { color: var(--text); }
+    .row { display: flex; gap: 8px; margin-top: 16px; }
+    .err { color: var(--danger); margin-top: 12px; min-height: 1.5em; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Attack simulator</h1>
+  <p class="lede">Both attacks run inside the demo shop, through its login system. Watch the <code>shop</code> recorder live in <a href="__IDA_URL__" target="_blank" rel="noopener">Ida</a>.</p>
+
+  <div class="cards">
+    <section class="card" data-attack="brute-force">
+      <h2>Brute-force login</h2>
+      <p>One address guesses passwords for <code>admin</code> at about 40 attempts a second for 8 seconds. Expect throttling, locked accounts and a spike on the Gateway → Auth pathway.</p>
+      <button class="attack" data-start="brute-force">Start brute force</button>
+      <div class="state"><span class="label">Idle</span><span><strong class="sent">0</strong> requests</span></div>
+      <div class="bar"><i></i></div>
+    </section>
+    <section class="card" data-attack="overload">
+      <h2>Corrupt request overload</h2>
+      <p>About 1,500 malformed login requests in 6 seconds from ten addresses. Expect corrupt-payload findings, TypeErrors in <code>checkPassword</code> and alerts reaching the security team.</p>
+      <button class="attack" data-start="overload">Start overload</button>
+      <div class="state"><span class="label">Idle</span><span><strong class="sent">0</strong> requests</span></div>
+      <div class="bar"><i></i></div>
+    </section>
+  </div>
+
+  <div class="row"><button id="stop">Stop all attacks</button></div>
+  <div class="err" id="err" role="status"></div>
+
+  <div class="meta">
+    <span>Throttled addresses <strong id="throttled">0</strong></span>
+    <span>Locked accounts <strong id="locked">0</strong></span>
+    <span>Failed logins <strong id="failed">0</strong></span>
+    <span>Successful logins <strong id="succeeded">0</strong></span>
+    <span>Errors swallowed <strong id="errors">0</strong></span>
+    <span>Normal traffic rounds <strong id="rounds">0</strong></span>
+  </div>
+</main>
+<script>
+  const $ = (s, r = document) => r.querySelector(s);
+  const err = $('#err');
+
+  async function call(method, path) {
+    try {
+      const res = await fetch(path, { method });
+      if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
+      err.textContent = '';
+      render(await res.json());
+    } catch (e) {
+      err.textContent = 'Could not reach the demo: ' + e.message;
+    }
+  }
+
+  function render(s) {
+    for (const card of document.querySelectorAll('[data-attack]')) {
+      const a = s.attacks[card.dataset.attack];
+      $('.label', card).textContent = a.running ? 'Running…' : a.sent ? 'Finished' : 'Idle';
+      $('.sent', card).textContent = a.sent.toLocaleString();
+      $('.bar > i', card).style.width = (a.durationMs ? Math.min(100, (a.elapsedMs / a.durationMs) * 100) : 0) + '%';
+      $('button.attack', card).disabled = a.running;
+    }
+    for (const k of ['throttled', 'locked', 'failed', 'succeeded', 'errors']) $('#' + k).textContent = s.security[k].toLocaleString();
+    $('#rounds').textContent = s.normal.rounds.toLocaleString();
+  }
+
+  for (const b of document.querySelectorAll('[data-start]')) b.addEventListener('click', () => call('POST', '/attack/' + b.dataset.start));
+  $('#stop').addEventListener('click', () => call('POST', '/attack/stop'));
+
+  const poll = () => call('GET', '/status');
+  poll();
+  setInterval(poll, 1000);
+</script>
+</body>
+</html>
