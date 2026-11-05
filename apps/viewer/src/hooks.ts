@@ -26,12 +26,20 @@ export function useActive(model: GraphModel | null): Active | null {
   const realTime = useStore((s) => s.following && s.live === 'on');
   const speed = realTime ? 1 : picked;
   const window = useStore((s) => s.window);
+  const shifts = useStore((s) => s.liveShift);
   return useMemo(
     () =>
       index && model
-        ? activeAt(index, t, { fadeMs: FADE_WALL_MS * speed, flashMs: FLASH_WALL_MS * speed, window, mapNode: model.mapNode })
+        ? activeAt(index, t, {
+            fadeMs: FADE_WALL_MS * speed,
+            flashMs: FLASH_WALL_MS * speed,
+            // Late events of a live burst play after the newest recorded time, so the window must not cut them off.
+            window: realTime ? [window[0], Infinity] : window,
+            mapNode: model.mapNode,
+            shiftOf: realTime ? (id) => shifts.get(id) ?? 0 : undefined,
+          })
         : null,
-    [index, model, t, speed, window],
+    [index, model, t, speed, window, realTime, shifts],
   );
 }
 

@@ -37,6 +37,15 @@ describe('activeAt', () => {
     expect(activeAt(index, at + 500, opts).litEdges.has(edgeId(emitterA, start))).toBe(false);
   });
 
+  it('plays a shifted occurrence later than recorded, with its fade intact', () => {
+    const at = go!.occ.ts;
+    const shifted = { ...opts, shiftOf: (id: string) => (id === go!.occ.id ? 200 : 0) };
+    const edge = edgeId(emitterA, start);
+    expect(activeAt(index, at, shifted).litEdges.has(edge)).toBe(false); // not started yet
+    expect(activeAt(index, at + 200, shifted).litEdges.get(edge)).toBe(1);
+    expect(activeAt(index, at + 250, shifted).litEdges.get(edge)).toBeCloseTo(0.5);
+  });
+
   it('shows nothing from the future (scrubbing back)', () => {
     expect(activeAt(index, go!.occ.ts - 1, opts).litEdges.size).toBe(0);
   });

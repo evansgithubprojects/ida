@@ -6,13 +6,45 @@ import { fmtMs } from './common';
 const H = 64;
 type Drag = 'playhead' | 'w0' | 'w1' | null;
 
+/** The footer: Live follows the stream; Replay opens the scrub panel. */
 export function Timeline() {
+  const index = useStore((s) => s.index)!;
+  const mode = useStore((s) => s.mode);
+  const live = useStore((s) => s.live);
+  const window = useStore((s) => s.window);
+  const { setMode } = useStore.getState();
+  const shown = useMemo(() => inWindow(index, window).length, [index, window]);
+  return (
+    <div className="timeline">
+      <div className="modebar">
+        <div className="segmented" role="group" aria-label="View mode">
+          <button
+            className={mode === 'live' ? 'primary' : ''}
+            aria-pressed={mode === 'live'}
+            disabled={live === 'off'}
+            title={live === 'off' ? 'No live stream: this is a saved recording' : undefined}
+            onClick={() => setMode('live')}
+          >● Live</button>
+          <button className={mode === 'replay' ? 'primary' : ''} aria-pressed={mode === 'replay'} onClick={() => setMode('replay')}>Replay</button>
+        </div>
+        {mode === 'live' && (
+          <>
+            {live !== 'off' && <span className={`live live-${live}`}>● {live === 'on' ? 'live' : live}</span>}
+            <span className="readout muted">newest {shown} events</span>
+          </>
+        )}
+      </div>
+      {mode === 'replay' && <ReplayPanel />}
+    </div>
+  );
+}
+
+function ReplayPanel() {
   const index = useStore((s) => s.index)!;
   const t = useStore((s) => s.t);
   const playing = useStore((s) => s.playing);
   const speed = useStore((s) => s.speed);
   const window = useStore((s) => s.window);
-  const live = useStore((s) => s.live);
   const { togglePlay, setSpeed, setT, setWindow } = useStore.getState();
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
@@ -55,7 +87,7 @@ export function Timeline() {
   const shown = useMemo(() => inWindow(index, window).length, [index, window]);
 
   return (
-    <div className="timeline">
+    <>
       <div className="controls">
         <button className="primary" onClick={togglePlay} aria-label={playing ? 'Pause' : 'Play'}>{playing ? '❚❚ Pause' : '▶ Play'}</button>
         <label>
@@ -69,7 +101,6 @@ export function Timeline() {
           window {fmtMs(window[0] - index.start)} – {fmtMs(window[1] - index.start)} · {shown} of {index.items.length} events
         </span>
         {!atHome && <button onClick={() => setWindow(home)}>Reset window</button>}
-        {live !== 'off' && <span className={`live live-${live}`}>● live {live === 'on' ? '' : live}</span>}
       </div>
       <div
         className="track"
@@ -90,7 +121,7 @@ export function Timeline() {
           <line x1={x(t)} x2={x(t)} y1={0} y2={H} className="playhead" />
         </svg>
       </div>
-    </div>
+    </>
   );
 }
 

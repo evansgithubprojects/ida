@@ -8,8 +8,13 @@ export const SPEEDS = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4];
 /** Wall-clock lengths of the lit fade and the red flash, scaled to recording time by playback speed. */
 export const FADE_WALL_MS = 700;
 export const FLASH_WALL_MS = 900;
-/** How far behind the newest event a following live view's playhead may trail, so what just arrived still plays out. */
-export const LIVE_LAG_MS = 1500;
+/**
+ * A following live view's clock never stops, so pulses in flight always finish and the graph keeps animating between
+ * upload bursts. A burst that arrives is already in the past, so its events are shifted (see `liveShift`) to play from
+ * now, at their recorded spacing. The live view draws no playhead, so the delay this adds is invisible. A burst more
+ * than this late (a hidden tab, a long outage) is not replayed: it lands in the past and the clock moves on.
+ */
+export const LIVE_RESYNC_MS = 10_000;
 
 /** How many steps of the inspection trail the inspector keeps. */
 export const TRAIL_MAX = 8;
@@ -79,7 +84,12 @@ interface State {
   focus: (FocusTarget & { seq: number }) | null;
   live: LiveStatus;
   following: boolean;
+  /** Live only: how many ms later than recorded each late occurrence plays, so a burst plays from the moment it arrives. */
+  liveShift: Map<string, number>;
+  /** Live follows the stream's newest events with no timeline; Replay opens the scrub window. Saved recordings are always Replay. */
+  mode: 'live' | 'replay';
 
+  setMode(mode: 'live' | 'replay'): void;
   load(recording: Recording, name: string): void;
   setT(t: number): void;
   togglePlay(): void;
@@ -157,13 +167,33 @@ export const useStore = create<State>()((set, get) => {
     if (!flushTimer) flushTimer = setTimeout(flush, 250);
   };
 
+  /** Where a following live view's clock stands after new events arrive: where it was, or the newest event at the start. */
+  function followT(end: number, t: number | null): number {
+    return t === null ? end : t;
+  }
+
+  /** Shifts for the occurrences that just arrived so that the first of them plays at `t`; earlier shifts are kept. */
+  function shiftsFor(prev: ReplayIndex | null, index: ReplayIndex, t: number, old: Map<string, number>): Map<string, number> {
+    const out = new Map<string, number>();
+    const fresh = prev ? index.items.filter((i) => !prev.byId.has(i.occ.id)) : [];
+    for (const i of index.items) {
+      const kept = old.get(i.occ.id);
+      if (kept) out.set(i.occ.id, kept);
+    }
+    if (!fresh.length) return out;
+    const late = t - Math.min(...fresh.map((i) => i.occ.ts));
+    if (late > 0 && late <= LIVE_RESYNC_MS) for (const i of fresh) out.set(i.occ.id, late);
+    return out;
+  }
+
   function applyRecording(streamed: Recording, live: boolean, name?: string) {
     // A live stream never ends, so only its newest events are kept. A saved recording is loaded whole.
     const recording = live ? keepNewest(streamed) : streamed;
     const index = buildIndex(recording);
     const s = get();
     const keepView = live && s.index !== null;
-    const following = keepView ? s.following : true;
+    const mode: 'live' | 'replay' = keepView ? s.mode : live ? 'live' : 'replay';
+    const following = mode === 'live';
     // The newest events: a big recording opens on its latest stretch, and a following live view slides along.
     const full = capWindow(index, [index.start, index.end], 'end');
     // Old events leave as new ones arrive, so a window left behind is pulled back inside what is still kept.
@@ -176,39 +206,52 @@ export const useStore = create<State>()((set, get) => {
       // A following live view trails the newest events slightly and catches up in real time (see `tick`), so the pulses
       // of what just arrived play out instead of the playhead jumping past them.
       t: keepView && !following ? Math.min(Math.max(s.t, kept[0]), kept[1])
-        : following && live ? (keepView ? Math.min(Math.max(s.t, index.end - LIVE_LAG_MS), index.end) : index.end) : full[0],
+        : following && live ? followT(index.end, keepView ? s.t : null) : full[0],
       speed: keepView ? s.speed : pickSpeed(full[1] - full[0]),
       level: keepView ? s.level : { kind: 'process' },
       selection: keepView ? s.selection : null,
       trail: keepView ? s.trail : [],
       playing: false,
-      following,
+      following, mode,
+      liveShift: following && live && keepView ? shiftsFor(s.index, index, s.t, s.liveShift) : new Map(),
     });
   }
 
   return {
     recording: null, index: null, sourceName: '', t: 0, playing: false, speed: 1, window: [0, 0],
-    level: { kind: 'process' }, selection: null, trail: [], focus: null, live: 'off', following: true,
+    level: { kind: 'process' }, selection: null, trail: [], focus: null, live: 'off', following: true, mode: 'live', liveShift: new Map(),
 
     load(recording, name) {
       get().disconnectLive();
       applyRecording(recording, false, name);
     },
+    setMode(mode) {
+      const { index, t, live } = get();
+      if (!index) return;
+      if (mode === 'live') {
+        if (live === 'off') return;
+        const full = capWindow(index, [index.start, index.end], 'end');
+        set({ mode, following: true, playing: false, window: full, t: followT(index.end, null), liveShift: new Map() });
+      } else {
+        const [w0, w1] = get().window;
+        set({ mode, following: false, playing: false, t: Math.min(Math.max(t, w0), w1), liveShift: new Map() });
+      }
+    },
     setT(t) {
       const [w0, w1] = get().window;
-      set({ t: Math.min(Math.max(t, w0), w1), following: false });
+      set({ t: Math.min(Math.max(t, w0), w1), following: false, mode: 'replay' });
     },
     togglePlay() {
       const { playing, t, window } = get();
       if (playing) return set({ playing: false });
-      set({ playing: true, t: t >= window[1] ? window[0] : t, following: false });
+      set({ playing: true, t: t >= window[1] ? window[0] : t, following: false, mode: 'replay' });
     },
     pause() { set({ playing: false }); },
     tick(wallMs) {
       const { t, speed, window, playing, following, live, index } = get();
       if (!playing) {
-        // A following live view runs in real time up to the newest event.
-        if (following && live === 'on' && index && t < index.end) set({ t: Math.min(t + wallMs, index.end) });
+        // A following live view's clock never stops.
+        if (following && live === 'on' && index) set({ t: t + wallMs });
         return;
       }
       const next = t + wallMs * speed;
@@ -220,7 +263,7 @@ export const useStore = create<State>()((set, get) => {
       const { t, index } = get();
       const sorted: [number, number] = [Math.min(...window), Math.max(...window)];
       const [a, b] = index ? capWindow(index, sorted, keep) : sorted;
-      set({ window: [a, b], t: Math.min(Math.max(t, a), b), following: false });
+      set({ window: [a, b], t: Math.min(Math.max(t, a), b), following: false, mode: 'replay' });
     },
     setLevel(level) { set({ level, selection: null, trail: [] }); },
     select(selection, opts) {
@@ -236,7 +279,7 @@ export const useStore = create<State>()((set, get) => {
       const ts = item.occ.ts;
       // Widen to take in the event, then trim from the far side so the window slides there instead of growing.
       reveal(selection, {
-        t: ts, playing: false, following: false,
+        t: ts, playing: false, following: false, mode: 'replay',
         window: index ? capWindow(index, [Math.min(w0, ts), Math.max(w1, ts)], ts < w0 ? 'start' : 'end') : [Math.min(w0, ts), Math.max(w1, ts)],
       });
     },

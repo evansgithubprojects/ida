@@ -13,7 +13,7 @@ export function Replay({ empty }: { empty: ReactNode }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).closest('input, select, textarea')) return;
-      if (e.code === 'Space') { e.preventDefault(); useStore.getState().togglePlay(); }
+      if (e.code === 'Space' && useStore.getState().mode === 'replay') { e.preventDefault(); useStore.getState().togglePlay(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

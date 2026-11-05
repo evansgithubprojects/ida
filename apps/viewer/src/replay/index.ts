@@ -46,6 +46,12 @@ export interface ReplayIndex {
   propagations: Map<string, { occurrenceId: string; handlerId: string }[]>;
   start: number;
   end: number;
+  /**
+   * What displayed times count from. Recorder timestamps are relative to the recorder's start, so this is a fixed 0.
+   * It must not follow `start`: a live view drops its oldest event every flush, which moves `start`, and every
+   * time on screen would then change and re-render with it. `start` is for geometry and windowing only.
+   */
+  origin: number;
 }
 
 /** Resolves a raw node id to the id shown at the current zoom level, or null to hide it. */
@@ -201,7 +207,7 @@ export function buildIndex(recording: Recording): ReplayIndex {
   return {
     recording, events, items, byId: new Map(items.map((i) => [i.occ.id, i])), nodes, externalNodes,
     processLabel: new Map(recording.processes.map((p) => [p.id, p.label])),
-    findingsByOcc, findingsById, findingsBySource, propagations, start, end,
+    findingsByOcc, findingsById, findingsBySource, propagations, start, end, origin: 0,
   };
 }
 
@@ -214,6 +220,8 @@ export interface ActiveOptions {
   flashMs: number;
   window?: [number, number];
   mapNode?: MapNode;
+  /** How far later than recorded an occurrence plays (ms, never negative); a live view uses it to play a burst on arrival. */
+  shiftOf?: (occurrenceId: string) => number;
 }
 
 export interface Active {
@@ -253,10 +261,12 @@ export function activeAt(index: ReplayIndex, t: number, opts: ActiveOptions): Ac
   // Sorted by ts, so start at the window's first event: the cost follows the window, not the recording.
   for (let at = firstAtOrAfter(index.items, w0); at < index.items.length; at++) {
     const { occ, hops, throws } = index.items[at] as IndexedOccurrence;
-    if (occ.ts > t || occ.ts > w1) break; // nothing later can have happened yet
+    if (occ.ts > t || occ.ts > w1) break; // nothing later can have happened yet (a shift only ever delays)
+    const shift = opts.shiftOf?.(occ.id) ?? 0;
+    if (occ.ts + shift > t) continue;
     const flags = index.findingsByOcc.get(occ.id);
     const high = !!flags?.some((f) => f.priority === 'high');
-    const age = t - occ.ts;
+    const age = t - occ.ts - shift;
 
     for (const hop of hops) {
       const src = map(hop.src);
@@ -278,9 +288,9 @@ export function activeAt(index: ReplayIndex, t: number, opts: ActiveOptions): Ac
       }
       for (const th of throws) {
         // A propagated error is still the one error, so only the handler that first threw it is marked.
-        if (th.rethrown || th.handlerId !== hop.dst || th.at > t) continue;
+        if (th.rethrown || th.handlerId !== hop.dst || th.at + shift > t) continue;
         bump(out.thrownNodes, dst);
-        if (t - th.at < opts.flashMs) out.flashingNodes.add(dst);
+        if (t - th.at - shift < opts.flashMs) out.flashingNodes.add(dst);
       }
     }
   }
