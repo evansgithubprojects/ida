@@ -239,36 +239,43 @@ function agoLabel(ms: number): string {
 const CHART_W = 240;
 const CHART_H = 48;
 
+export interface RateSeries { label: string; values: number[]; color: string; current?: { value: number; spike: boolean } }
+
 /**
- * Events per second over the last few minutes, oldest first, one value per `RATE_STEP_MS` step. The readout above
- * shows the newest value, or the one under the pointer. `max` is passed in so charts shown side by side share a scale.
+ * Events per second over the last few minutes, oldest first, one value per `RATE_STEP_MS` step. Several series share
+ * one plot and scale (`max`), each in its own color with a legend. The readout above shows the newest values, or
+ * the ones under the pointer.
  */
-export function RateChart({ label, values, max, current }: { label: string; values: number[]; max: number; current?: { value: number; spike: boolean } }) {
+export function RateChart({ series, max }: { series: RateSeries[]; max: number }) {
   const [hover, setHover] = useState<number | null>(null);
-  const n = values.length;
+  const n = series[0]?.values.length ?? 0;
   const top = max > 0 ? max : 1;
   const x = (i: number) => (n > 1 ? (i / (n - 1)) * CHART_W : CHART_W);
   // 2px headroom so a peak's stroke isn't clipped; the baseline sits on the bottom edge.
   const y = (v: number) => CHART_H - 1 - (v / top) * (CHART_H - 3);
-  const path = values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
   const shown = hover ?? n - 1;
   // The newest point reads what the graph's label shows, which can be a spike ahead of the last completed step.
   const atNow = hover === null || hover === n - 1;
-  const readout = atNow && current ? current.value : values[shown] ?? 0;
   const minutes = Math.round((n * RATE_STEP_MS) / 60_000);
+  const spiking = atNow && series.some((r) => r.current?.spike);
   return (
     <figure className="rate-chart">
       <figcaption>
-        <span>{label}</span>
-        <strong>{fmtRate(readout)}/s</strong>
-        <span className={current?.spike && atNow ? 'spike' : 'muted'}>{!atNow ? agoLabel((n - 1 - hover!) * RATE_STEP_MS) : current?.spike ? 'spike' : `last ${RATE_STEP_MS / 1000} s`}</span>
+        {series.map((r) => (
+          <span key={r.label} className="rate-key">
+            <i className="rate-swatch" style={{ background: r.color }} />
+            {r.label}
+            <strong>{fmtRate(atNow && r.current ? r.current.value : r.values[shown] ?? 0)}/s</strong>
+          </span>
+        ))}
+        <span className={spiking ? 'spike' : 'muted'}>{!atNow ? agoLabel((n - 1 - hover!) * RATE_STEP_MS) : spiking ? 'spike' : `last ${RATE_STEP_MS / 1000} s`}</span>
       </figcaption>
       <div className="rate-plot">
         <svg
           viewBox={`0 0 ${CHART_W} ${CHART_H}`}
           preserveAspectRatio="none"
           role="img"
-          aria-label={`${label}: ${fmtRate(values[n - 1] ?? 0)} events per second now, peak ${fmtRate(max)} per second over the last ${minutes} minutes`}
+          aria-label={`${series.map((r) => `${r.label} ${fmtRate(r.values[n - 1] ?? 0)}`).join(', ')} events per second now, peak ${fmtRate(max)} per second over the last ${minutes} minutes`}
           onPointerMove={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             setHover(Math.min(n - 1, Math.max(0, Math.round(((e.clientX - r.left) / r.width) * (n - 1)))));
@@ -277,10 +284,14 @@ export function RateChart({ label, values, max, current }: { label: string; valu
         >
           <line x1={0} x2={CHART_W} y1={CHART_H - 0.5} y2={CHART_H - 0.5} className="rate-baseline" vectorEffect="non-scaling-stroke" />
           {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={0} y2={CHART_H} className="rate-crosshair" vectorEffect="non-scaling-stroke" />}
-          <path d={path} className="rate-line" vectorEffect="non-scaling-stroke" />
+          {series.map((r) => (
+            <path key={r.label} d={r.values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')} className="rate-line" style={{ stroke: r.color }} vectorEffect="non-scaling-stroke" />
+          ))}
         </svg>
         {/* In HTML so the stretched SVG doesn't squash it into an oval. */}
-        <span className="rate-dot" style={{ left: `${(x(shown) / CHART_W) * 100}%`, top: `${(y(values[shown] ?? 0) / CHART_H) * 100}%` }} />
+        {series.map((r) => (
+          <span key={r.label} className="rate-dot" style={{ left: `${(x(shown) / CHART_W) * 100}%`, top: `${(y(r.values[shown] ?? 0) / CHART_H) * 100}%`, background: r.color }} />
+        ))}
       </div>
       <div className="rate-axis muted"><span>{minutes} min ago</span><span>peak {fmtRate(max)}/s</span><span>now</span></div>
     </figure>

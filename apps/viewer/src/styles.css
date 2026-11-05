@@ -379,11 +379,13 @@ button.link.skip { font-size: 12px; }
 .graph-setting small { display: block; margin-top: 2px; color: var(--muted); }
 
 .rate-chart { margin: 0 0 10px; }
-.rate-chart figcaption { display: flex; align-items: baseline; gap: 8px; font-size: 12px; margin-bottom: 4px; }
+.rate-chart figcaption { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; font-size: 12px; margin-bottom: 4px; }
 .rate-chart figcaption strong { font-variant-numeric: tabular-nums; }
 .rate-chart figcaption .muted { margin-left: auto; }
 .rate-plot { position: relative; height: 48px; }
 .rate-plot svg { display: block; width: 100%; height: 100%; overflow: visible; cursor: crosshair; }
+.rate-key { display: inline-flex; align-items: center; gap: 5px; }
+.rate-swatch { width: 14px; height: 3px; border-radius: 2px; }
 .rate-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .rate-baseline { stroke: var(--border); stroke-width: 1; }
 .rate-crosshair { stroke: var(--border-strong); stroke-width: 1; }

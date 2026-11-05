@@ -170,6 +170,9 @@ const RECENT_NOTIFICATIONS = 20;
 const NO_RATES: number[] = new Array<number>(RATE_HISTORY).fill(0);
 const peak = (...rows: number[][]) => Math.max(0, ...rows.flat());
 
+const IN_COLOR = 'var(--accent)';
+const OUT_COLOR = 'var(--lg-blue-light1)';
+
 /** The node's or pathway's events per second over the last few minutes, from the same series the graph shows. */
 function RateSection({ id, kind }: { id: string; kind: 'node' | 'edge' }) {
   const model = useModel();
@@ -177,15 +180,20 @@ function RateSection({ id, kind }: { id: string; kind: 'node' | 'edge' }) {
   const rates = useRates(model, level);
   if (kind === 'edge') {
     const values = rates?.series.edges.get(id) ?? NO_RATES;
-    return <Section title="Rate"><RateChart label="Events" values={values} max={peak(values)} current={rates?.shown.edges.get(id)} /></Section>;
+    return <Section title="Rate"><RateChart series={[{ label: 'Events', values, color: IN_COLOR, current: rates?.shown.edges.get(id) }]} max={peak(values)} /></Section>;
   }
   const ins = rates?.series.in.get(id) ?? NO_RATES;
   const outs = rates?.series.out.get(id) ?? NO_RATES;
   const max = peak(ins, outs);
   return (
     <Section title="Rate">
-      <RateChart label="In" values={ins} max={max} current={rates?.shown.in.get(id)} />
-      <RateChart label="Out" values={outs} max={max} current={rates?.shown.out.get(id)} />
+      <RateChart
+        max={max}
+        series={[
+          { label: 'In', values: ins, color: IN_COLOR, current: rates?.shown.in.get(id) },
+          { label: 'Out', values: outs, color: OUT_COLOR, current: rates?.shown.out.get(id) },
+        ]}
+      />
     </Section>
   );
 }
