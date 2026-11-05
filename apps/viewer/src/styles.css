@@ -393,7 +393,8 @@ button.link.skip { font-size: 12px; }
 .node-detail.spike, .edge-label .spike, .rate-chart figcaption .spike { color: var(--accent); font-weight: 700; }
 .inspector-wrap { position: relative; display: flex; flex: none; }
 .inspector-toggle { --turn: 0deg; position: absolute; top: 50%; left: 0; transform: translate(-100%, -50%); z-index: 6; display: grid; place-items: center; width: 20px; height: 56px; padding: 0; background: var(--panel); border: 1px solid var(--border); border-right: 0; border-radius: 8px 0 0 8px; color: var(--muted); box-shadow: 0 4px 10px -4px rgb(0 0 0 / .5); }
-.inspector-toggle.closed { --turn: 180deg; }
+.inspector-toggle.closed { --turn: 180deg; display: flex; gap: 6px; align-items: center; width: auto; height: 32px; padding: 0 8px 0 10px; }
+.inspector-toggle-label { font-size: 12px; }
 .inspector-toggle:hover { color: var(--text); }
 .inspector-toggle svg { transform: rotate(var(--turn)); }
 
@@ -401,5 +402,5 @@ button.link.skip { font-size: 12px; }
 @media (max-width: 800px) {
   .inspector-wrap { flex-direction: column; max-height: 40%; }
   .inspector-toggle { top: 0; left: 50%; width: 56px; height: 20px; transform: translate(-50%, -100%); border: 1px solid var(--border); border-bottom: 0; border-radius: 8px 8px 0 0; --turn: 90deg; }
-  .inspector-toggle.closed { --turn: 270deg; }
+  .inspector-toggle.closed { --turn: 270deg; width: auto; height: 24px; }
 }
