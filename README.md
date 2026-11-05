@@ -91,7 +91,7 @@ npm run dev
 | Packages (`core`, adapters, `cloud`) | `tsup --watch` |
 | Server | http://localhost:8787 (embedded PGlite unless `DATABASE_URL` is set) |
 | Web app | http://localhost:5173 |
-| Demo codebase (`apps/demo`) | Node shop plus a browser page at http://localhost:5174, both using the built packages |
+| Demo codebase (`apps/demo`) | Node shop, using the built packages |
 
 The demo uploads to a project, so: sign in at :5173, create a project, make an ingest key, then `cp apps/demo/.env.example apps/demo/.env` and paste the key. Until then the demo waits and says so. For a simulated outage run `npm run node -w @eda-debugger/demo -- --outage`.
 
