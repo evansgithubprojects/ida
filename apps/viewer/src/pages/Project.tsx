@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { api } from '../cloud/api';
+import { recorderToOpen } from '../cloud/lastRecorder';
 import { ago, useApi } from '../cloud/useApi';
 import { IngestKeys } from '../components/IngestKeys';
 import { ConnectDialog } from '../components/ConnectDialog';
@@ -26,14 +27,17 @@ export function Project() {
     setError(null);
     try { await fn(); } catch (err) { setError((err as Error).message); }
   };
-  const viewerPath = (key: string) => `/projects/${projectId}/recorders/${encodeURIComponent(key)}/live`;
+  const openKey = recorders.data ? recorderToOpen(projectId, recorders.data) : null;
 
   return (
     <div className="page">
       <nav className="crumbs"><Link to="/projects">Projects</Link><span>›</span><span>{project.data.name}</span></nav>
       <div className="page-head">
         <h2>{project.data.name}</h2>
-        <button className="link" onClick={() => setConnect('setup')}>Connect an app</button>
+        <div className="page-actions">
+          <button className="link" onClick={() => setConnect('setup')}>Connect an app</button>
+          {openKey && <Link className="button primary" to={`/projects/${projectId}/recorders/${encodeURIComponent(openKey)}/live`} title={`Opens ${openKey}`}>Open viewer</Link>}
+        </div>
       </div>
       {error && <p className="form-error" role="alert">{error}</p>}
 
@@ -42,14 +46,13 @@ export function Project() {
         {recorders.data?.length === 0 && <p className="muted">Nothing has been uploaded yet. Use “Connect an app” to add the setup to your app; recorders show up here once they send data.</p>}
         {!!recorders.data?.length && (
           <table className="table">
-            <thead><tr><th>Key</th><th>Last data</th><th /><th /></tr></thead>
+            <thead><tr><th>Key</th><th>Last data</th><th /></tr></thead>
             <tbody>
               {recorders.data.map((r) => (
                 <tr key={r.key}>
                   <td><Link to={`/projects/${projectId}/recorders/${encodeURIComponent(r.key)}`}><code>{r.key}</code></Link></td>
                   <td>{ago(r.lastSeenAt)}</td>
                   <td>{r.live && <span className="live live-on">● live</span>}</td>
-                  <td><Link className="button" to={viewerPath(r.key)}>Open viewer</Link></td>
                 </tr>
               ))}
             </tbody>

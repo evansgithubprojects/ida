@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { api } from '../cloud/api';
+import { rememberRecorder } from '../cloud/lastRecorder';
 import { useApi } from '../cloud/useApi';
 import { LogoMark } from '../components/Logo';
 import { RecorderSwitcher } from '../components/RecorderSwitcher';
@@ -19,6 +20,8 @@ export function Session({ live = false }: { live?: boolean }) {
   const index = useStore((s) => s.index);
   const project = useApi(() => api.project(projectId), [projectId]);
   const base = `/projects/${projectId}/recorders/${encodeURIComponent(recorderKey)}`;
+
+  useEffect(() => { rememberRecorder(projectId, recorderKey); }, [projectId, recorderKey]);
 
   useEffect(() => {
     const { unload } = useStore.getState();
