@@ -13,6 +13,7 @@ import { useActive, useModel, useRates } from '../hooks';
 import { fmtRate, type Active, type ShownRates } from '../replay';
 import { useStore } from '../store';
 import { NodeRef } from './common';
+import { GraphSettings } from './GraphSettings';
 
 /**
  * Everything that changes while replaying lives in this context, not in the node/edge objects handed to
@@ -29,6 +30,8 @@ interface ViewState {
   /** Briefly set after a "show on graph" request. */
   focusedId: string | null;
   focusedEdgeId: string | null;
+  /** Graph setting: pathways with no suspect payloads show no count and no pulse. */
+  hideHealthy: boolean;
 }
 
 const ViewCtx = createContext<ViewState | null>(null);
@@ -118,7 +121,7 @@ function floatingPath(source: InternalNode, target: InternalNode): [string, numb
 const PULSE_LENGTH = 0.2;
 
 const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgeProps<RouteEdge>) {
-  const { edges, active, rates, selectedId, focusedEdgeId } = useView();
+  const { edges, active, rates, selectedId, focusedEdgeId, hideHealthy } = useView();
   const from = useInternalNode(source);
   const to = useInternalNode(target);
   const edge = edges.get(id);
@@ -131,8 +134,10 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
   // Thickness follows the total so lines don't change width while the counter ticks.
   const width = 1.5 + Math.min(3, Math.log2(edge.count + 1) * 0.5);
   // Every event still on its way gets its own pulse, so a busy route shows them all instead of restarting one.
+  // A selected or focused pathway stays fully drawn so inspecting it still shows something.
+  const quiet = hideHealthy && selectedId !== id && focusedEdgeId !== id;
   const shown = rates?.edges.get(id);
-  const flights = active.pulses.get(id) ?? [];
+  const flights = quiet && !litFlagged ? [] : (active.pulses.get(id) ?? []);
   return (
     <>
       <BaseEdge
@@ -152,12 +157,12 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
           style={{ pointerEvents: 'none', filter: `drop-shadow(0 0 5px ${pulseColor})` }}
         />
       ))}
-      <EdgeLabelRenderer>
+      {!(quiet && !flagged) && <EdgeLabelRenderer>
         <div className={`edge-label ${selectedId === id ? 'selected' : ''} ${focusedEdgeId === id ? 'focused' : ''}`} style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}>
           <span className={shown?.spike ? 'spike' : undefined} title={shown?.spike ? `Spike: ${fmtRate(shown.value)}/s, held until the next update` : `${edge.count} in this window`}>{fmtRate(shown?.value ?? 0)}/s</span>
           {flagged && <span className="mark mark-warn" title={`Suspected corrupt payloads on this route${flagged.high ? ', some reaching an external system' : ''}`}>⚠{flagged.count}</span>}
         </div>
-      </EdgeLabelRenderer>
+      </EdgeLabelRenderer>}
     </>
   );
 });
@@ -195,6 +200,7 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
   const select = useStore((s) => s.select);
   const focus = useStore((s) => s.focus);
   const setLevel = useStore((s) => s.setLevel);
+  const hideHealthy = useStore((s) => s.hideHealthy);
   const { setViewport, getViewport } = useReactFlow<AnyNode, RouteEdge>();
 
   // Re-layout only when the shape of the graph changes, not on every count update.
@@ -295,9 +301,9 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
     () => (model && active ? {
       nodes: new Map(model.nodes.map((n) => [n.id, n])), edges: new Map(model.edges.map((e) => [e.id, e])), active, rates: rates?.shown ?? null,
       selectedId: selection && selection.type !== 'occurrence' && selection.type !== 'event' ? selection.id : null,
-      focusedId, focusedEdgeId: focusedEdge?.id ?? null,
+      focusedId, focusedEdgeId: focusedEdge?.id ?? null, hideHealthy,
     } : null),
-    [model, active, rates, selection, focusedId, focusedEdge],
+    [model, active, rates, selection, focusedId, focusedEdge, hideHealthy],
   );
 
   if (!model || !view || !lay) return null;
@@ -446,6 +452,7 @@ export function GraphView() {
   return (
     <div ref={box} className="graph-stack">
       <ZoomCrumbs />
+      <GraphSettings />
       {size && [current, outgoing].map((layer) => layer && (
         <div
           key={layer.key}

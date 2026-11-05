@@ -77,6 +77,8 @@ interface State {
   speed: number;
   window: [number, number];
   level: Level;
+  /** Graph setting: hide the count and the pulse on pathways with no suspect payloads. Persists across reloads. */
+  hideHealthy: boolean;
   selection: Selection;
   /** Everything inspected at this zoom level, oldest first; `selection` is always its last entry. */
   trail: NonNullable<Selection>[];
@@ -99,6 +101,7 @@ interface State {
   /** Sets the replay window, narrowed to the event cap: `keep` is the side that stays put, the other edge follows. */
   setWindow(window: [number, number], keep?: 'start' | 'end'): void;
   setLevel(level: Level): void;
+  setHideHealthy(hide: boolean): void;
   /** `fromGraph` marks a click on the graph itself: everything drawn there sits directly under the level, so it starts a new trail. */
   select(selection: Selection, opts?: { fromGraph?: boolean }): void;
   /** Inspects an occurrence and moves the playhead to it; see `selectAt`. */
@@ -134,6 +137,24 @@ export function pickSpeed(rangeMs: number): number {
 }
 
 let source: EventSource | null = null;
+
+const SETTINGS_KEY = 'ida_graph_settings';
+
+interface Settings { hideHealthy: boolean }
+
+function loadSettings(): Settings {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') as Partial<Settings>;
+    return { hideHealthy: saved.hideHealthy === true };
+  } catch {
+    return { hideHealthy: false };
+  }
+}
+
+/** Merges into what is stored, so changing one setting keeps the others. */
+function saveSettings(patch: Partial<Settings>): void {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...loadSettings(), ...patch })); } catch { /* storage unavailable: the setting just won't persist */ }
+}
 
 export const useStore = create<State>()((set, get) => {
   /** Asks the graph to pan to and pulse `target`; `seq` makes repeat requests count, and the request clears itself. */
@@ -219,7 +240,7 @@ export const useStore = create<State>()((set, get) => {
 
   return {
     recording: null, index: null, sourceName: '', t: 0, playing: false, speed: 1, window: [0, 0],
-    level: { kind: 'process' }, selection: null, trail: [], focus: null, live: 'off', following: true, mode: 'live', liveShift: new Map(),
+    level: { kind: 'process' }, ...loadSettings(), selection: null, trail: [], focus: null, live: 'off', following: true, mode: 'live', liveShift: new Map(),
 
     load(recording, name) {
       get().disconnectLive();
@@ -266,6 +287,10 @@ export const useStore = create<State>()((set, get) => {
       set({ window: [a, b], t: Math.min(Math.max(t, a), b), following: false, mode: 'replay' });
     },
     setLevel(level) { set({ level, selection: null, trail: [] }); },
+    setHideHealthy(hideHealthy) {
+      set({ hideHealthy });
+      saveSettings({ hideHealthy });
+    },
     select(selection, opts) {
       // Clicking the graph itself needs no pan; anything else (a link in the inspector) shows where it is.
       if (selection && !opts?.fromGraph) reveal(selection);

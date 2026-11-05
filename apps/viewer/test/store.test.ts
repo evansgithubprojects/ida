@@ -184,3 +184,13 @@ describe('the replay window cap', () => {
     expect(held()).toBeLessThanOrEqual(MAX_WINDOW_EVENTS);
   });
 });
+
+describe('graph settings', () => {
+  it('hides healthy pathways only when asked', () => {
+    expect(useStore.getState().hideHealthy).toBe(false);
+    useStore.getState().setHideHealthy(true);
+    expect(useStore.getState().hideHealthy).toBe(true);
+    useStore.getState().setHideHealthy(false);
+    expect(useStore.getState().hideHealthy).toBe(false);
+  });
+});

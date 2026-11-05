@@ -370,6 +370,14 @@ button.link.skip { font-size: 12px; }
 .key-row .secret.block { flex: 1 1 auto; min-width: 0; margin: 0; overflow-x: auto; overflow-wrap: normal; white-space: nowrap; }
 .key-row button { flex: none; }
 
+.graph-settings { position: absolute; top: 12px; right: 12px; z-index: 5; }
+.graph-settings-button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 999px; color: var(--muted); box-shadow: 0 4px 10px -4px rgb(0 0 0 / .5); }
+.graph-settings-button:hover, .graph-settings-button[aria-expanded="true"] { color: var(--text); }
+.graph-settings-panel { position: absolute; top: 40px; right: 0; width: 260px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 10px -4px rgb(0 0 0 / .5); }
+.graph-setting { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.graph-setting input { margin-top: 3px; }
+.graph-setting small { display: block; margin-top: 2px; color: var(--muted); }
+
 .rate-chart { margin: 0 0 10px; }
 .rate-chart figcaption { display: flex; align-items: baseline; gap: 8px; font-size: 12px; margin-bottom: 4px; }
 .rate-chart figcaption strong { font-variant-numeric: tabular-nums; }
