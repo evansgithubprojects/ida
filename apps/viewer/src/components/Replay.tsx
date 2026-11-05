@@ -7,7 +7,7 @@ import { InspectorToggle } from './InspectorToggle';
 import { Timeline } from './Timeline';
 
 /** The graph, inspector and timeline for whatever recording the store holds; `empty` shows until there is one. */
-export function Replay({ empty }: { empty: ReactNode }) {
+export function Replay({ empty, corner }: { empty: ReactNode; /** Shown in the graph's top-left corner, also while waiting for events. */ corner?: ReactNode }) {
   const index = useStore((s) => s.index);
   const inspectorOpen = useStore((s) => s.inspectorOpen);
   usePlayback();
@@ -31,7 +31,7 @@ export function Replay({ empty }: { empty: ReactNode }) {
       {index ? (
         <>
           <div className="main">
-            <div className="canvas"><GraphView /></div>
+            <div className="canvas">{corner}<GraphView /></div>
             <div className="inspector-wrap">
               <InspectorToggle />
               {inspectorOpen && <Inspector />}
@@ -39,7 +39,7 @@ export function Replay({ empty }: { empty: ReactNode }) {
           </div>
           <Timeline />
         </>
-      ) : empty}
+      ) : <div className="canvas empty-canvas">{corner}{empty}</div>}
     </>
   );
 }

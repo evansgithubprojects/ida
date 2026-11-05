@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router';
 import { api } from '../cloud/api';
 import { useApi } from '../cloud/useApi';
 import { LogoMark } from '../components/Logo';
+import { RecorderSwitcher } from '../components/RecorderSwitcher';
 import { Replay } from '../components/Replay';
 import { useStore } from '../store';
 
@@ -78,6 +79,7 @@ export function Session({ live = false }: { live?: boolean }) {
         </div>
       ) : null}
       <Replay
+        corner={<RecorderSwitcher projectId={projectId} recorderKey={recorderKey} />}
         empty={(
           <div className="welcome">
             {live ? (

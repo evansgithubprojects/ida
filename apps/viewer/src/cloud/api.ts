@@ -3,7 +3,7 @@ import { API_URL, supabase } from './supabase';
 
 export interface Project { id: string; name: string; createdAt: string; recorders?: number; lastSeenAt?: string | null }
 export interface IngestKey { id: string; prefix: string; label: string; createdAt: string; lastUsedAt: string | null; revokedAt: string | null }
-export interface RecorderSummary { key: string; createdAt: string; lastSeenAt: string; sessions: number; live: boolean }
+export interface RecorderSummary { key: string; createdAt: string; lastSeenAt: string; sessions: number; live: boolean; /** Top-level process names in the newest session. */ processes: string[] }
 export interface SessionSummary { id: string; startedAt: number; runtime: string; lastSeenAt: string; occurrences: number; late: number; gaps: number; live: boolean }
 
 export class ApiError extends Error {

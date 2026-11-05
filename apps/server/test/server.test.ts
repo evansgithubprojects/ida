@@ -80,7 +80,8 @@ describe('ingest', () => {
     expect((await ingest(key, { recorderKey: 'payments', sessionId, startedAt, seq: 0, messages, runtime: 'node' })).body).toEqual({ ok: true, duplicate: false });
 
     const recorders = (await call('GET', `/v1/projects/${project.id}/recorders`, as('user-a'))).body;
-    expect(recorders).toMatchObject([{ key: 'payments', sessions: 1, live: true }]);
+    expect(recorders).toMatchObject([{ key: 'payments', sessions: 1, live: true, processes: expect.any(Array) }]);
+    expect(recorders[0].processes.length).toBeGreaterThan(0);
     const sessions = (await call('GET', `/v1/projects/${project.id}/recorders/payments/sessions`, as('user-a'))).body;
     expect(sessions).toMatchObject([{ id: sessionId, startedAt, occurrences: 2, late: 0 }]);
 

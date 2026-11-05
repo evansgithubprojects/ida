@@ -209,14 +209,20 @@ export function createApp(opts: AppOptions) {
 
   app.get('/v1/projects/:projectId/recorders', async (c) => {
     if (!(await ownProject(c))) return notFound(c);
-    const rows = await db.query<{ id: string; key: string; created_at: string; last_seen_at: string; sessions: number }>(
-      `select r.id, r.key, r.created_at, r.last_seen_at, count(s.id)::int as sessions
+    const rows = await db.query<{ id: string; key: string; created_at: string; last_seen_at: string; sessions: number; processes: string[] }>(
+      // The processes are those of the newest session, which is what the live view shows.
+      `select r.id, r.key, r.created_at, r.last_seen_at, count(s.id)::int as sessions,
+         coalesce((
+           select array_agg(distinct p.data->>'label' order by p.data->>'label')
+           from session_processes p
+           where p.session_id = (select n.id from sessions n where n.recorder_id = r.id order by n.started_at desc limit 1)
+         ), '{}') as processes
        from recorders r left join sessions s on s.recorder_id = r.id
        where r.project_id = $1 group by r.id order by r.key`,
       [c.req.param('projectId')],
     );
     return c.json(rows.map((r) => ({
-      key: r.key, createdAt: iso(r.created_at), lastSeenAt: iso(r.last_seen_at), sessions: r.sessions,
+      key: r.key, createdAt: iso(r.created_at), lastSeenAt: iso(r.last_seen_at), sessions: r.sessions, processes: r.processes,
       live: now() - new Date(r.last_seen_at).getTime() < LIVE_MS,
     })));
   });

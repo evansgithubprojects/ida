@@ -114,6 +114,7 @@ code, pre { font-family: var(--mono); font-size: 12px; }
 
 .main { flex: 1; display: flex; min-height: 0; }
 .canvas { flex: 1; min-width: 0; position: relative; }
+.empty-canvas { display: flex; }
 .empty, .welcome { display: grid; place-items: center; height: 100%; text-align: center; color: var(--muted); }
 .welcome { flex: 1; align-content: center; }
 .welcome h2 { color: var(--text); margin-bottom: 4px; }
@@ -370,6 +371,17 @@ button.link.skip { font-size: 12px; }
 .key-row .secret.block { flex: 1 1 auto; min-width: 0; margin: 0; overflow-x: auto; overflow-wrap: normal; white-space: nowrap; }
 .key-row button { flex: none; }
 
+.recorder-switcher { position: absolute; top: 12px; left: 12px; z-index: 7; max-width: calc(50% - 150px); min-width: 120px; }
+.recorder-switcher-button { display: flex; align-items: center; gap: 8px; max-width: 100%; height: 32px; padding: 0 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 999px; color: var(--text); box-shadow: 0 4px 10px -4px rgb(0 0 0 / .5); }
+.recorder-switcher-button code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recorder-switcher-button svg { flex: none; color: var(--muted); }
+.recorder-switcher-panel { position: absolute; top: 40px; left: 0; width: 280px; max-width: 80vw; max-height: 60vh; overflow-y: auto; padding: 4px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 10px -4px rgb(0 0 0 / .5); }
+.recorder-row { display: block; width: 100%; padding: 6px 8px; background: none; border: 0; border-radius: 6px; text-align: left; color: var(--text); }
+.recorder-row:hover, .recorder-row:focus-visible { background: var(--panel-2); box-shadow: none; }
+.recorder-row[aria-selected="true"] { background: var(--panel-2); }
+.recorder-name { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.recorder-live { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.recorder-processes { display: block; margin-top: 1px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .graph-settings { position: absolute; top: 12px; right: 12px; z-index: 5; }
 .graph-settings-button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 999px; color: var(--muted); box-shadow: 0 4px 10px -4px rgb(0 0 0 / .5); }
 .graph-settings-button:hover, .graph-settings-button[aria-expanded="true"] { color: var(--text); }
