@@ -1,5 +1,4 @@
-import type { ReactNode } from 'react';
-import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router';
+import { BrowserRouter, Link, Navigate, NavLink, Outlet, Route, Routes, useLocation } from 'react-router';
 import { RequireAuth, useSession } from './cloud/auth';
 import { supabase } from './cloud/supabase';
 import { Logo } from './components/Logo';
@@ -8,7 +7,7 @@ import { PendingInvites } from './components/PendingInvites';
 import { AcceptInvite } from './pages/AcceptInvite';
 import { Local } from './pages/Local';
 import { Project } from './pages/Project';
-import { NewOrg, OrgMembers, OrgProjects, OrgSettings, ProjectsRedirect } from './pages/Orgs';
+import { NewOrg, OrgLayout, OrgMembers, OrgProfile, OrgProjects, OrgSettings, ProjectsRedirect } from './pages/Orgs';
 import { Recorder } from './pages/Recorder';
 import { Session } from './pages/Session';
 import { SignIn } from './pages/SignIn';
@@ -19,27 +18,33 @@ export function App() {
       <Routes>
         <Route path="/" element={<Navigate to={supabase ? '/projects' : '/local'} replace />} />
         <Route path="/local" element={<Local />} />
-        <Route path="/login" element={<Shell><SignIn /></Shell>} />
-        <Route path="/projects" element={<Shell><RequireAuth><ProjectsRedirect /></RequireAuth></Shell>} />
-        <Route path="/invites/:token" element={<Shell><RequireAuth><AcceptInvite /></RequireAuth></Shell>} />
-        <Route path="/orgs/new" element={<Shell><RequireAuth><NewOrg /></RequireAuth></Shell>} />
-        <Route path="/orgs/:orgId" element={<Shell><RequireAuth><OrgProjects /></RequireAuth></Shell>} />
-        <Route path="/orgs/:orgId/members" element={<Shell><RequireAuth><OrgMembers /></RequireAuth></Shell>} />
-        <Route path="/orgs/:orgId/settings" element={<Shell><RequireAuth><OrgSettings /></RequireAuth></Shell>} />
-        <Route path="/projects/:projectId" element={<Shell><RequireAuth><Project /></RequireAuth></Shell>} />
+        {/* Every page with the header shares one shell. */}
+        <Route element={<Shell />}>
+          <Route path="/login" element={<SignIn />} />
+          <Route path="/projects" element={<RequireAuth><ProjectsRedirect /></RequireAuth>} />
+          <Route path="/invites/:token" element={<RequireAuth><AcceptInvite /></RequireAuth>} />
+          <Route path="/orgs/new" element={<RequireAuth><NewOrg /></RequireAuth>} />
+          <Route path="/orgs/:orgId" element={<RequireAuth><OrgLayout /></RequireAuth>}>
+            <Route index element={<OrgProjects />} />
+            <Route path="members" element={<OrgMembers />} />
+            <Route path="settings" element={<OrgSettings />} />
+            <Route path="profile" element={<OrgProfile />} />
+          </Route>
+          <Route path="/projects/:projectId" element={<RequireAuth><Project /></RequireAuth>} />
+          <Route path="/projects/:projectId/recorders/:recorderKey" element={<RequireAuth><Recorder /></RequireAuth>} />
+          <Route path="*" element={<div className="page"><h2>Not found</h2><Link to="/">Home</Link></div>} />
+        </Route>
         {/* The connect walkthrough is a dialog on the project page now. */}
         <Route path="/projects/:projectId/connect" element={<Navigate to=".." relative="path" replace />} />
-        <Route path="/projects/:projectId/recorders/:recorderKey" element={<Shell><RequireAuth><Recorder /></RequireAuth></Shell>} />
         {/* The replay screens fill the window, so they bring their own header. */}
         <Route path="/projects/:projectId/recorders/:recorderKey/live" element={<RequireAuth><Session live /></RequireAuth>} />
         <Route path="/projects/:projectId/recorders/:recorderKey/sessions/:sessionId" element={<RequireAuth><Session /></RequireAuth>} />
-        <Route path="*" element={<Shell><div className="page"><h2>Not found</h2><Link to="/">Home</Link></div></Shell>} />
       </Routes>
     </BrowserRouter>
   );
 }
 
-function Shell({ children }: { children: ReactNode }) {
+function Shell() {
   const session = useSession();
   const { pathname } = useLocation();
   const inOrg = pathname.startsWith('/orgs/');
@@ -62,7 +67,7 @@ function Shell({ children }: { children: ReactNode }) {
         )}
       </header>
       {supabase && session && !onInvite && <PendingInvites />}
-      <main className="shell-body">{children}</main>
+      <main className="shell-body"><Outlet /></main>
     </div>
   );
 }

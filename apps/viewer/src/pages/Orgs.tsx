@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { Link, Navigate, NavLink, useNavigate } from 'react-router';
-import { api, type InviteSent, type OrgRole, type ProjectRole } from '../cloud/api';
+import { useEffect, useState, ViewTransition } from 'react';
+import { Link, Navigate, NavLink, Outlet, useNavigate, useOutletContext } from 'react-router';
+import { api, type InviteSent, type Org, type OrgRole, type ProjectRole } from '../cloud/api';
 import { ago, useApi } from '../cloud/useApi';
 import { can, orgToOpen, useMe, useOrg } from '../cloud/orgs';
 import { useSession } from '../cloud/auth';
@@ -69,24 +69,35 @@ function OrgHeader({ id, name, role }: { id: string; name: string; role: OrgRole
         <NavLink to={base} end>Projects</NavLink>
         <NavLink to={`${base}/members`}>Members</NavLink>
         <NavLink to={`${base}/settings`}>Settings</NavLink>
+        <NavLink to={`${base}/profile`}>Org Profile</NavLink>
       </nav>
     </>
   );
 }
 
-function OrgPage({ children }: { children: (org: NonNullable<ReturnType<typeof useOrg>['org']>, reload: () => void) => React.ReactNode }) {
+interface OrgContext { org: Org; reload: () => void }
+const useOrgContext = () => useOutletContext<OrgContext>();
+
+/**
+ * Parent route of the org's tabs. It loads the org once, so the title and tabs stay put while switching between
+ * tabs; only the tab's own content (the `Outlet`) changes.
+ */
+export function OrgLayout() {
   const { org, error, reload } = useOrg();
   if (error) return <div className="page"><p className="form-error" role="alert">{error}</p><Link to="/projects">Back</Link></div>;
   if (!org) return <div className="page"><p className="muted">Loading…</p></div>;
-  return <div className="page"><OrgHeader id={org.id} name={org.name} role={org.role} />{children(org, reload)}</div>;
+  return (
+    <div className="page">
+      <OrgHeader id={org.id} name={org.name} role={org.role} />
+      {/* Its own boundary, so switching tabs doesn't trigger the shell's page wipe: only the tab's content changes. */}
+      <ViewTransition update="none"><Outlet context={{ org, reload } satisfies OrgContext} /></ViewTransition>
+    </div>
+  );
 }
 
 export function OrgProjects() {
-  return (
-    <OrgPage>
-      {(org) => <ProjectList orgId={org.id} canCreate={can.createProjects(org.role)} />}
-    </OrgPage>
-  );
+  const { org } = useOrgContext();
+  return <ProjectList orgId={org.id} canCreate={can.createProjects(org.role)} />;
 }
 
 function ProjectList({ orgId, canCreate }: { orgId: string; canCreate: boolean }) {
@@ -127,19 +138,62 @@ function ProjectList({ orgId, canCreate }: { orgId: string; canCreate: boolean }
 }
 
 export function OrgMembers() {
+  const { org } = useOrgContext();
   return (
-    <OrgPage>
-      {(org) => (
-        <>
-          <MemberList orgId={org.id} myRole={org.role} />
-          {can.manageMembers(org.role) && <Invites orgId={org.id} />}
-        </>
-      )}
-    </OrgPage>
+    <>
+      <MemberList orgId={org.id} myRole={org.role} />
+      {can.manageMembers(org.role) && <Invites orgId={org.id} />}
+    </>
   );
 }
 
 const ROLE_LABEL: Record<OrgRole, string> = { owner: 'Owner', admin: 'Admin', member: 'Member' };
+
+/** The signed-in user's own place in this org: their role, and the name the others here see. */
+export function OrgProfile() {
+  const { org } = useOrgContext();
+  const { data: profile, error, reload } = useApi(() => api.orgProfile(org.id), [org.id]);
+  const [name, setName] = useState('');
+  const [failure, setFailure] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => { if (profile) setName(profile.displayName); }, [profile]);
+  const unchanged = name.trim() === profile?.displayName;
+  return (
+    <section className="panel-section">
+      <h3>Your profile in {org.name}</h3>
+      {(error || failure) && <p className="form-error" role="alert">{error ?? failure}</p>}
+      {profile && (
+        <>
+          <form className="form" onSubmit={async (e) => {
+            e.preventDefault();
+            setFailure(null);
+            setSaved(false);
+            try { await api.setOrgProfile(org.id, name.trim()); reload(); setSaved(true); } catch (err) { setFailure((err as Error).message); }
+          }}>
+            <label>
+              Display name
+              <input value={name} maxLength={100} onChange={(e) => { setName(e.target.value); setSaved(false); }} />
+            </label>
+            <p className="hint">
+              Shown to the other people in this organization.
+            </p>
+            <div className="page-actions">
+              <button className="primary" disabled={unchanged}>Save</button>
+              {saved && <span className="muted" role="status">Saved</span>}
+            </div>
+          </form>
+          <dl className="facts">
+            <dt>Role</dt>
+            <dd>{ROLE_LABEL[profile.role]}</dd>
+            {profile.email && <><dt>Email</dt><dd>{profile.email}</dd></>}
+            <dt>Joined</dt>
+            <dd>{new Date(profile.joinedAt).toLocaleDateString()}</dd>
+          </dl>
+        </>
+      )}
+    </section>
+  );
+}
 
 function MemberList({ orgId, myRole }: { orgId: string; myRole: OrgRole }) {
   const { data: members, error, reload } = useApi(() => api.members(orgId), [orgId]);
@@ -166,7 +220,7 @@ function MemberList({ orgId, myRole }: { orgId: string; myRole: OrgRole }) {
               const roles = (can.touchOwner(myRole) ? ['owner', 'admin', 'member'] : ['admin', 'member']) as OrgRole[];
               return (
                 <tr key={m.userId}>
-                  <td>{m.name ?? m.email ?? m.userId}{m.name && m.email && <span className="muted"> · {m.email}</span>}{m.userId === me && <span className="muted"> (you)</span>}</td>
+                  <td>{m.name ?? m.email ?? m.userId}{m.name && m.email && m.name !== m.email && <span className="muted"> · {m.email}</span>}{m.userId === me && <span className="muted"> (you)</span>}</td>
                   <td>
                     {editable ? (
                       <select aria-label={`Role of ${m.name ?? m.email ?? m.userId}`} value={m.role} onChange={(e) => void act(() => api.setMemberRole(orgId, m.userId, e.target.value as OrgRole))}>
@@ -291,10 +345,11 @@ function Invites({ orgId }: { orgId: string }) {
 }
 
 export function OrgSettings() {
-  return <OrgPage>{(org, reload) => <Settings org={org} reload={reload} />}</OrgPage>;
+  const { org, reload } = useOrgContext();
+  return <Settings org={org} reload={reload} />;
 }
 
-function Settings({ org, reload }: { org: NonNullable<ReturnType<typeof useOrg>['org']>; reload: () => void }) {
+function Settings({ org, reload }: OrgContext) {
   const [name, setName] = useState(org.name);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -319,7 +374,6 @@ function Settings({ org, reload }: { org: NonNullable<ReturnType<typeof useOrg>[
           <>
             {/* Shown as text: a greyed-out field reads as editable. */}
             <p>{org.name}</p>
-            <p className="muted">Only an owner can rename the organization.</p>
           </>
         )}
       </section>

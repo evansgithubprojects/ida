@@ -12,6 +12,9 @@ export interface Me { user: { id: string; email: string | null; name: string | n
 export interface OrgProject { id: string; name: string; orgId: string; createdAt: string; recorders: number; lastSeenAt: string | null }
 export interface Member { userId: string; email: string | null; name: string | null; role: OrgRole; joinedAt: string }
 
+/** The signed-in user's own membership in an org. `displayName` is their email until they pick one (`usingDefault`). */
+export interface OrgProfile { userId: string; role: OrgRole; email: string | null; displayName: string; usingDefault: boolean; joinedAt: string }
+
 export type ProjectRole = 'editor' | 'viewer';
 export interface Invite { id: string; email: string; orgRole: 'admin' | 'member'; projects: { projectId: string; role: ProjectRole }[]; createdAt: string; expiresAt: string; expired: boolean }
 /** What creating or resending an invitation reports: whether the email went out, else the link to share by hand. */
@@ -69,6 +72,8 @@ export const api = {
   pendingInvites: () => request<PendingInvite[]>('GET', '/v1/invites'),
   lookupInvite: (token: string) => request<InviteLookup>('POST', '/v1/invites/lookup', { token }),
   acceptInvite: (by: { token: string } | { id: string }) => request<{ orgId: string }>('POST', '/v1/invites/accept', by),
+  orgProfile: (id: string) => request<OrgProfile>('GET', `${o(id)}/profile`),
+  setOrgProfile: (id: string, displayName: string) => request<OrgProfile>('PATCH', `${o(id)}/profile`, { displayName }),
   members: (id: string) => request<Member[]>('GET', `${o(id)}/members`),
   setMemberRole: (id: string, userId: string, role: OrgRole) => request<{ userId: string; role: OrgRole }>('PATCH', `${o(id)}/members/${encodeURIComponent(userId)}`, { role }),
   removeMember: (id: string, userId: string) => request<void>('DELETE', `${o(id)}/members/${encodeURIComponent(userId)}`),
