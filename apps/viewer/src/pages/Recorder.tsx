@@ -34,7 +34,6 @@ export function Recorder() {
                 <td><Link to={`${base}/sessions/${s.id}`}>{new Date(s.startedAt).toLocaleString()}</Link></td>
                 <td>
                   {s.occurrences}
-                  {s.late > 0 && <span className="badge badge-muted" title="Uploaded from the offline spool after the connection came back">{s.late} late</span>}
                   {s.gaps > 0 && <span className="badge badge-warn" title="Some events were dropped because the offline spool was full">gaps</span>}
                 </td>
                 <td className="muted">{s.runtime || '—'}</td>
