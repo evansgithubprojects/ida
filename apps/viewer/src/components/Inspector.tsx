@@ -1,16 +1,16 @@
 import type { Finding } from '@eda-debugger/core';
-import { useMemo, useRef, useState } from 'react';
-import { useModel } from '../hooks';
+import { memo, useDeferredValue, useMemo, useRef, useState } from 'react';
+import { useModel, useRates } from '../hooks';
 import type { GraphModel } from '../graph/model';
-import { activityOf, chainOf, errorCode, throwIdFor, countFired, edgeId, eventKey, eventLabel, inWindow, isProblemRun, notifications, parseRunId, parseThrowId, recipientsOf, runById, throwId, type IndexedOccurrence, type Notification, type ReplayIndex, type Run, type Tier } from '../replay';
-import { TRAIL_MAX, useStore, type Selection } from '../store';
-import { Badge, CallChain, ErrorId, CaptureBadge, EventLink, EventRef, FindingBadges, FindingChain, FindingSummary, fmtMs, HandlerLink, InspectLink, Json, NodeRef, Section, shortValue } from './common';
+import { RATE_HISTORY, activityOf, chainOf, errorCode, throwIdFor, countFired, edgeId, eventKey, eventLabel, inWindow, isProblemRun, notifications, parseRunId, parseThrowId, recipientsOf, runById, throwId, type IndexedOccurrence, type Notification, type ReplayIndex, type Run, type Tier } from '../replay';
+import { TRAIL_MAX, useStore, type LiveStatus, type Selection } from '../store';
+import { Badge, CallChain, ErrorId, CaptureBadge, EventLink, EventRef, FindingBadges, FindingChain, FindingSummary, fmtMs, HandlerLink, InspectLink, Json, NodeRef, RateChart, Section, shortValue } from './common';
 
 export function Inspector() {
   const index = useStore((s) => s.index)!;
   const selection = useStore((s) => s.selection);
   return (
-    <aside className="inspector">
+    <aside className="inspector" id="inspector">
       <Crumbs index={index} />
       {!selection && <Overview index={index} />}
       {selection?.type === 'event' && <EventDetail index={index} id={selection.id} />}
@@ -80,6 +80,7 @@ function Overview({ index }: { index: ReplayIndex }) {
   const model = useModel();
   const level = useStore((s) => s.level);
   const window = useStore((s) => s.window);
+  const live = useStore((s) => s.live);
   // Inside a process, the overview covers only the traffic that touches that process.
   const items = useMemo(() => {
     const all = inWindow(index, window);
@@ -91,12 +92,9 @@ function Overview({ index }: { index: ReplayIndex }) {
 
   return (
     <>
-      <Section title="Recording">
+      <Section title={<>Recording{live !== 'off' && <LiveDot status={live} />}</>}>
         <dl className="facts">
           <dt>Events</dt><dd>{items.length} in window ({index.items.length} total)</dd>
-          <dt>Processes</dt><dd>{index.recording.processes.length}</dd>
-          <dt>Handlers</dt><dd>{index.recording.nodes.filter((n) => n.kind === 'handler').length}</dd>
-          <dt>Templates</dt><dd>{index.recording.templates.length}</dd>
         </dl>
         <p className="hint">Click a node or pathway to inspect it. Double-click a process to zoom in. Click a handler to see its activity.</p>
       </Section>
@@ -105,33 +103,107 @@ function Overview({ index }: { index: ReplayIndex }) {
   );
 }
 
+/** Whether the recording is still streaming in: a pulsing dot while live, the connection state otherwise. */
+function LiveDot({ status }: { status: Exclude<LiveStatus, 'off'> }) {
+  return (
+    <span className={`live live-${status} live-dot`} role="status" title={status === 'on' ? 'Receiving events from the app' : undefined}>
+      <span className="dot" aria-hidden="true">●</span> {status === 'on' ? 'live' : status}
+    </span>
+  );
+}
+
 /** Throws and suspected corrupt payloads in the order given; clicking one inspects it. */
 function NotificationList({ index, title, list, empty }: { index: ReplayIndex; title: string; list: Notification[]; empty: string }) {
-  const selectAt = useStore((s) => s.selectAt);
+  const { cap, setMore } = useRowCap();
+  const rows = useDeferredValue(list.slice(0, cap));
   return (
     <Section title={title} aside={list.length}>
       {list.length === 0 && <p className="hint">{empty}</p>}
       <ul className="list">
-        {list.map((n) => (
-          <li key={`${n.kind}:${n.id}`}>
-            <button className={`row ${n.external ? 'row-high' : ''}`} onClick={() => selectAt({ type: n.kind, id: n.id }, n.occurrenceId)}>
-              <span className="row-head">
-                {n.kind === 'throw' ? <><Badge tone="error">✕ Error</Badge><ErrorId id={n.id} /></> : <Badge tone="warn">⚠ Corrupt Payload</Badge>}
-                <TierBadge tier={n.tier} />
-                {n.external && <Badge tone="external">EXTERNAL</Badge>}
-                <span className="muted">{fmtMs(n.rank.ts - index.start)}</span>
-              </span>
-              <span className="row-text">{n.finding ? <FindingSummary index={index} finding={n.finding} /> : n.text}</span>
-            </button>
-          </li>
-        ))}
+        {rows.map((n) => <NotificationRow key={`${n.kind}:${n.id}`} index={index} start={index.origin} n={n} />)}
       </ul>
+      <ShowMore total={list.length} cap={cap} onMore={() => setMore(true)} />
     </Section>
   );
 }
 
+/**
+ * One notification. A live view rebuilds the index several times a second and the list can hold hundreds of
+ * rows, so a row only re-renders when its own notification changes (or the recording's start moves, which
+ * shifts its time). `index` is left out of the comparison: what a row reads from it is fixed for its finding.
+ */
+const NotificationRow = memo(
+  function NotificationRow({ index, start, n }: { index: ReplayIndex; start: number; n: Notification }) {
+    const selectAt = useStore((s) => s.selectAt);
+    return (
+      <li>
+        <button className={`row ${n.external ? 'row-high' : ''}`} onClick={() => selectAt({ type: n.kind, id: n.id }, n.occurrenceId)}>
+          <span className="row-head">
+            {n.kind === 'throw' ? <><Badge tone="error">✕ Error</Badge><ErrorId id={n.id} /></> : <Badge tone="warn">⚠ Corrupt Payload</Badge>}
+            <TierBadge tier={n.tier} />
+            {n.external && <Badge tone="external">EXTERNAL</Badge>}
+            <span className="muted">{fmtMs(n.rank.ts - start)}</span>
+          </span>
+          <span className="row-text">{n.finding ? <FindingSummary index={index} finding={n.finding} /> : n.text}</span>
+        </button>
+      </li>
+    );
+  },
+  (a, b) =>
+    a.start === b.start && a.n.kind === b.n.kind && a.n.id === b.n.id && a.n.tier === b.n.tier && a.n.external === b.n.external
+    && a.n.rank.ts === b.n.rank.ts && a.n.text === b.n.text && a.n.finding === b.n.finding && a.n.occurrenceId === b.n.occurrenceId,
+);
+
+/**
+ * How many rows a list draws. A row is a dozen or so components, and a live view re-draws lists on every burst of
+ * events, so it starts short; Replay keeps the long list.
+ */
+const LIVE_ROWS = 50;
+const REPLAY_ROWS = 200;
+
+function useRowCap(): { cap: number; more: boolean; setMore(v: boolean): void } {
+  const live = useStore((s) => s.mode === 'live' && s.live === 'on');
+  const [more, setMore] = useState(false);
+  return { cap: live && !more ? LIVE_ROWS : REPLAY_ROWS, more, setMore };
+}
+
+function ShowMore({ total, cap, onMore }: { total: number; cap: number; onMore(): void }) {
+  return total > cap ? <button onClick={onMore}>Show {Math.min(total, REPLAY_ROWS) - cap} more ({total} total)</button> : null;
+}
+
 /** How many notifications the event inspector lists, newest first. */
 const RECENT_NOTIFICATIONS = 20;
+
+const NO_RATES: number[] = new Array<number>(RATE_HISTORY).fill(0);
+const peak = (...rows: number[][]) => Math.max(0, ...rows.flat());
+
+const IN_COLOR = 'var(--accent)';
+const OUT_COLOR = 'var(--lg-blue-light1)';
+
+/** The node's or pathway's events per second over the last few minutes, from the same series the graph shows. */
+function RateSection({ id, kind }: { id: string; kind: 'node' | 'edge' }) {
+  const model = useModel();
+  const level = useStore((s) => s.level);
+  const rates = useRates(model, level);
+  if (kind === 'edge') {
+    const values = rates?.series.edges.get(id) ?? NO_RATES;
+    return <Section title="Rate"><RateChart series={[{ label: 'Events', values, color: IN_COLOR, current: rates?.shown.edges.get(id) }]} max={peak(values)} /></Section>;
+  }
+  const ins = rates?.series.in.get(id) ?? NO_RATES;
+  const outs = rates?.series.out.get(id) ?? NO_RATES;
+  const max = peak(ins, outs);
+  return (
+    <Section title="Rate">
+      <RateChart
+        max={max}
+        series={[
+          { label: 'In', values: ins, color: IN_COLOR, current: rates?.shown.in.get(id) },
+          { label: 'Out', values: outs, color: OUT_COLOR, current: rates?.shown.out.get(id) },
+        ]}
+      />
+    </Section>
+  );
+}
 
 /** A graph node by name: a handler links to its inspector, a process to the process node's. */
 function NodeName({ model, id }: { model: GraphModel; id: string }) {
@@ -228,6 +300,7 @@ function NodeDetail({ index, id }: { index: ReplayIndex; id: string }) {
         </dl>
         {(m.kind === 'process' || m.kind === 'stub') && <button className="primary" onClick={() => setLevel({ kind: 'handlers', processId: m.processId })}>Zoom into process</button>}
       </Section>
+      {m.kind !== 'stub' && <RateSection id={id} kind="node" />}
       <EventList title="Receiving" events={receiving} />
       <EventList title="Sending" events={sending} />
       {runs && <ActivitySection index={index} runs={runs} window={window} />}
@@ -237,13 +310,72 @@ function NodeDetail({ index, id }: { index: ReplayIndex; id: string }) {
 
 /** What a handler did over time (handled above the line, emitted below), then its runs. Clean runs are hidden until asked for. */
 function ActivitySection({ index, runs, window }: { index: ReplayIndex; runs: Run[]; window: [number, number] }) {
+  const [showAll, setShowAll] = useState(false);
+  const { cap, setMore } = useRowCap();
+  const problems = useMemo(() => runs.filter((r) => isProblemRun(index, r)), [index, runs]);
+  const shown = showAll ? runs : problems;
+  // The rows are drawn at low priority, so a burst of new events never blocks the graph's animation.
+  const rows = useDeferredValue(shown.slice(0, cap));
+  return (
+    <Section title="Activity" aside={showAll ? runs.length : `${problems.length} of ${runs.length}`}>
+      <ActivityTrack index={index} runs={runs} window={window} />
+      {runs.length === 0
+        ? <p className="hint">This handler did nothing in the selected window.</p>
+        : <CleanToggle shown={problems.length} total={runs.length} noun="runs" checked={showAll} onChange={setShowAll} empty="No throws or suspected corrupt payloads in this window." />}
+      <ul className="list">
+        {rows.map((r) => {
+          const thrown = r.error ? throwIdFor(index, r.item.occ.id, r.nodeId) : null;
+          return (
+            <RunRow
+              key={r.id}
+              runId={r.id}
+              occId={r.item.occ.id}
+              eventId={eventKey(r.item.template)}
+              ts={r.item.occ.ts}
+              start={index.origin}
+              error={r.error}
+              downstream={!!r.downstream}
+              errorId={r.error ? thrown ?? throwId(r.item.occ.id, r.nodeId) : null}
+              thrown={thrown}
+              flagged={index.findingsByOcc.has(r.item.occ.id)}
+            />
+          );
+        })}
+      </ul>
+      <ShowMore total={shown.length} cap={cap} onMore={() => setMore(true)} />
+    </Section>
+  );
+}
+
+interface RunRowProps { runId: string; occId: string; eventId: string; ts: number; start: number; error?: string; downstream: boolean; errorId: string | null; thrown: string | null; flagged: boolean }
+
+/** One run of a handler. Everything it draws is in its props, so a burst of new events leaves the old rows alone. */
+const RunRow = memo(function RunRow(p: RunRowProps) {
   const selectAt = useStore((s) => s.selectAt);
+  return (
+    <li>
+      <button className="row" onClick={() => {
+        // A run that threw is best explained by its error.
+        selectAt(p.thrown ? { type: 'throw', id: p.thrown } : { type: 'run', id: p.runId }, p.occId);
+      }}>
+        <span className="row-head">
+          {p.error && <Badge tone="error">{p.downstream ? '✕ Downstream Error' : '✕ Error'}</Badge>}
+          {p.errorId && <ErrorId id={p.errorId} />}
+          {p.flagged && <Badge tone="warn">⚠ Corrupt Payload</Badge>}
+          <span className="muted">{fmtMs(p.ts - p.start)}</span>
+        </span>
+        <span className="row-text"><EventLink id={p.eventId} /></span>
+        {p.error && <span className="run-error" title={p.error}>{p.error}</span>}
+      </button>
+    </li>
+  );
+});
+
+/** The activity mini-timeline. It follows the playhead, so it is the only part of the section that redraws every frame. */
+function ActivityTrack({ index, runs, window }: { index: ReplayIndex; runs: Run[]; window: [number, number] }) {
   const t = useStore((s) => s.t);
   const setT = useStore((s) => s.setT);
   const scrubbing = useRef(false);
-  const [showAll, setShowAll] = useState(false);
-  const problems = useMemo(() => runs.filter((r) => isProblemRun(index, r)), [index, runs]);
-  const shown = showAll ? runs : problems;
   const span = Math.max(window[1] - window[0], 1);
   // The timeline spans the replay window, so a pointer position maps straight to a time inside it.
   const scrub = (e: React.PointerEvent<SVGSVGElement>) => {
@@ -251,59 +383,43 @@ function ActivitySection({ index, runs, window }: { index: ReplayIndex; runs: Ru
     setT(window[0] + Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1) * span);
   };
   return (
-    <Section title="Activity" aside={showAll ? runs.length : `${problems.length} of ${runs.length}`}>
-      <svg
-        className="mini"
-        viewBox="0 0 1000 24"
-        preserveAspectRatio="none"
-        role="slider"
-        tabIndex={0}
-        aria-label="Replay position"
-        aria-valuemin={0}
-        aria-valuemax={Math.round(span)}
-        aria-valuenow={Math.round(Math.min(Math.max(t - window[0], 0), span))}
-        onPointerDown={(e) => { scrubbing.current = true; e.currentTarget.setPointerCapture(e.pointerId); scrub(e); }}
-        onPointerMove={(e) => { if (scrubbing.current) scrub(e); }}
-        onPointerUp={() => { scrubbing.current = false; }}
-        onPointerCancel={() => { scrubbing.current = false; }}
-        onKeyDown={(e) => {
-          if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-          e.preventDefault();
-          setT(Math.min(Math.max(t + (e.key === 'ArrowRight' ? 1 : -1) * span / 100, window[0]), window[1]));
-        }}
-      >
-        {runs.map((r) => {
-          const cls = r.error ? 'dot-error' : index.findingsByOcc.has(r.item.occ.id) ? 'dot-warn' : r.dir === 'handled' ? 'dot-in' : 'dot-out';
-          return <circle key={r.id} cx={((r.item.occ.ts - window[0]) / span) * 1000} cy={r.dir === 'handled' ? 8 : 17} r={3} className={cls} />;
-        })}
-        {t >= window[0] && t <= window[1] && <line x1={((t - window[0]) / span) * 1000} x2={((t - window[0]) / span) * 1000} y1={0} y2={24} className="mini-playhead" />}
-      </svg>
-      {runs.length === 0
-        ? <p className="hint">This handler did nothing in the selected window.</p>
-        : <CleanToggle shown={problems.length} total={runs.length} noun="runs" checked={showAll} onChange={setShowAll} empty="No throws or suspected corrupt payloads in this window." />}
-      <ul className="list">
-        {shown.slice(0, 200).map((r) => (
-          <li key={r.id}>
-            <button className="row" onClick={() => {
-              // A run that threw is best explained by its error.
-              const thrown = r.error ? throwIdFor(index, r.item.occ.id, r.nodeId) : null;
-              selectAt(thrown ? { type: 'throw', id: thrown } : { type: 'run', id: r.id }, r.item.occ.id);
-            }}>
-              <span className="row-head">
-                {r.error && <Badge tone="error">{r.downstream ? '✕ Downstream Error' : '✕ Error'}</Badge>}
-                {r.error && <ErrorId id={throwIdFor(index, r.item.occ.id, r.nodeId) ?? throwId(r.item.occ.id, r.nodeId)} />}
-                {index.findingsByOcc.has(r.item.occ.id) && <Badge tone="warn">⚠ Corrupt Payload</Badge>}
-                <span className="muted">{fmtMs(r.item.occ.ts - index.start)}</span>
-              </span>
-              <span className="row-text"><EventLink id={eventKey(r.item.template)} /></span>
-              {r.error && <span className="run-error" title={r.error}>{r.error}</span>}
-            </button>
-          </li>
-        ))}
-      </ul>
-    </Section>
+    <svg
+      className="mini"
+      viewBox="0 0 1000 24"
+      preserveAspectRatio="none"
+      role="slider"
+      tabIndex={0}
+      aria-label="Replay position"
+      aria-valuemin={0}
+      aria-valuemax={Math.round(span)}
+      aria-valuenow={Math.round(Math.min(Math.max(t - window[0], 0), span))}
+      onPointerDown={(e) => { scrubbing.current = true; e.currentTarget.setPointerCapture(e.pointerId); scrub(e); }}
+      onPointerMove={(e) => { if (scrubbing.current) scrub(e); }}
+      onPointerUp={() => { scrubbing.current = false; }}
+      onPointerCancel={() => { scrubbing.current = false; }}
+      onKeyDown={(e) => {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        e.preventDefault();
+        setT(Math.min(Math.max(t + (e.key === 'ArrowRight' ? 1 : -1) * span / 100, window[0]), window[1]));
+      }}
+    >
+      <ActivityDots index={index} runs={runs} window={window} />
+      {t >= window[0] && t <= window[1] && <line x1={((t - window[0]) / span) * 1000} x2={((t - window[0]) / span) * 1000} y1={0} y2={24} className="mini-playhead" />}
+    </svg>
   );
 }
+
+const ActivityDots = memo(function ActivityDots({ index, runs, window }: { index: ReplayIndex; runs: Run[]; window: [number, number] }) {
+  const span = Math.max(window[1] - window[0], 1);
+  return (
+    <>
+      {runs.map((r) => {
+        const cls = r.error ? 'dot-error' : index.findingsByOcc.has(r.item.occ.id) ? 'dot-warn' : r.dir === 'handled' ? 'dot-in' : 'dot-out';
+        return <circle key={r.id} cx={((r.item.occ.ts - window[0]) / span) * 1000} cy={r.dir === 'handled' ? 8 : 17} r={3} className={cls} />;
+      })}
+    </>
+  );
+});
 
 /** "Show clean …" checkbox for a list that defaults to its problem entries, with the hint for when there are none. */
 function CleanToggle({ shown, total, noun, checked, onChange, empty }: { shown: number; total: number; noun: string; checked: boolean; onChange(v: boolean): void; empty: string }) {
@@ -331,7 +447,7 @@ function RunDetail({ index, id }: { index: ReplayIndex; id: string }) {
     <>
       <Section title={<><HandlerLink id={p.nodeId} during={dir === 'handled' ? item.occ.id : undefined} /> {dir}</>} aside={findings?.length ? <FindingBadges findings={findings} /> : undefined}>
         <dl className="facts">
-          <dt>At</dt><dd>{fmtMs(item.occ.ts - index.start)}</dd>
+          <dt>At</dt><dd>{fmtMs(item.occ.ts - index.origin)}</dd>
           <dt>Event</dt><dd><EventLink id={eventKey(item.template)} /></dd>
           <dt>Took</dt><dd>{ms !== undefined ? fmtMs(ms) : '—'}</dd>
           <dt>Result</dt><dd>{error ? <><span className="err">✕ {error}</span> <ErrorId id={throwIdFor(index, item.occ.id, p.nodeId) ?? throwId(item.occ.id, p.nodeId)} /></> : dir === 'handled' ? 'ok' : '—'}</dd>
@@ -362,8 +478,7 @@ function EdgeDetail({ index, id }: { index: ReplayIndex; id: string }) {
   const model = useModel();
   const window = useStore((s) => s.window);
   const select = useStore((s) => s.select);
-  const seek = useStore((s) => s.seekToOccurrence);
-  const t = useStore((s) => s.t);
+  const { cap, setMore } = useRowCap();
   const edge = model?.edges.find((e) => e.id === id);
   const items = useMemo(
     () => (model ? inWindow(index, window).filter((i) => i.hops.some((h) => `${model.mapNode(h.src)}>${model.mapNode(h.dst)}` === id)) : []),
@@ -374,37 +489,64 @@ function EdgeDetail({ index, id }: { index: ReplayIndex; id: string }) {
   const problems = useMemo(() => items.filter((i) => index.findingsByOcc.has(i.occ.id)), [items, index]);
   if (!edge || !model) return null;
   const shown = showAll ? items : problems;
+  const rows = useDeferredValue(shown.slice(0, cap));
   return (
     <>
       <Section title="Pathway">
         <p className="route"><NodeName model={model} id={edge.source} /> → <NodeName model={model} id={edge.target} /></p>
-        <dl className="facts"><dt>Events</dt><dd>{edge.events.map((e, k) => <span key={e}>{k > 0 && ', '}<EventLink id={e} /></span>)}</dd><dt>Fired</dt><dd>{countFired(edge.times, t, window[1])} of {edge.count}×</dd></dl>
+        <dl className="facts"><dt>Events</dt><dd>{edge.events.map((e, k) => <span key={e}>{k > 0 && ', '}<EventLink id={e} /></span>)}</dd><dt>Fired</dt><dd><FiredCount times={edge.times} end={window[1]} /> of {edge.count}×</dd></dl>
       </Section>
+      <RateSection id={id} kind="edge" />
       <Section title="Payloads" aside={showAll ? items.length : `${problems.length} of ${items.length}`}>
         <CleanToggle shown={problems.length} total={items.length} noun="payloads" checked={showAll} onChange={setShowAll} empty="No suspected corrupt payloads on this pathway in this window." />
         <ul className="list">
-          {shown.slice(0, 200).map((i) => {
-            const flagged = index.findingsByOcc.has(i.occ.id);
-            return (
-              <li key={i.occ.id}>
-                <button className="row" onClick={() => seek(i.occ.id)}>
-                  <span className="row-head">
-                    {i.throws.length > 0 && <Badge tone="error">{i.throws.every((th) => th.rethrown) ? '✕ Downstream Error' : '✕ Error'}</Badge>}
-                    {i.throws.map((th) => <ErrorId key={th.handlerId} id={th.id} />)}
-                    {flagged && <Badge tone="warn">⚠ Corrupt Payload</Badge>}
-                    <span className="muted">{fmtMs(i.occ.ts - index.start)}</span>
-                  </span>
-                  {i.occ.capture === 'full'
-                    ? <code className="payload">{JSON.stringify(i.occ.payload)}</code>
-                    : <code className="payload shape" title="Template-only: values were not stored, this is the payload's shape">{i.template.payloadShape}</code>}
-                </button>
-              </li>
-            );
-          })}
+          {rows.map((i) => (
+            <PayloadRow
+              key={i.occ.id}
+              occId={i.occ.id}
+              ts={i.occ.ts}
+              start={index.origin}
+              flagged={index.findingsByOcc.has(i.occ.id)}
+              errorKind={i.throws.length === 0 ? null : i.throws.every((th) => th.rethrown) ? 'downstream' : 'error'}
+              throwIds={i.throws.map((th) => th.id).join('\n')}
+              full={i.occ.capture === 'full'}
+              payload={i.occ.payload}
+              shape={i.template.payloadShape}
+            />
+          ))}
         </ul>
+        <ShowMore total={shown.length} cap={cap} onMore={() => setMore(true)} />
       </Section>
     </>
   );
+}
+
+interface PayloadRowProps { occId: string; ts: number; start: number; flagged: boolean; errorKind: 'error' | 'downstream' | null; throwIds: string; full: boolean; payload: unknown; shape: string }
+
+/** One payload on a pathway. Like `RunRow`, it only redraws when something it shows changes. */
+const PayloadRow = memo(function PayloadRow(p: PayloadRowProps) {
+  const seek = useStore((s) => s.seekToOccurrence);
+  return (
+    <li>
+      <button className="row" onClick={() => seek(p.occId)}>
+        <span className="row-head">
+          {p.errorKind && <Badge tone="error">{p.errorKind === 'downstream' ? '✕ Downstream Error' : '✕ Error'}</Badge>}
+          {p.throwIds && p.throwIds.split('\n').map((id) => <ErrorId key={id} id={id} />)}
+          {p.flagged && <Badge tone="warn">⚠ Corrupt Payload</Badge>}
+          <span className="muted">{fmtMs(p.ts - p.start)}</span>
+        </span>
+        {p.full
+          ? <code className="payload">{JSON.stringify(p.payload)}</code>
+          : <code className="payload shape" title="Template-only: values were not stored, this is the payload's shape">{p.shape}</code>}
+      </button>
+    </li>
+  );
+});
+
+/** How often a pathway has fired by the playhead. Reads the playhead itself so the rest of the inspector doesn't redraw with it. */
+function FiredCount({ times, end }: { times: number[]; end: number }) {
+  const t = useStore((s) => s.t);
+  return <>{countFired(times, t, end)}</>;
 }
 
 export function OccurrenceDetail({ index, id }: { index: ReplayIndex; id: string }) {
@@ -431,7 +573,7 @@ function EventFacts({ index, item, chain: showChain = true }: { index: ReplayInd
   return (
     <>
       <dl className="facts">
-        <dt>At</dt><dd>{fmtMs(item.occ.ts - index.start)} · took {fmtMs(item.occ.durationMs)}</dd>
+        <dt>At</dt><dd>{fmtMs(item.occ.ts - index.origin)} · took {fmtMs(item.occ.durationMs)}</dd>
         <dt>Emitted by</dt><dd>{showNode(item.occ.sourceNodeId)}</dd>
         <dt>Handlers</dt>
         <dd>
@@ -540,7 +682,7 @@ function ErrorDetail({ index, id }: { index: ReplayIndex; id: string }) {
       <Section title={<><ErrorId id={id} /> <HandlerLink id={src.handlerId} /> {thrown ? 'threw' : 'reported an error'}</>} aside={rank && <TierBadge tier={rank} />}>
         <dl className="facts">
           {thrown && <><dt>Error</dt><dd>{thrown.message}</dd></>}
-          <dt>At</dt><dd>{fmtMs((thrown?.at ?? item.occ.ts) - index.start)}</dd>
+          <dt>At</dt><dd>{fmtMs((thrown?.at ?? item.occ.ts) - index.origin)}</dd>
           <dt>While handling</dt><dd><button className="link" onClick={() => seek(item.occ.id)}><EventRef>{eventLabel(index, item)}</EventRef></button></dd>
           <dt>Corrupted payloads sent</dt><dd>{tainted.length}</dd>
           <dt>Sent to external systems</dt><dd>{external}</dd>
@@ -572,7 +714,7 @@ function ErrorDetail({ index, id }: { index: ReplayIndex; id: string }) {
                   <span className="row-head">
                     <Badge tone="warn">⚠ Corrupt Payload</Badge>
                     {f.priority === 'high' && <Badge tone="external">EXTERNAL</Badge>}
-                    <span className="muted">{fmtMs(f.ts - index.start)}</span>
+                    <span className="muted">{fmtMs(f.ts - index.origin)}</span>
                   </span>
                   <span className="row-text"><FindingSummary index={index} finding={f} /></span>
                 </button>

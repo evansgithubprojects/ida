@@ -1,4 +1,8 @@
 node_modules
 dist
 *.tsbuildinfo
-apps/viewer/public/samples/demo.json
+.data
+.env.local
+.env
+# A fake installed package for the Node adapter tests: it has to sit under node_modules to count as one.
+!packages/adapter-eventemitter/test/fixtures/node_modules/

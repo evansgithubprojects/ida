@@ -92,6 +92,8 @@ export interface Occurrence {
   signalsError?: boolean;
   /** Suspected-corrupt and policy was 'block': no handler was called. */
   blocked?: boolean;
+  /** Set by the server: this reached it from the uploader's offline spool, after the fact, not as it happened. */
+  late?: boolean;
 }
 
 /** One field that differs between a suspect payload and what was logged before. */
@@ -169,6 +171,35 @@ export interface Recording {
   templates: Template[];
   occurrences: Occurrence[];
   findings?: Finding[];
+  /** Stretches of time whose events were lost because the uploader's offline spool was full. */
+  gaps?: Gap[];
+}
+
+/** Events recorded between `fromTs` and `toTs` that never reached the server. */
+export interface Gap {
+  fromTs: number;
+  toTs: number;
+  /** How many occurrences were dropped. */
+  dropped: number;
+}
+
+/** One upload from `@eda-debugger/cloud` to the server's `POST /v1/ingest`. */
+export interface IngestBatch {
+  /** The `connectRecorder` key. */
+  recorderKey: string;
+  /** One recorder run, chosen by the uploader (a UUID). */
+  sessionId: string;
+  /** `Recording.startedAt` for this run. */
+  startedAt: number;
+  /** Increases by one per batch in a session; the server ignores a `seq` it already has. */
+  seq: number;
+  /** Where the recorder runs, e.g. "node 24.1" or a browser user agent. */
+  runtime?: string;
+  /** Sent from the offline spool rather than straight away. */
+  spooled?: boolean;
+  messages: RecorderMessage[];
+  /** Data dropped before this batch because the spool overflowed. */
+  gap?: Gap;
 }
 
 /** What `recorder.subscribe()` listeners receive, and what the live bridge streams to the viewer. */

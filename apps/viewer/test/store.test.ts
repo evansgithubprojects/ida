@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createRecorder } from '@eda-debugger/core';
-import { runId } from '../src/replay';
+import { inWindow, MAX_WINDOW_EVENTS, runId } from '../src/replay';
 import { extendTrail, focusTargetOf, TRAIL_MAX, useStore, type Selection } from '../src/store';
 
 type Sel = NonNullable<Selection>;
@@ -133,5 +133,96 @@ describe('links across scopes', () => {
     expect(useStore.getState().level).toEqual({ kind: 'handlers', processId: node('boom').processId });
     expect(useStore.getState().selection).toEqual({ type: 'node', id: node('boom').id });
     s.select(null);
+  });
+});
+
+describe('the replay window cap', () => {
+  const many = (n: number) => {
+    let t = 0;
+    const rec = createRecorder({ now: () => (t += 10) });
+    const bus = {};
+    const handler = function onTick() {};
+    for (let i = 0; i < n; i++) rec.dispatch({ emitter: bus, label: 'Bus', eventName: 'tick', handlers: [handler], payload: { i } }, (invoke) => invoke(handler, () => handler()));
+    return rec.export();
+  };
+  const load = (n: number) => {
+    useStore.getState().load(many(n), 'test');
+    return useStore.getState();
+  };
+  const held = () => inWindow(useStore.getState().index!, useStore.getState().window).length;
+
+  it('opens a big recording on its newest events', () => {
+    const s = load(1500);
+    expect(held()).toBe(MAX_WINDOW_EVENTS);
+    expect(s.window[1]).toBe(s.index!.end);
+    expect(s.t).toBe(s.window[0]);
+  });
+
+  it('does not touch a recording that already fits', () => {
+    const s = load(200);
+    expect(s.window).toEqual([s.index!.start, s.index!.end]);
+  });
+
+  it('lets the dragged side stay and makes the other follow', () => {
+    const s = load(1500);
+    const first = s.index!.items[0]!.occ.ts;
+    useStore.getState().setWindow([first, s.index!.end], 'start');
+    expect(useStore.getState().window[0]).toBe(first);
+    expect(held()).toBe(MAX_WINDOW_EVENTS);
+    useStore.getState().setWindow([first, s.index!.end], 'end');
+    expect(useStore.getState().window[1]).toBe(s.index!.end);
+    expect(held()).toBe(MAX_WINDOW_EVENTS);
+  });
+
+  it('slides the window to an event outside it instead of growing', () => {
+    const s = load(1500);
+    const old = s.index!.items[10]!;
+    useStore.getState().selectAt({ type: 'occurrence', id: old.occ.id }, old.occ.id);
+    const after = useStore.getState();
+    expect(after.window[0]).toBe(old.occ.ts);
+    expect(after.t).toBe(old.occ.ts);
+    expect(held()).toBeLessThanOrEqual(MAX_WINDOW_EVENTS);
+  });
+});
+
+describe('graph settings', () => {
+  it('hides healthy pathways only when asked', () => {
+    expect(useStore.getState().hideHealthy).toBe(false);
+    useStore.getState().setHideHealthy(true);
+    expect(useStore.getState().hideHealthy).toBe(true);
+    useStore.getState().setHideHealthy(false);
+    expect(useStore.getState().hideHealthy).toBe(false);
+  });
+});
+
+describe('inspector setting', () => {
+  it('is open by default and flips', () => {
+    expect(useStore.getState().inspectorOpen).toBe(true);
+    useStore.getState().setInspectorOpen(false);
+    expect(useStore.getState().inspectorOpen).toBe(false);
+    useStore.getState().setInspectorOpen(true);
+  });
+
+  it('opens when something on the graph is clicked, but not when the selection is cleared', () => {
+    useStore.getState().setInspectorOpen(false);
+    useStore.getState().select(null, { fromGraph: true }); // a click on empty canvas
+    expect(useStore.getState().inspectorOpen).toBe(false);
+    useStore.getState().select({ type: 'node', id: 'n1' }, { fromGraph: true });
+    expect(useStore.getState().inspectorOpen).toBe(true);
+    useStore.getState().select(null);
+  });
+
+  it('is saved together with the graph settings, each keeping the other', () => {
+    const saved = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => saved.get(k) ?? null, setItem: (k: string, v: string) => void saved.set(k, v) });
+    try {
+      useStore.getState().setHideHealthy(true);
+      useStore.getState().setInspectorOpen(false);
+      expect(JSON.parse(saved.get('ida_graph_settings')!)).toEqual({ hideHealthy: true, inspectorOpen: false });
+    } finally {
+      vi.unstubAllGlobals();
+      useStore.getState().setHideHealthy(false);
+      useStore.getState().setInspectorOpen(true);
+    }
   });
 });

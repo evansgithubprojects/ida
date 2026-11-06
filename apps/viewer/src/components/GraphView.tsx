@@ -1,18 +1,19 @@
 import {
-  Background, BaseEdge, Controls, EdgeLabelRenderer, Handle, Position, ReactFlow, ReactFlowProvider, useInternalNode, useReactFlow,
+  BaseEdge, Controls, EdgeLabelRenderer, Handle, Position, ReactFlow, ReactFlowProvider, useInternalNode, useReactFlow,
   type Edge, type EdgeProps, type InternalNode, type Node, type NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { layout, layoutBounds, NODE_H, NODE_W, type Positions } from '../graph/layout';
+import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { accumulate, layoutBounds, layoutSeen, NODE_H, NODE_W, type Positions, type Seen } from '../graph/layout';
 import { processNodeId, type Level, type ModelEdge, type ModelNode } from '../graph/model';
 import {
-  centreViewport, fitViewport, MAX_ZOOM, saveViewport, takeSavedViewport, MIN_ZOOM, motion, rectOnScreen, toKeyframes, ZOOM_MS, zoomFrames, type Rect, type Viewport,
+  centreViewport, fitViewport, MAX_ZOOM, sameViewport, saveViewport, takeSavedViewport, MIN_ZOOM, motion, rectOnScreen, toKeyframes, ZOOM_MS, zoomFrames, type Rect, type Viewport,
 } from '../graph/zoom';
-import { useActive, useModel } from '../hooks';
-import { countFired, type Active } from '../replay';
+import { useActive, useModel, useRates } from '../hooks';
+import { fmtRate, type Active, type ShownRates } from '../replay';
 import { useStore } from '../store';
 import { NodeRef } from './common';
+import { GraphSettings } from './GraphSettings';
 
 /**
  * Everything that changes while replaying lives in this context, not in the node/edge objects handed to
@@ -23,13 +24,14 @@ interface ViewState {
   nodes: Map<string, ModelNode>;
   edges: Map<string, ModelEdge>;
   active: Active;
+  /** What the n/s labels show: the last 5 s step, or a spike ahead of it (see `shownRates`). */
+  rates: ShownRates | null;
   selectedId: string | null;
   /** Briefly set after a "show on graph" request. */
   focusedId: string | null;
   focusedEdgeId: string | null;
-  /** Playhead and the end of the replay window, for the pathway counters. */
-  t: number;
-  end: number;
+  /** Graph setting: pathways with no suspect payloads show no count and no pulse. */
+  hideHealthy: boolean;
 }
 
 const ViewCtx = createContext<ViewState | null>(null);
@@ -44,18 +46,21 @@ const RING_ID = '__ring';
 const hiddenHandle = { opacity: 0, pointerEvents: 'none' } as const;
 
 const NodeCard = memo(function NodeCard({ id }: NodeProps<RouteNode>) {
-  const { nodes, active, selectedId, focusedId } = useView();
+  const { nodes, active, rates, selectedId, focusedId } = useView();
   const model = nodes.get(id);
   if (!model) return null;
-  const lit = active.litNodes.get(id) ?? 0;
+  const rateIn = rates?.in.get(id);
+  const rateOut = rates?.out.get(id);
   const flashing = active.flashingNodes.has(id);
   const thrown = active.thrownNodes.get(id) ?? 0;
   const cls = ['node-card', `kind-${model.kind}`, flashing && 'flash', thrown > 0 && 'has-thrown', model.idle && 'idle', selectedId === id && 'selected', focusedId === id && 'focused'];
   return (
-    <div className={cls.filter(Boolean).join(' ')} style={{ width: NODE_W, height: NODE_H, ['--lit' as string]: lit }}>
+    <div className={cls.filter(Boolean).join(' ')} style={{ width: NODE_W, height: NODE_H }}>
       <Handle type="target" position={Position.Left} isConnectable={false} style={hiddenHandle} />
       <div className="node-title" title={model.label}>{model.kind === 'process' || model.kind === 'stub' ? model.label : <NodeRef id={model.id} label={model.label} qualify={false} />}</div>
-      <div className="node-detail">{model.detail}</div>
+      <div className={`node-detail ${rateIn?.spike || rateOut?.spike ? 'spike' : ''}`} title={rateIn?.spike || rateOut?.spike ? 'Spike, held until the next update' : undefined}>
+        {model.kind === 'stub' ? model.detail : `${fmtRate(rateIn?.value ?? 0)}/s in · ${fmtRate(rateOut?.value ?? 0)}/s out`}
+      </div>
       {thrown > 0 && <span className="corner corner-error" title={`${thrown} throw(s) so far`}>✕ {thrown}</span>}
       <Handle type="source" position={Position.Right} isConnectable={false} style={hiddenHandle} />
     </div>
@@ -112,19 +117,27 @@ function floatingPath(source: InternalNode, target: InternalNode): [string, numb
   return [`M ${sx} ${sy} Q ${qx} ${qy} ${tx} ${ty}`, 0.25 * sx + 0.5 * qx + 0.25 * tx, 0.25 * sy + 0.5 * qy + 0.25 * ty];
 }
 
+/** How much of a line the travelling pulse covers. */
+const PULSE_LENGTH = 0.2;
+
 const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgeProps<RouteEdge>) {
-  const { edges, active, selectedId, focusedEdgeId, t, end } = useView();
+  const { edges, active, rates, selectedId, focusedEdgeId, hideHealthy } = useView();
   const from = useInternalNode(source);
   const to = useInternalNode(target);
   const edge = edges.get(id);
   if (!edge || !from || !to) return null;
   const [path, lx, ly] = floatingPath(from, to);
-  const lit = active.litEdges.get(id) ?? 0;
   const flagged = active.flaggedEdges.get(id);
   const litFlagged = active.litFlaggedEdges.has(id);
-  const stroke = litFlagged ? 'var(--warn)' : lit > 0 ? 'var(--accent)' : flagged ? 'var(--warn-dim)' : 'var(--edge)';
+  // Lines stay dim and still; a lit one only means an event is on it right now, drawn as a pulse that travels from sender to receiver.
+  const pulseColor = litFlagged ? 'var(--warn)' : 'var(--accent)';
   // Thickness follows the total so lines don't change width while the counter ticks.
-  const width = 1.5 + Math.min(3, Math.log2(edge.count + 1) * 0.5) + lit * 2.5;
+  const width = 1.5 + Math.min(3, Math.log2(edge.count + 1) * 0.5);
+  // Every event still on its way gets its own pulse, so a busy route shows them all instead of restarting one.
+  // A selected or focused pathway stays fully drawn so inspecting it still shows something.
+  const quiet = hideHealthy && selectedId !== id && focusedEdgeId !== id;
+  const shown = rates?.edges.get(id);
+  const flights = quiet && !litFlagged ? [] : (active.pulses.get(id) ?? []);
   return (
     <>
       <BaseEdge
@@ -132,17 +145,24 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
         path={path}
         className={focusedEdgeId === id ? 'edge-focused' : undefined}
         style={{
-          stroke, strokeWidth: width, opacity: lit > 0 ? 0.55 + lit * 0.45 : 0.75,
+          stroke: flagged ? 'var(--warn-dim)' : 'var(--edge)', strokeWidth: width, opacity: 0.75,
           strokeDasharray: flagged ? '7 5' : undefined,
-          filter: lit > 0.05 ? `drop-shadow(0 0 ${3 + lit * 6}px ${stroke})` : undefined,
         }}
       />
-      <EdgeLabelRenderer>
+      {flights.map((progress, i) => (
+        <path
+          key={i}
+          d={path} pathLength={1} fill="none" stroke={pulseColor} strokeWidth={width + 1.5} strokeLinecap="round"
+          strokeDasharray={`${PULSE_LENGTH} 2`} strokeDashoffset={PULSE_LENGTH - progress * (1 + PULSE_LENGTH)}
+          style={{ pointerEvents: 'none', filter: `drop-shadow(0 0 5px ${pulseColor})` }}
+        />
+      ))}
+      {!(quiet && !flagged) && <EdgeLabelRenderer>
         <div className={`edge-label ${selectedId === id ? 'selected' : ''} ${focusedEdgeId === id ? 'focused' : ''}`} style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}>
-          <span title={`${edge.count} in this window`}>{countFired(edge.times, t, end)}</span>
+          <span className={shown?.spike ? 'spike' : undefined} title={shown?.spike ? `Spike: ${fmtRate(shown.value)}/s, held until the next update` : `${edge.count} in this window`}>{fmtRate(shown?.value ?? 0)}/s</span>
           {flagged && <span className="mark mark-warn" title={`Suspected corrupt payloads on this route${flagged.high ? ', some reaching an external system' : ''}`}>⚠{flagged.count}</span>}
         </div>
-      </EdgeLabelRenderer>
+      </EdgeLabelRenderer>}
     </>
   );
 });
@@ -174,13 +194,13 @@ interface LayerProps {
 function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
   const model = useModel(level);
   const active = useActive(model);
+  const rates = useRates(model, level);
   const index = useStore((s) => s.index);
-  const t = useStore((s) => s.t);
-  const end = useStore((s) => s.window[1]);
   const selection = useStore((s) => s.selection);
   const select = useStore((s) => s.select);
   const focus = useStore((s) => s.focus);
   const setLevel = useStore((s) => s.setLevel);
+  const hideHealthy = useStore((s) => s.hideHealthy);
   const { setViewport, getViewport } = useReactFlow<AnyNode, RouteEdge>();
 
   // Re-layout only when the shape of the graph changes, not on every count update.
@@ -188,16 +208,34 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
     () => (model ? level.kind + '|' + model.nodes.map((n) => n.id).sort().join(',') + '|' + model.edges.map((e) => e.id).sort().join(',') : ''),
     [model, level.kind],
   );
+  // Nodes keep their place: the layout covers everything this layer has drawn, so one that leaves the window (or an
+  // attack bringing in new ones) doesn't move the rest. It restarts with a new session, whose events start over.
+  const session = index?.recording.startedAt;
+  const seenRef = useRef<{ session: number | undefined; seen: Seen | null }>({ session, seen: null });
+  const seen = useMemo(() => {
+    if (!model) return null;
+    if (seenRef.current.session !== session) seenRef.current = { session, seen: null };
+    seenRef.current.seen = accumulate(seenRef.current.seen, model);
+    return seenRef.current.seen;
+  }, [model, session]);
   const lay = useMemo(
-    () => (model ? layout(model, level.kind === 'handlers') : null),
+    () => (model && seen ? layoutSeen(seen, model.mapNode, level.kind === 'handlers') : null),
+    // Only a node seen for the first time re-spaces the circle; a new pathway between known nodes leaves it alone.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sig],
+    [seen?.sig],
   );
 
   // The camera is ours to place, so a transition can compute where every node is on screen without measuring.
   // After a reload the camera goes back where it was; otherwise the whole graph is fitted.
-  const [initialViewport] = useState<Viewport>(() => (lay ? takeSavedViewport(sig) ?? fitViewport(layoutBounds(lay), size.width, size.height) : { x: 0, y: 0, zoom: 1 }));
+  const [{ viewport: initialViewport, restored }] = useState(() => {
+    const saved = lay ? takeSavedViewport(sig) : null;
+    return { restored: saved !== null, viewport: saved ?? (lay ? fitViewport(layoutBounds(lay), size.width, size.height) : { x: 0, y: 0, zoom: 1 }) };
+  });
   const camera = useRef<Viewport>(initialViewport);
+  // The camera is fitted to the graph until the user takes it over (pans, zooms, or a "show on graph" pan; a camera
+  // restored after a reload counts too). From then on a changed graph leaves it where it is.
+  const fitted = useRef<Viewport | null>(restored ? null : initialViewport);
+  const userCamera = useRef(restored);
   useLayoutEffect(() => {
     if (!lay) return;
     geometry.set(layerKey, { positions: lay.positions, viewport: () => camera.current });
@@ -207,11 +245,14 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
   const first = useRef(true);
   useEffect(() => {
     if (first.current) { first.current = false; return; }
-    if (!lay || !refit) return;
-    camera.current = takeSavedViewport(sig) ?? fitViewport(layoutBounds(lay), size.width, size.height);
+    if (!lay || !refit || userCamera.current) return;
+    const saved = takeSavedViewport(sig);
+    camera.current = saved ?? fitViewport(layoutBounds(lay), size.width, size.height);
+    fitted.current = saved ? null : camera.current;
+    userCamera.current = saved !== null;
     void setViewport(camera.current, { duration: 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sig]);
+  }, [seen?.sig]);
 
   // Only the layer on top answers focus requests, and not mid-zoom: a request that zoomed in lands once it's done.
   const focusedId = focus?.nodeId && refit && model ? (model.nodes.some((n) => n.id === focus.nodeId) ? focus.nodeId : model.mapNode(focus.nodeId)) : null;
@@ -248,7 +289,7 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lay]);
+  }, [lay, sig]);
 
   const edges = useMemo<RouteEdge[]>(
     () => (model ? model.edges.map((e) => ({ id: e.id, source: e.source, target: e.target, type: 'route', data: {} })) : []),
@@ -258,11 +299,11 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
 
   const view = useMemo<ViewState | null>(
     () => (model && active ? {
-      nodes: new Map(model.nodes.map((n) => [n.id, n])), edges: new Map(model.edges.map((e) => [e.id, e])), active,
+      nodes: new Map(model.nodes.map((n) => [n.id, n])), edges: new Map(model.edges.map((e) => [e.id, e])), active, rates: rates?.shown ?? null,
       selectedId: selection && selection.type !== 'occurrence' && selection.type !== 'event' ? selection.id : null,
-      focusedId, focusedEdgeId: focusedEdge?.id ?? null, t, end,
+      focusedId, focusedEdgeId: focusedEdge?.id ?? null, hideHealthy,
     } : null),
-    [model, active, selection, focusedId, focusedEdge, t, end],
+    [model, active, rates, selection, focusedId, focusedEdge, hideHealthy],
   );
 
   if (!model || !view || !lay) return null;
@@ -277,7 +318,7 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
         edgeTypes={edgeTypes}
         colorMode="dark"
         defaultViewport={initialViewport}
-        onMoveEnd={(_, vp) => { camera.current = vp; if (refit) saveViewport(sig, vp); }}
+        onMoveEnd={(_, vp) => { camera.current = vp; userCamera.current = !sameViewport(vp, fitted.current); if (refit) saveViewport(sig, vp); }}
         minZoom={MIN_ZOOM}
         maxZoom={MAX_ZOOM}
         zoomOnDoubleClick={false}
@@ -293,7 +334,6 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
           if (m.kind === 'process' || m.kind === 'stub') setLevel({ kind: 'handlers', processId: m.processId });
         }}
       >
-        <Background gap={24} />
         <Controls showInteractive={false} />
       </ReactFlow>
     </ViewCtx.Provider>
@@ -327,7 +367,7 @@ function ZoomCrumbs() {
  * being entered and fades away, uncovering the child, which starts small inside that card. Going back plays
  * the same thing in reverse. Only CSS transforms and opacity animate, so React Flow never re-renders mid-zoom.
  */
-export function GraphView() {
+export function GraphView({ actions }: { /** Extra buttons shown left of the settings cog. */ actions?: ReactNode } = {}) {
   const level = useStore((s) => s.level);
   const box = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<Size | null>(null);
@@ -412,6 +452,7 @@ export function GraphView() {
   return (
     <div ref={box} className="graph-stack">
       <ZoomCrumbs />
+      <div className="graph-actions">{actions}<GraphSettings /></div>
       {size && [current, outgoing].map((layer) => layer && (
         <div
           key={layer.key}

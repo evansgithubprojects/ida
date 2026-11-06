@@ -28,7 +28,7 @@ export interface Bridge {
  * occurrence and finding. (SSE needs no dependency and the browser reconnects by itself.)
  * @example
  * const bridge = await startBridge(recorder);
- * // open the viewer and press "Connect live"; later: await bridge.close();
+ * // in the viewer, open the recorder dropdown and choose "View Remote Endpoint"; later: await bridge.close();
  */
 export function startBridge(recorder: Recorder, opts: BridgeOptions = {}): Promise<Bridge> {
   const clients = new Set<import('node:http').ServerResponse>();

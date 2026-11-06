@@ -1,12 +1,11 @@
 import { EventEmitter } from 'node:events';
+import type { Auth } from './auth';
 
-/** A small fake shop: Auth -> Cart -> Payments -> Notifier, with nested sync emits and a few scripted failures. */
-export function createShop(label: (e: EventEmitter, name: string) => void, markExternal: (fn: Function) => void = () => {}) {
-  const auth = new EventEmitter();
+/** A small fake shop: (sign-in lives in auth.ts) -> Cart -> Payments -> Notifier, with nested sync emits and a few scripted failures. */
+export function createShop(auth: Auth, label: (e: EventEmitter, name: string) => void, markExternal: (fn: Function) => void = () => {}) {
   const cart = new EventEmitter();
   const payments = new EventEmitter();
   const notifier = new EventEmitter();
-  label(auth, 'Auth');
   label(cart, 'Cart');
   label(payments, 'Payments');
   label(notifier, 'Notifier');
@@ -14,11 +13,12 @@ export function createShop(label: (e: EventEmitter, name: string) => void, markE
   const sent: string[] = [];
   let orderSeq = 1000;
 
-  auth.on('login', function loadCart(user: { id: string; name: string }) {
-    cart.emit('cart:load', { userId: user.id, items: [] });
+  // A successful login (see auth.ts) starts the shopper's session.
+  auth.sessions.on('session:created', function loadCart(session: { userId: string }) {
+    cart.emit('cart:load', { userId: session.userId, items: [] });
   });
-  auth.on('login', function welcome(user: { id: string; name: string }) {
-    notifier.emit('notify', { to: user.id, text: `welcome ${user.name}` });
+  auth.sessions.on('session:created', function welcome(session: { userId: string }) {
+    notifier.emit('notify', { to: session.userId, text: `welcome ${session.userId}` });
   });
 
   cart.on('cart:load', function restoreItems() {});
@@ -68,7 +68,7 @@ export function createShop(label: (e: EventEmitter, name: string) => void, markE
 
   return {
     sent,
-    login: (n: number) => auth.emit('login', { id: `u${n}`, name: `user${n}` }),
+    login: (n: number) => auth.login(`u${n}`, 'correct-password', `198.51.100.${(n % 20) + 1}`),
     checkout: (total: number, extra?: string) => {
       try {
         cart.emit('checkout', nextOrder(total, extra));

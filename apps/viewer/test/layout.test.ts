@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { layout, NODE_H, NODE_W } from '../src/graph/layout';
+import { accumulate, layout, layoutSeen, NODE_H, NODE_W } from '../src/graph/layout';
 import type { GraphModel, ModelNode } from '../src/graph/model';
 
 const node = (id: string, kind: ModelNode['kind'] = 'handler'): ModelNode => ({ id, label: id, kind, processId: 'a', detail: '' });
@@ -59,5 +59,34 @@ describe('circular layout', () => {
       const c = centre(withStubs, id);
       expect(Math.hypot(c.x, c.y)).toBeGreaterThan(withStubs.ring!.radius + NODE_W / 2);
     }
+  });
+});
+
+describe('a layout that remembers what it has drawn', () => {
+  const ids = ['a', 'b', 'c', 'd'];
+  const all = model(ids.map((i) => node(i)), [['a', 'b'], ['b', 'c'], ['c', 'd']]);
+
+  it('keeps a node in place when it leaves the window, and when it returns', () => {
+    const before = layoutSeen(accumulate(null, all), all.mapNode, false);
+    const gone = model(ids.slice(0, 2).map((i) => node(i)), [['a', 'b']]); // c and d slide out of the window
+    const seen = accumulate(accumulate(null, all), gone);
+    const after = layoutSeen(seen, gone.mapNode, false);
+    for (const id of ids) expect(after.positions.get(id)).toEqual(before.positions.get(id));
+  });
+
+  it('only changes identity when something new appears', () => {
+    const seen = accumulate(null, all);
+    expect(accumulate(seen, all)).toBe(seen);
+    expect(accumulate(seen, model([node('a'), node('b')], [['a', 'b']]))).toBe(seen);
+    const grown = accumulate(seen, model([...all.nodes, node('e')], [['d', 'e']]));
+    expect(grown).not.toBe(seen);
+    expect(grown.sig).toBe('a,b,c,d,e');
+  });
+
+  it('notices a pathway between nodes it already knows without renaming the node set', () => {
+    const seen = accumulate(null, all);
+    const next = accumulate(seen, model(all.nodes, [['a', 'd']]));
+    expect(next).not.toBe(seen);
+    expect(next.sig).toBe(seen.sig); // so a layout keyed on `sig` stays put
   });
 });

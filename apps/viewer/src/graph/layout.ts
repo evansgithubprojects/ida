@@ -1,4 +1,4 @@
-import type { GraphModel } from './model';
+import type { GraphModel, ModelEdge, ModelNode } from './model';
 import type { Rect } from './zoom';
 
 export const NODE_W = 176;
@@ -129,3 +129,30 @@ export function layoutBounds(l: Layout): Rect {
   if (!isFinite(x0)) return { x: 0, y: 0, width: NODE_W, height: NODE_H };
   return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
 }
+
+/**
+ * Every node and pathway a graph layer has drawn so far. The layout is computed from all of them, not just what is in
+ * the window now, so a node keeps its place when it drops out of the window and when a newcomer arrives only the
+ * circle is re-spaced once, instead of the graph being rebuilt around whatever happens to be visible.
+ */
+export interface Seen {
+  nodes: Map<string, ModelNode>;
+  edges: Map<string, ModelEdge>;
+  /** The nodes' ids, sorted: changes only when a node is seen for the first time. */
+  sig: string;
+}
+
+/** `prev` plus whatever `model` adds. Returns `prev` itself when nothing is new, so it can be used as a memo key. */
+export function accumulate(prev: Seen | null, model: GraphModel): Seen {
+  const fresh = model.nodes.some((n) => !prev?.nodes.has(n.id)) || model.edges.some((e) => !prev?.edges.has(e.id));
+  if (prev && !fresh) return prev;
+  const nodes = new Map(prev?.nodes);
+  const edges = new Map(prev?.edges);
+  for (const n of model.nodes) if (!nodes.has(n.id)) nodes.set(n.id, n);
+  for (const e of model.edges) if (!edges.has(e.id)) edges.set(e.id, e);
+  return { nodes, edges, sig: [...nodes.keys()].sort().join(',') };
+}
+
+/** The layout of everything in `seen`; `mapNode` is only carried along (the layout itself doesn't use it). */
+export const layoutSeen = (seen: Seen, mapNode: GraphModel['mapNode'], ring: boolean): Layout =>
+  layout({ nodes: [...seen.nodes.values()], edges: [...seen.edges.values()], mapNode }, ring);

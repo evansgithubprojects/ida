@@ -1,4 +1,4 @@
-import { enable, type Recorder } from '@eda-debugger/core';
+import { dispatchAll, enable, recordersFor, type Recorder } from '@eda-debugger/core';
 
 /** Call to restore the original `EventTarget` methods and stop recording. */
 export type Uninstall = () => void;
@@ -40,13 +40,14 @@ export function describeTarget(t: EventTarget): string {
  * Patches EventTarget so listeners are tracked per target and every dispatch is recorded: native events
  * (click, input, ...) and `dispatchEvent` alike. Listener behavior (order, `once`, `capture`, `passive`,
  * `handleEvent` objects, `removeEventListener`) is unchanged because the original methods still do the registering.
- * @param recorder where to record; defaults to the shared recorder from `enable()`
+ * @param recorder where to record. Leave it out to route each target to the recorders that `track()` it, or else to the
+ * default recorder (see `enable()`); targets with neither aren't recorded.
  * @param options which targets to record and how to label them
  * @returns a function that restores the original methods
  * @example
  * const uninstall = enableEventTargetRecording(enable(), { label: (t) => (t === document ? 'Page' : undefined) });
  */
-export function enableEventTargetRecording(recorder: Recorder = enable(), options: EventTargetAdapterOptions = {}): Uninstall {
+export function enableEventTargetRecording(recorder?: Recorder, options: EventTargetAdapterOptions = {}): Uninstall {
   const proto = EventTarget.prototype;
   const { addEventListener, removeEventListener, dispatchEvent } = proto;
 
@@ -58,13 +59,15 @@ export function enableEventTargetRecording(recorder: Recorder = enable(), option
   const open = new WeakMap<Event, { invoke: <R>(h: Function, c: () => R) => R }>();
 
   const tracked = (t: EventTarget) => !options.include || options.include(t);
+  const targets = recorder ? () => (recorder.recording ? [recorder] : []) : recordersFor;
   const captureOf = (o?: boolean | AddEventListenerOptions) => (typeof o === 'boolean' ? o : !!o?.capture);
 
   const handlersFor = (t: EventTarget, type: string): Listener[] => registered.get(t)?.get(type) ?? [];
 
   /** Runs `fn` inside an occurrence for `event` on `target`, reusing one already open for this Event. */
   function record(target: EventTarget, event: Event, run: () => boolean): boolean {
-    return recorder.dispatch(
+    return dispatchAll(
+      targets(target),
       {
         emitter: target, label: options.label?.(target) ?? describeTarget(target), eventName: event.type,
         handlers: handlersFor(target, event.type).map((l) => (typeof l === 'function' ? l : (l.handleEvent as Function))),
@@ -126,7 +129,7 @@ export function enableEventTargetRecording(recorder: Recorder = enable(), option
   } as typeof proto.removeEventListener;
 
   proto.dispatchEvent = function (this: EventTarget, event: Event) {
-    if (!recorder.recording || !tracked(this) || open.has(event)) return dispatchEvent.call(this, event);
+    if (!tracked(this) || open.has(event) || !targets(this).length) return dispatchEvent.call(this, event);
     return record(this, event, () => dispatchEvent.call(this, event));
   };
 

@@ -1,6 +1,6 @@
 # @eda-debugger/core
 
-Recorder for the [Event Chain Debugger](../../README.md): templates, causality, corruption detection and JSON export. No DOM or Node-only imports, except the optional `@eda-debugger/core/bridge-node`.
+Recorder for [Ida](../../README.md): templates, causality, corruption detection and JSON export. No DOM or Node-only imports, except the optional `@eda-debugger/core/bridge-node`.
 
 ```bash
 npm install @eda-debugger/core
@@ -25,8 +25,28 @@ Open `recording.json` in the viewer, or stream live with `startBridge` (below).
 
 ## Creating a recorder
 
-- `enable(options?)` creates the shared recorder once and returns it. Options only apply to the first call. `getRecorder()` returns it, or `undefined` before `enable()`.
-- `createRecorder(options?)` always creates a new, independent recorder.
+- `connectRecorder(key, options?)` returns the recorder named `key`, creating it on first use. Call it with the same key anywhere in your app to get the same recorder, with no need to pass it around. Options only apply to the call that creates it. Keys are 1-64 letters, digits, `.`, `_`, `:` or `-`.
+- `enable(options?)` is `connectRecorder('default')`, and the first call also makes it the default recorder (below). `getRecorder()` returns it, or `undefined` before `enable()`.
+- `createRecorder(options?)` always creates a new, independent recorder that isn't in the keyed registry.
+- `getRecorders()` lists the keyed recorders; `onRecorder(listener)` is called for each existing and future one (uploaders use it).
+
+### Several recorders: which one records an event
+
+Adapters installed without a recorder route every emit by its emitter:
+
+```ts
+enable();                                       // the default recorder gets everything...
+connectRecorder('payments').track(paymentsBus); // ...except emitters another recorder claims
+enableEventEmitterRecording();
+```
+
+- An emitter tracked by one or more recorders (`recorder.track(emitter)`) is recorded by each of them; its listeners still run once. `untrack` releases it.
+- Every other emitter goes to the default recorder, set by `enable()` or `setDefaultRecorder(recorder)`. With `setDefaultRecorder(null)`, only tracked emitters are recorded.
+- Parent links don't cross recorders: an event recorded in one, caused by an event recorded in another, starts a new chain.
+
+Passing a recorder to an adapter (`enableEventEmitterRecording(recorder)`) skips routing: that recorder gets everything.
+
+To upload recorders to a project in the web app, see [`@eda-debugger/cloud`](../cloud/README.md).
 
 ### `RecorderOptions`
 
@@ -70,6 +90,8 @@ Core can't see inside a handler, so declare what talks to the outside world with
 
 | Member | Description |
 | --- | --- |
+| `key` | The name given with `connectRecorder(key)` or the `key` option. |
+| `track(emitter)` / `untrack(emitter)` | Claim an emitter for this recorder (see routing above). |
 | `start()` / `stop()` | Resume or pause recording. What was recorded is kept. |
 | `recording` | Whether events are currently being recorded. |
 | `export()` | A versioned, JSON-serializable `Recording`. |
@@ -94,7 +116,7 @@ const findings = analyze(JSON.parse(fs.readFileSync('recording.json', 'utf8')));
 ```ts
 import { startBridge } from '@eda-debugger/core/bridge-node';
 const bridge = await startBridge(recorder, { port: 7777 });
-// open the viewer and press "Connect live"; later: await bridge.close();
+// in the viewer, open the recorder dropdown and choose "View Remote Endpoint"; later: await bridge.close();
 ```
 
 Streams a snapshot on connect, then every new occurrence and finding, over Server-Sent Events. `port` defaults to `7777` (use `0` for a free one) and `host` to `127.0.0.1`. Keep it on loopback: the stream carries your event data.
@@ -118,3 +140,5 @@ recorder.dispatch(
 ```
 
 Call every listener through `invoke` so its timing, errors and any events it emits are attributed to it. Causality tracking is swappable through `CausalityContext` (for example `AsyncLocalStorage`).
+
+To support routing, find the recorders with `recordersFor(emitter)` and record through all of them with `dispatchAll(recorders, info, run)`, which nests their `dispatch` calls and runs the listeners once.

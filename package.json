@@ -8,14 +8,16 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @eda-debugger/core && npm run build -w @eda-debugger/adapter-eventemitter && npm run build -w @eda-debugger/adapter-eventtarget",
+    "dev": "npm run build:packages && concurrently -k -n core,adapter-eventemitter,adapter-eventtarget,cloud,server,web,demo \"npm run dev -w @eda-debugger/core\" \"npm run dev -w @eda-debugger/adapter-eventemitter\" \"npm run dev -w @eda-debugger/adapter-eventtarget\" \"npm run dev -w @eda-debugger/cloud\" \"npm run dev -w @eda-debugger/server\" \"npm run dev -w @eda-debugger/viewer\" \"npm run dev -w @eda-debugger/demo\"",
+    "build:packages": "npm run build -w @eda-debugger/core && npm run build -w @eda-debugger/adapter-eventemitter -w @eda-debugger/adapter-eventtarget -w @eda-debugger/cloud",
+    "build": "npm run build:packages && npm run build -w @eda-debugger/server && npm run build -w @eda-debugger/viewer",
+    "start": "npm start -w @eda-debugger/server",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/adapter-eventemitter && tsc --noEmit -p packages/adapter-eventtarget && tsc --noEmit -p apps/viewer && tsc --noEmit -p apps/demo",
-    "demo": "npm run build && npm run sim -w @eda-debugger/demo && npm run dev -w @eda-debugger/viewer",
-    "demo:live": "npm run build && npm run live -w @eda-debugger/demo"
+    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/adapter-eventemitter && tsc --noEmit -p packages/adapter-eventtarget && tsc --noEmit -p packages/cloud && tsc --noEmit -p apps/viewer && tsc --noEmit -p apps/demo && tsc --noEmit -p apps/server"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "concurrently": "^10.0.6",
     "jsdom": "^26.0.0",
     "tsup": "^8.3.0",
     "tsx": "^4.19.0",

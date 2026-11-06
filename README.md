@@ -1,4 +1,4 @@
-# Event Chain Debugger
+# Ida
 
 Makes event-driven JavaScript easy to follow. It records every event in a time window, shows how events connect, and replays the timeline so you can watch pathways light up as events fire.
 
@@ -11,8 +11,10 @@ An event is **who called it and what it called, including payloads**. Handlers a
 | [`@eda-debugger/core`](packages/core/README.md) | Recorder, ring buffer, templates, causality, corruption detection, JSON export. No DOM dependency. |
 | [`@eda-debugger/adapter-eventemitter`](packages/adapter-eventemitter/README.md) | Records Node `EventEmitter`. |
 | [`@eda-debugger/adapter-eventtarget`](packages/adapter-eventtarget/README.md) | Records DOM `EventTarget` (native events and `dispatchEvent`). |
-| `apps/viewer` | Standalone React replay viewer. |
-| `apps/demo` | Simulated event stream and a browser page that produce recordings. |
+| [`@eda-debugger/cloud`](packages/cloud/README.md) | Uploads recorders to a project on the server; spools locally while offline. |
+| `apps/server` | Ingest and project API (Node, Hono, Postgres), with Supabase sign-in. See [its README](apps/server/README.md). |
+| `apps/viewer` | The web app: projects, recorders and recordings, plus the replay viewer (also usable locally, without an account). |
+| `apps/demo` | A stand-in user app (Node and browser) that uses the built packages and uploads to a project. Dev only. |
 
 ## Quick start
 
@@ -27,7 +29,23 @@ enableEventEmitterRecording(recorder); // one line: patches EventEmitter.prototy
 fs.writeFileSync('recording.json', JSON.stringify(recorder.export()));
 ```
 
-Open `recording.json` in the viewer (drag and drop), or stream live with `startBridge` from `@eda-debugger/core/bridge-node` and press **Connect live**.
+On a replay screen, open **Recordings** and use **Open file…** (or drop the file on that window) to view `recording.json`, or stream live with `startBridge` from `@eda-debugger/core/bridge-node` and connect to it from the recorder dropdown under **View Remote Endpoint**.
+
+### Projects: upload recorders to the web app
+
+Create a project in the web app, make an ingest key, and add:
+
+```ts
+import { configure } from '@eda-debugger/cloud';
+import { connectRecorder } from '@eda-debugger/core';
+import { enableEventEmitterRecording } from '@eda-debugger/adapter-eventemitter';
+
+configure({ projectKey: process.env.EDA_PROJECT_KEY!, endpoint: 'https://your-server' });
+enableEventEmitterRecording();
+connectRecorder('payments').track(paymentsBus); // anywhere: same key, same recorder
+```
+
+Each recorder appears under the project with one recording per run of your app, and can be watched live. If the server can't be reached, batches are kept on disk (Node) or in IndexedDB (browser), the console says so, and they are uploaded in order once the connection is back. The viewer marks events that arrived late and gaps where data was lost.
 
 ### Storage: templates, not full copies
 
@@ -55,18 +73,38 @@ createRecorder({
 });
 ```
 
-Core cannot see inside a handler, so declare what talks to the outside world (`external`, or `recorder.markExternal(fnOrEmitter)`). External findings use `console.error`, carry `priority: 'high'`, and show in the viewer as sticky red **EXTERNAL** toasts.
+Core cannot see inside a handler, so declare what talks to the outside world (`external`, or `recorder.markExternal(fnOrEmitter)`). External findings use `console.error`, carry `priority: 'high'`, and carry a red **EXTERNAL** badge in the viewer's inspector.
 
 ## Develop
 
 ```bash
 npm install
-npm test                 # all workspaces
-npm run build            # core + adapters (ESM, CJS, .d.ts)
-npm run demo             # generate a sample recording and open the viewer
-npm run demo:live        # stream a looping simulation; press "Connect live" in the viewer
-npm run dom -w @eda-debugger/demo   # browser page using the DOM adapter
+cp apps/server/.env.example apps/server/.env        # dev Supabase project URL
+cp apps/viewer/.env.example apps/viewer/.env.local  # same project's publishable key
+npm run dev
 ```
+
+`npm run dev` builds the packages, then runs everything and rebuilds on change:
+
+| Part | Where |
+| --- | --- |
+| Packages (`core`, adapters, `cloud`) | `tsup --watch` |
+| Server | http://localhost:8787 (embedded PGlite unless `DATABASE_URL` is set) |
+| Web app | http://localhost:5173 |
+| Demo codebase (`apps/demo`) | Node shop with an attack simulator page at http://localhost:5175, using the built packages |
+
+The demo uploads to a project, so: sign in at :5173, create a project, make an ingest key, then `cp apps/demo/.env.example apps/demo/.env` and paste the key. Until then the demo waits and says so. For a simulated outage run `npm run node -w @eda-debugger/demo -- --outage`.
+
+Other scripts: `npm test`, `npm run typecheck`.
+
+## Production
+
+```bash
+npm run build   # packages (dist/), server (apps/server/dist), web app (apps/viewer/dist)
+npm start       # runs the server: node apps/server/dist/main.js
+```
+
+Set `NODE_ENV=production`, `SUPABASE_URL`, `DATABASE_URL`, `STREAM_SECRET` and `WEB_ORIGINS` for the server (see `apps/server/.env.example`). Build the web app with `VITE_*` set for production and serve `apps/viewer/dist` from any static host. Publish packages with `npm publish -w @eda-debugger/<name>`.
 
 Replay never re-runs your code: it plays recorded data back against the graph.
 

@@ -3,6 +3,11 @@ export interface Viewport { x: number; y: number; zoom: number }
 
 export const MIN_ZOOM = 0.2;
 export const MAX_ZOOM = 8;
+/**
+ * The most a graph is enlarged when it is first shown: natural size. A small graph then sits in the middle of the
+ * pane instead of filling it, so how much of the pane a graph takes up tells you how big the project is.
+ */
+export const MAX_FIT_ZOOM = 1;
 export const ZOOM_MS = 700;
 /** Pixels left around a freshly shown graph, so the outermost nodes and their markers aren't clipped. */
 export const FIT_MARGIN = 24;
@@ -29,11 +34,11 @@ export function rectOnScreen(flow: Rect, vp: Viewport): Rect {
   return { x: flow.x * vp.zoom + vp.x, y: flow.y * vp.zoom + vp.y, width: flow.width * vp.zoom, height: flow.height * vp.zoom };
 }
 
-/** The viewport a graph opens at: zoomed in as far as all of `bounds` still fits, within the allowed zoom range. */
+/** The viewport a graph opens at: zoomed in as far as all of `bounds` still fits, but never past natural size. */
 export function fitViewport(bounds: Rect, width: number, height: number, margin = FIT_MARGIN): Viewport {
   const m = Math.min(margin, width / 4, height / 4);
   const inner = viewportForRect(bounds, { x: m, y: m, width: width - 2 * m, height: height - 2 * m });
-  const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, inner.zoom));
+  const zoom = Math.min(MAX_FIT_ZOOM, Math.max(MIN_ZOOM, inner.zoom));
   return {
     zoom,
     x: width / 2 - (bounds.x + bounds.width / 2) * zoom,
@@ -99,7 +104,12 @@ export function zoomFrames(focus: Rect, pane: { width: number; height: number })
 
 export const toKeyframes = (frames: Frame[]): Keyframe[] => frames.map((f) => ({ offset: f.offset, transform: f.transform, opacity: f.opacity }));
 
-const SAVED_KEY = 'eda-debugger:viewport';
+/** Whether two cameras are the same to within a pixel and a hair of zoom, so a camera we placed reads as unmoved. */
+export function sameViewport(a: Viewport, b: Viewport | null): boolean {
+  return !!b && Math.abs(a.x - b.x) < 1 && Math.abs(a.y - b.y) < 1 && Math.abs(a.zoom - b.zoom) < 0.001;
+}
+
+const SAVED_KEY = 'ida:viewport';
 
 /** The camera as it was when the page was last left, read once at load so later saves can't overwrite it first. */
 let fromLastLoad: { sig: string; viewport: Viewport } | null = (() => {

@@ -4,15 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "sim": "tsx src/simulate.ts",
-    "live": "tsx src/simulate.ts --live",
-    "dom": "vite browser"
+    "dev": "npm run node",
+    "node": "tsx watch src/node.ts"
   },
   "dependencies": {
     "@eda-debugger/adapter-eventemitter": "*",
+    "@eda-debugger/cloud": "*",
     "@eda-debugger/core": "*"
-  },
-  "devDependencies": {
-    "vite": "^6.0.0"
   }
 }

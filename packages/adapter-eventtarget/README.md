@@ -1,6 +1,6 @@
 # @eda-debugger/adapter-eventtarget
 
-Records DOM `EventTarget` activity, including native events such as clicks and `dispatchEvent`, with handlers, timings, errors and cause. Part of the [Event Chain Debugger](../../README.md).
+Records DOM `EventTarget` activity, including native events such as clicks and `dispatchEvent`, with handlers, timings, errors and cause. Part of [Ida](../../README.md).
 
 ```bash
 npm install @eda-debugger/core @eda-debugger/adapter-eventtarget

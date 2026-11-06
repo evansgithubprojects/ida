@@ -1,4 +1,4 @@
-# Event Chain Debugger
+# Ida
 
 A debugging tool that makes event-driven JavaScript code easy to follow. It records every event in a time window, shows how events connect, and replays the timeline visually so you can watch pathways light up as events fire.
 
@@ -61,6 +61,19 @@ These are suggestions from the planning discussion, not final decisions.
   - `ui`: the visual replay viewer (in-page overlay first; DevTools extension later).
   - Adapters: Node `EventEmitter`, DOM `EventTarget`, then buses like mitt / eventemitter3, then framework events (Vue `emit`, React).
 - **Setup should be near zero:** hook the dispatcher so one line enables recording, rather than instrumenting each emit call.
+
+## Projects and keyed recorders
+
+- **Recorders are keyed:** `connectRecorder(key)` returns the same recorder for the same key anywhere in an app (no prop drilling). `enable()` is `connectRecorder('default')` and sets it as the default recorder.
+- **Routing:** adapters installed without a recorder send each emit to the recorders that `track()` its emitter, else to the default recorder. Several recorders may track one emitter; listeners still run once (`dispatchAll` nests the dispatches). Parent links don't cross recorders.
+- **Organizations → projects → people:** every project belongs to an organization. Ida is for teams, so there are no personal orgs: the sign-up form asks for an organization name (Supabase `user_metadata.org_name`), and the server creates that org, with the person as owner, on their very first request (`ensureUser`). People signing up from an invitation skip it, and anyone in no org is asked to create one. Org roles are `owner`, `admin` and `member`. Owners and admins can open every project in their org, create projects, and manage people; only owners rename or delete the org and hand out ownership, and an org always keeps one owner. A `member` opens only the projects they are granted (`project_members`: `viewer` looks, `editor` also manages ingest keys). Someone with no access gets the same 404 as a missing project. Access checks live in `apps/server/src/access.ts` (`projectAccess`) and the `guard` helpers.
+- **Invitations:** owners and admins invite an email address (with project grants for members). The server emails a link through Resend (`RESEND_API_KEY`, `MAIL_FROM`, `WEB_APP_URL`); without a key, or when sending fails, the link is shown to the inviting admin. Only a SHA-256 of the token is stored. The invite is accepted by the signed-in user whose token email matches, from the link or from the pending-invites strip; it expires after 7 days, and resending replaces the link.
+- **Projects** are created in the web app (`apps/viewer`), which signs users in with Supabase Auth (sign-in only). Every data request goes to our own server (`apps/server`: Node + Hono + Postgres, PGlite when there is no `DATABASE_URL`).
+- **Uploads:** `@eda-debugger/cloud` (`configure({ projectKey, endpoint })`) uploads every keyed recorder over plain HTTP with a per-project, write-only ingest key. No Supabase dependency in published packages. Each app run is one session; the shared wire format is `IngestBatch` in core's types.
+- **Offline:** failed batches go to a spool (files in Node, IndexedDB in browsers), the developer is told on the console, and batches are uploaded in order on recovery. `(sessionId, seq)` makes replays idempotent; spooled occurrences are marked `late`, and spool overflow is recorded as `gaps`, both shown in the viewer.
+- The Node adapter ignores Node internals, including the connection pools behind `fetch`, so the uploader never records its own uploads.
+- The Node adapter records only emitters the app created, decided by where each emitter's class is defined (outside `node_modules` and Node). An emitter a package or Node created is recorded only for events app code listens to, or when tracked. `includeLibraries` / `isAppFile` override this.
+- Not built yet: multi-instance live fan-out (Postgres `LISTEN/NOTIFY`), retention limits, audit logs for access changes, and checking that a sign-in email is confirmed before it can accept an invitation.
 
 ## First milestone
 
