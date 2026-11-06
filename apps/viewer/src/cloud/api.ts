@@ -7,7 +7,7 @@ export interface RecorderSummary { key: string; createdAt: string; lastSeenAt: s
 export interface SessionSummary { id: string; startedAt: number; runtime: string; lastSeenAt: string; occurrences: number; late: number; gaps: number; live: boolean }
 
 export type OrgRole = 'owner' | 'admin' | 'member';
-export interface Org { id: string; name: string; personal: boolean; role: OrgRole; createdAt: string }
+export interface Org { id: string; name: string; role: OrgRole; createdAt: string }
 export interface Me { user: { id: string; email: string | null; name: string | null }; orgs: Org[] }
 export interface OrgProject { id: string; name: string; orgId: string; createdAt: string; recorders: number; lastSeenAt: string | null }
 export interface Member { userId: string; email: string | null; name: string | null; role: OrgRole; joinedAt: string }
@@ -73,7 +73,6 @@ export const api = {
   setMemberRole: (id: string, userId: string, role: OrgRole) => request<{ userId: string; role: OrgRole }>('PATCH', `${o(id)}/members/${encodeURIComponent(userId)}`, { role }),
   removeMember: (id: string, userId: string) => request<void>('DELETE', `${o(id)}/members/${encodeURIComponent(userId)}`),
   projects: () => request<Project[]>('GET', '/v1/projects'),
-  createProject: (name: string) => request<Project>('POST', '/v1/projects', { name }),
   project: (id: string) => request<Project>('GET', p(id)),
   renameProject: (id: string, name: string) => request<Project>('PATCH', p(id), { name }),
   deleteProject: (id: string) => request<void>('DELETE', p(id)),

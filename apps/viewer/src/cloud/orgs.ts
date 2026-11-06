@@ -7,14 +7,14 @@ const KEY = 'ida_last_org';
 
 /** Remembers the org last opened in this browser, so "Projects" goes back to it. */
 export function rememberOrg(orgId: string): void {
-  try { localStorage.setItem(KEY, orgId); } catch { /* storage unavailable: falls back to the personal org */ }
+  try { localStorage.setItem(KEY, orgId); } catch { /* storage unavailable: falls back to the first org */ }
 }
 
-/** The org to open when none is named: the last one opened if the user still belongs to it, else their personal org. */
+/** The org to open when none is named: the last one opened if the user still belongs to it, else the first. */
 export function orgToOpen(orgs: readonly Org[]): Org | null {
   let last: string | null = null;
   try { last = localStorage.getItem(KEY); } catch { /* ignore */ }
-  return orgs.find((o) => o.id === last) ?? orgs.find((o) => o.personal) ?? orgs[0] ?? null;
+  return orgs.find((o) => o.id === last) ?? orgs[0] ?? null;
 }
 
 /** What each org role may do. The server enforces all of it; this only decides what to show. */

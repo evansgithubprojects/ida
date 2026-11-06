@@ -92,12 +92,6 @@ describe('sending an invitation', () => {
     expect((await call('POST', `/v1/orgs/${org}/invites`, owner, { email: 'user-already@example.com' })).status).toBe(409);
   });
 
-  it('works for a personal org like any other', async () => {
-    const me = guest();
-    const personal = (await call('GET', '/v1/me', me)).body.orgs[0].id;
-    expect((await call('POST', `/v1/orgs/${personal}/invites`, me, { email: 'friend@example.com' })).status).toBe(201);
-  });
-
   it('still creates the invite and hands back the link when email can not be sent', async () => {
     const { owner, org } = await setup();
     failMail = true;

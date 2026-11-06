@@ -26,7 +26,8 @@ async function call(method: string, path: string, headers: Record<string, string
 }
 
 async function newProject(user = 'user-a') {
-  const p = (await call('POST', '/v1/projects', as(user), { name: 'Shop' })).body;
+  const org = (await call('POST', '/v1/orgs', as(user), { name: 'Acme' })).body.id;
+  const p = (await call('POST', `/v1/orgs/${org}/projects`, as(user), { name: 'Shop' })).body;
   const k = (await call('POST', `/v1/projects/${p.id}/keys`, as(user), { label: 'dev' })).body;
   return { project: p, key: k.key as string };
 }

@@ -9,8 +9,8 @@ export type Env = { Variables: { user: User } };
 export const RANK: Record<OrgRole, number> = { member: 1, admin: 2, owner: 3 };
 const ROLES: readonly string[] = ['owner', 'admin', 'member'];
 
-export interface OrgRow { id: string; name: string; personal: boolean; created_by: string; created_at: string }
-const org = (o: OrgRow, role: OrgRole) => ({ id: o.id, name: o.name, personal: o.personal, role, createdAt: iso(o.created_at) });
+export interface OrgRow { id: string; name: string; created_by: string; created_at: string }
+const org = (o: OrgRow, role: OrgRole) => ({ id: o.id, name: o.name, role, createdAt: iso(o.created_at) });
 
 /**
  * The org in the URL when the user belongs to it with at least `need`. Non-members get the same 404 as a missing org,
@@ -20,7 +20,7 @@ export const orgGuard = (db: Db) => async (c: Context<Env>, need: OrgRole): Prom
   const id = c.req.param('orgId');
   if (!id || !UUID.test(id)) return notFound(c);
   const [row] = await db.query<OrgRow & { role: OrgRole }>(
-    'select o.id, o.name, o.personal, o.created_by, o.created_at, m.role from orgs o join org_members m on m.org_id = o.id and m.user_id = $2 where o.id = $1',
+    'select o.id, o.name, o.created_by, o.created_at, m.role from orgs o join org_members m on m.org_id = o.id and m.user_id = $2 where o.id = $1',
     [id, c.get('user').id],
   );
   if (!row) return notFound(c);
@@ -39,8 +39,8 @@ export function orgRoutes(db: Db) {
   app.get('/me', async (c) => {
     const u = c.get('user');
     const rows = await db.query<OrgRow & { role: OrgRole }>(
-      `select o.id, o.name, o.personal, o.created_by, o.created_at, m.role
-       from org_members m join orgs o on o.id = m.org_id where m.user_id = $1 order by o.personal desc, o.name`,
+      `select o.id, o.name, o.created_by, o.created_at, m.role
+       from org_members m join orgs o on o.id = m.org_id where m.user_id = $1 order by o.name`,
       [u.id],
     );
     return c.json({ user: { id: u.id, email: u.email ?? null, name: u.name ?? null }, orgs: rows.map((o) => org(o, o.role)) });
@@ -50,7 +50,7 @@ export function orgRoutes(db: Db) {
     const name = cleanName((await c.req.json().catch(() => ({}))).name);
     if (!name) return c.json({ error: 'name is required (1-100 characters)' }, 400);
     const created = await db.transaction(async (tx) => {
-      const [o] = await tx.query<OrgRow>('insert into orgs (name, created_by) values ($1, $2) returning id, name, personal, created_by, created_at', [name, c.get('user').id]);
+      const [o] = await tx.query<OrgRow>('insert into orgs (name, created_by) values ($1, $2) returning id, name, created_by, created_at', [name, c.get('user').id]);
       await tx.query(`insert into org_members (org_id, user_id, role) values ($1, $2, 'owner')`, [o!.id, c.get('user').id]);
       return o!;
     });
@@ -67,18 +67,13 @@ export function orgRoutes(db: Db) {
     if (g instanceof Response) return g;
     const name = cleanName((await c.req.json().catch(() => ({}))).name);
     if (!name) return c.json({ error: 'name is required (1-100 characters)' }, 400);
-    const [o] = await db.query<OrgRow>('update orgs set name = $2 where id = $1 returning id, name, personal, created_by, created_at', [g.org.id, name]);
+    const [o] = await db.query<OrgRow>('update orgs set name = $2 where id = $1 returning id, name, created_by, created_at', [g.org.id, name]);
     return c.json(org(o!, g.role));
   });
 
   app.delete('/orgs/:orgId', async (c) => {
     const g = await guard(c, 'owner');
     if (g instanceof Response) return g;
-    // Everyone keeps a personal org to create projects in, so it goes only once its creator is no longer an owner of it.
-    if (g.org.personal) {
-      const [still] = await db.query(`select 1 from org_members where org_id = $1 and user_id = $2 and role = 'owner'`, [g.org.id, g.org.created_by]);
-      if (still) return c.json({ error: 'a personal organization can not be deleted' }, 409);
-    }
     await db.query('delete from orgs where id = $1', [g.org.id]);
     return c.body(null, 204);
   });

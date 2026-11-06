@@ -24,7 +24,8 @@ describe('SDK to server', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const json = async (path: string, init?: RequestInit): Promise<any> => (await app.request(path, init)).json();
     const auth = { Authorization: 'Bearer owner', 'Content-Type': 'application/json' };
-    const project = await json('/v1/projects', { method: 'POST', headers: auth, body: JSON.stringify({ name: 'e2e' }) });
+    const org = await json('/v1/orgs', { method: 'POST', headers: auth, body: JSON.stringify({ name: 'Acme' }) });
+    const project = await json(`/v1/orgs/${org.id}/projects`, { method: 'POST', headers: auth, body: JSON.stringify({ name: 'e2e' }) });
     const { key } = await json(`/v1/projects/${project.id}/keys`, { method: 'POST', headers: auth, body: '{}' });
 
     let down = false;

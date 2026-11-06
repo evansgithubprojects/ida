@@ -10,6 +10,7 @@ export function SignIn() {
   const session = useSession();
   const location = useLocation();
   const [mode, setMode] = useState<'in' | 'up'>('in');
+  const [orgName, setOrgName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -17,7 +18,10 @@ export function SignIn() {
   // After a successful sign-in the darker landing background fades up to the app's color before we leave.
   const [fading, setFading] = useState(false);
 
-  if (session && !fading) return <Navigate to={(location.state as { from?: string } | null)?.from ?? '/projects'} replace />;
+  const from = (location.state as { from?: string } | null)?.from;
+  // Someone arriving from an invitation joins that org, so they aren't asked to name one.
+  const invited = !!from?.startsWith('/invites/');
+  if (session && !fading) return <Navigate to={from ?? '/projects'} replace />;
   if (!supabase) return <Navigate to="/projects" replace />;
 
   const submit = async (e: React.FormEvent) => {
@@ -26,7 +30,16 @@ export function SignIn() {
     setMessage(null);
     const { data, error } = mode === 'in'
       ? await supabase!.auth.signInWithPassword({ email, password })
-      : await supabase!.auth.signUp({ email, password, options: { emailRedirectTo: `${window.location.origin}/projects` } });
+      : await supabase!.auth.signUp({
+        email,
+        password,
+        options: {
+          // The server creates this org, with them as owner, on their first sign-in.
+          ...(!invited && { data: { org_name: orgName.trim() } }),
+          // Back to where they started (an invitation, say) once they confirm their address.
+          emailRedirectTo: `${window.location.origin}${from ?? '/projects'}`,
+        },
+      });
     if (data?.session && !error) {
       setFading(true);
       const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -47,6 +60,13 @@ export function SignIn() {
         <p>Record every event in your app, watch how they branch, and trace each one back to its roots.</p>
       </div>
       <form className="form" onSubmit={submit}>
+        {mode === 'up' && invited && <p className="hint">Use the email address the invitation was sent to.</p>}
+        {mode === 'up' && !invited && (
+          <label>
+            Organization
+            <input autoComplete="organization" required maxLength={100} placeholder="Your team or company" value={orgName} onChange={(e) => setOrgName(e.target.value)} />
+          </label>
+        )}
         <label>Email<input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
         <label>
           Password

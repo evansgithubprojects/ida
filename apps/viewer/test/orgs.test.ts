@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Org } from '../src/cloud/api';
 import { can, canInProject, orgToOpen, rememberOrg } from '../src/cloud/orgs';
 
-const org = (id: string, personal = false): Org => ({ id, name: id, personal, role: 'owner', createdAt: '' });
+const org = (id: string): Org => ({ id, name: id, role: 'owner', createdAt: '' });
 
 function stubStorage() {
   const saved = new Map<string, string>();
@@ -13,16 +13,15 @@ afterEach(() => vi.unstubAllGlobals());
 describe('which organization opens', () => {
   it('is the last one opened, while the user still belongs to it', () => {
     stubStorage();
-    const orgs = [org('mine', true), org('acme'), org('globex')];
-    rememberOrg('acme');
-    expect(orgToOpen(orgs)?.id).toBe('acme');
-    expect(orgToOpen(orgs.filter((o) => o.id !== 'acme'))?.id).toBe('mine');
+    const orgs = [org('acme'), org('globex'), org('initech')];
+    rememberOrg('globex');
+    expect(orgToOpen(orgs)?.id).toBe('globex');
+    expect(orgToOpen(orgs.filter((o) => o.id !== 'globex'))?.id).toBe('acme');
   });
 
-  it('falls back to the personal org, then to any, then to none', () => {
+  it('falls back to the first, then to none', () => {
     stubStorage();
-    expect(orgToOpen([org('acme'), org('mine', true)])?.id).toBe('mine');
-    expect(orgToOpen([org('acme')])?.id).toBe('acme');
+    expect(orgToOpen([org('acme'), org('globex')])?.id).toBe('acme');
     expect(orgToOpen([])).toBeNull();
   });
 });

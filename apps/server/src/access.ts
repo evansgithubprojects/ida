@@ -1,5 +1,6 @@
 import type { Db } from './db';
 import type { User } from './auth';
+import { cleanName } from './http';
 
 export type OrgRole = 'owner' | 'admin' | 'member';
 /** What a person can do in one project. `admin` also covers deleting it and choosing who has access. */
@@ -11,30 +12,29 @@ const RANK: Record<Access, number> = { viewer: 1, editor: 2, admin: 3 };
 export const allows = (have: Access | null, need: Access): boolean => !!have && RANK[have] >= RANK[need];
 
 /**
- * Records who is calling, and on someone's first sign-in gives them a personal org to create projects in.
- * Cheap on repeat visits: one upsert and one existence check.
+ * Records who is calling. On someone's very first request it also creates the organization they named when signing
+ * up, with them as owner. That happens only once: someone who later leaves every org is asked to create or join one
+ * instead of getting it back. Cheap on repeat visits: one insert that does nothing and one update.
  */
 export async function ensureUser(db: Db, user: User): Promise<void> {
-  await db.query(
-    `insert into users (id, email, name) values ($1, $2, $3)
-     on conflict (id) do update set email = coalesce(excluded.email, users.email), name = coalesce(excluded.name, users.name), last_seen_at = now()`,
-    [user.id, user.email?.toLowerCase() ?? null, user.name ?? null],
-  );
-  const [has] = await db.query('select 1 from org_members where user_id = $1 limit 1', [user.id]);
-  if (has) return;
+  const email = user.email?.toLowerCase() ?? null;
+  const orgName = cleanName(user.orgName);
   await db.transaction(async (tx) => {
-    const [org] = await tx.query<{ id: string }>(
-      `insert into orgs (name, personal, created_by) values ('Personal', true, $1) on conflict do nothing returning id`,
-      [user.id],
+    const [fresh] = await tx.query<{ id: string }>(
+      'insert into users (id, email, name) values ($1, $2, $3) on conflict (id) do nothing returning id',
+      [user.id, email, user.name ?? null],
     );
-    if (org) await tx.query(`insert into org_members (org_id, user_id, role) values ($1, $2, 'owner')`, [org.id, user.id]);
+    if (!fresh) {
+      await tx.query(
+        'update users set email = coalesce($2, email), name = coalesce($3, name), last_seen_at = now() where id = $1',
+        [user.id, email, user.name ?? null],
+      );
+      return;
+    }
+    if (!orgName) return;
+    const [org] = await tx.query<{ id: string }>('insert into orgs (name, created_by) values ($1, $2) returning id', [orgName, user.id]);
+    await tx.query(`insert into org_members (org_id, user_id, role) values ($1, $2, 'owner')`, [org!.id, user.id]);
   });
-}
-
-/** The user's personal org, which projects they create without naming an org go into. */
-export async function personalOrg(db: Db, userId: string): Promise<string | null> {
-  const [o] = await db.query<{ id: string }>('select id from orgs where personal and created_by = $1', [userId]);
-  return o?.id ?? null;
 }
 
 export async function orgRole(db: Db, userId: string, orgId: string): Promise<OrgRole | null> {

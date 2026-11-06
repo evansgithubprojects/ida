@@ -5,7 +5,11 @@ import { createApp } from '../src/app';
 import { migrate, openPglite, type Db } from '../src/db';
 
 const as = (user: string) => ({ Authorization: `Bearer ${user}` });
-const verifyUser = async (t: string) => (t.startsWith('user-') ? { id: t, email: `${t}@example.com` } : null);
+// `user-x#Acme` signs in as user-x who named "Acme" on the sign-up form.
+const verifyUser = async (t: string) => {
+  const [id = '', orgName] = t.split('#');
+  return id.startsWith('user-') ? { id, email: `${id}@example.com`, ...(orgName && { orgName }) } : null;
+};
 
 function appFor(db: Db) {
   return createApp({ db, verifyUser, streamSecret: 'secret' });
@@ -18,7 +22,7 @@ async function call(app: ReturnType<typeof createApp>, method: string, path: str
 }
 
 describe('moving to organizations', () => {
-  it('puts each existing owner’s projects in a personal org they own, and nobody else’s', async () => {
+  it('puts each existing owner’s projects in an org they own, and nobody else’s', async () => {
     const db = await openPglite();
     try {
       // The database as it was before organizations existed.
@@ -29,10 +33,11 @@ describe('moving to organizations', () => {
       const [a1, a2, b1] = [randomUUID(), randomUUID(), randomUUID()];
       for (const [id, owner] of [[a1, 'user-a'], [a2, 'user-a'], [b1, 'user-b']]) await db.query('insert into projects (id, owner_id, name) values ($1, $2, $3)', [id, owner, 'P']);
 
-      expect(await migrate(db)).toEqual(['002_orgs.sql']);
+      expect(await migrate(db)).toEqual(['002_orgs.sql', '003_invites.sql', '004_no_personal.sql']);
 
-      const orgs = await db.query<{ created_by: string; personal: boolean }>('select created_by, personal from orgs order by created_by');
-      expect(orgs).toEqual([{ created_by: 'user-a', personal: true }, { created_by: 'user-b', personal: true }]);
+      // They started as personal orgs and are now ordinary ones.
+      const orgs = await db.query<{ created_by: string; name: string }>('select created_by, name from orgs order by created_by');
+      expect(orgs).toEqual([{ created_by: 'user-a', name: 'Personal' }, { created_by: 'user-b', name: 'Personal' }]);
       const owners = await db.query<{ user_id: string; role: string }>('select user_id, role from org_members order by user_id');
       expect(owners).toEqual([{ user_id: 'user-a', role: 'owner' }, { user_id: 'user-b', role: 'owner' }]);
 
@@ -41,7 +46,8 @@ describe('moving to organizations', () => {
       expect(mine.map((p) => p.id).sort()).toEqual([a1, a2].sort());
       expect((await call(app, 'GET', `/v1/projects/${b1}`, 'user-a')).status).toBe(404);
       expect((await call(app, 'GET', `/v1/projects/${b1}`, 'user-b')).body).toMatchObject({ id: b1, access: 'admin' });
-      // They were already members, so signing in again doesn't give them a second personal org.
+      // Signing in, even with an organization named, doesn't make another org for someone already known.
+      await call(app, 'GET', '/v1/projects', 'user-a#Fresh');
       expect(await db.query('select 1 from orgs')).toHaveLength(2);
     } finally {
       await db.close();
@@ -60,8 +66,6 @@ describe('who can do what in a project', () => {
     db = await openPglite();
     await migrate(db);
     app = appFor(db);
-    // Sign everyone in once, so personal orgs exist and don't muddy the picture.
-    for (const u of ['user-owner', 'user-admin', 'user-editor', 'user-viewer', 'user-none', 'user-out']) await call(app, 'GET', '/v1/projects', u);
     await db.query(`insert into orgs (id, name, created_by) values ($1, 'Team', 'user-owner')`, [org]);
     for (const [u, role] of [['user-owner', 'owner'], ['user-admin', 'admin'], ['user-editor', 'member'], ['user-viewer', 'member'], ['user-none', 'member']]) {
       await db.query('insert into org_members (org_id, user_id, role) values ($1, $2, $3)', [org, u, role]);
@@ -126,21 +130,19 @@ describe('who can do what in a project', () => {
   });
 });
 
-describe('personal orgs', () => {
-  it('are created once, on first sign-in, with the user as owner', async () => {
+describe('the organization named at sign-up', () => {
+  it('is created once, on the first request, with the user as owner', async () => {
     const db = await openPglite();
     try {
       await migrate(db);
       const app = appFor(db);
-      await call(app, 'GET', '/v1/projects', 'user-new');
-      await Promise.all([call(app, 'GET', '/v1/projects', 'user-new'), call(app, 'GET', '/v1/projects', 'user-new')]);
-      expect(await db.query(`select 1 from orgs where personal and created_by = 'user-new'`)).toHaveLength(1);
+      await Promise.all([call(app, 'GET', '/v1/projects', 'user-new#Globex'), call(app, 'GET', '/v1/projects', 'user-new#Globex')]);
+      await call(app, 'GET', '/v1/projects', 'user-new#Globex');
+      expect(await db.query(`select name from orgs where created_by = 'user-new'`)).toEqual([{ name: 'Globex' }]);
       expect(await db.query(`select role from org_members where user_id = 'user-new'`)).toEqual([{ role: 'owner' }]);
       expect(await db.query(`select email from users where id = 'user-new'`)).toEqual([{ email: 'user-new@example.com' }]);
-      // A project created with no org named lands in it, and its creator administers it.
-      const made = await call(app, 'POST', '/v1/projects', 'user-new', { name: 'First' });
-      expect(made.status).toBe(201);
-      expect(made.body).toMatchObject({ access: 'admin' });
+      // Projects are always created in a named org now.
+      expect((await app.request('/v1/projects', { method: 'POST', headers: as('user-new'), body: '{"name":"First"}' })).status).toBe(404);
     } finally {
       await db.close();
     }

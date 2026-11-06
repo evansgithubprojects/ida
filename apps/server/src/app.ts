@@ -3,7 +3,7 @@ import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
 import { streamSSE } from 'hono/streaming';
-import { allows, ensureUser, personalOrg, projectAccess, visibleProjects, type Access } from './access';
+import { allows, ensureUser, projectAccess, visibleProjects, type Access } from './access';
 import type { User, VerifyUser } from './auth';
 import type { Db } from './db';
 import { ingest, parseBatch, SessionConflict } from './ingest';
@@ -164,16 +164,6 @@ export function createApp(opts: AppOptions) {
   app.get('/v1/projects', async (c) => {
     const rows = await visibleProjects(db, c.get('user').id);
     return c.json(rows.map((r) => ({ ...project(r), recorders: r.recorders, lastSeenAt: iso(r.last_seen_at) })));
-  });
-
-  app.post('/v1/projects', async (c) => {
-    const name = cleanName((await c.req.json().catch(() => ({}))).name);
-    if (!name) return c.json({ error: 'name is required (1-100 characters)' }, 400);
-    // Until the web app picks an org, new projects go into the caller's personal org, where they are an owner.
-    const org = await personalOrg(db, c.get('user').id);
-    if (!org) return c.json({ error: 'no organization to create the project in' }, 409);
-    const [p] = await db.query<ProjectRow>('insert into projects (org_id, name, created_by) values ($1, $2, $3) returning id, name, created_at, org_id', [org, name, c.get('user').id]);
-    return c.json({ ...project(p!), access: 'admin' }, 201);
   });
 
   app.get('/v1/projects/:projectId', async (c) => {

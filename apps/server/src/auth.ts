@@ -6,6 +6,8 @@ export interface User {
   /** From the token, when the sign-in provider shares it. Invites are matched against it. */
   email?: string;
   name?: string;
+  /** The organization named on the sign-up form (Supabase `user_metadata.org_name`), created on first sign-in. */
+  orgName?: string;
 }
 
 /** Turns a bearer token into a user, or null when it isn't valid. Swappable so tests don't need Supabase. */
@@ -23,9 +25,15 @@ export function supabaseVerifier(supabaseUrl: string): VerifyUser {
     try {
       const { payload } = await jwtVerify(token, jwks, { issuer, audience: 'authenticated' });
       if (!payload.sub) return null;
-      const meta = (payload.user_metadata ?? {}) as { full_name?: unknown; name?: unknown };
+      const meta = (payload.user_metadata ?? {}) as { full_name?: unknown; name?: unknown; org_name?: unknown };
       const name = [meta.full_name, meta.name].find((n): n is string => typeof n === 'string' && n.length > 0);
-      return { id: payload.sub, ...(typeof payload.email === 'string' && { email: payload.email }), ...(name && { name }) };
+      const orgName = typeof meta.org_name === 'string' && meta.org_name.trim() ? meta.org_name : undefined;
+      return {
+        id: payload.sub,
+        ...(typeof payload.email === 'string' && { email: payload.email }),
+        ...(name && { name }),
+        ...(orgName && { orgName }),
+      };
     } catch {
       // The usual dev mistake: the web app signs in with a different Supabase project than this server trusts.
       if (!warned) {

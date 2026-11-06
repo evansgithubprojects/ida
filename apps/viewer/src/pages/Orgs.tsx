@@ -5,23 +5,45 @@ import { ago, useApi } from '../cloud/useApi';
 import { can, orgToOpen, useMe, useOrg } from '../cloud/orgs';
 import { useSession } from '../cloud/auth';
 
-/** `/projects`: sends the user to the org they were last in. */
+/**
+ * `/projects`: sends the user to the org they were last in. Someone in no org yet (invited people who haven't accepted,
+ * or people who left every org) is asked to create one; pending invitations show in the banner above.
+ */
 export function ProjectsRedirect() {
   const { me, error } = useMe();
   if (error) return <div className="page"><p className="form-error" role="alert">{error}</p></div>;
   if (!me) return <div className="page"><p className="muted">Loading…</p></div>;
   const org = orgToOpen(me.orgs);
-  return org ? <Navigate to={`/orgs/${org.id}`} replace /> : <div className="page"><p className="muted">You don't belong to an organization yet.</p></div>;
+  if (org) return <Navigate to={`/orgs/${org.id}`} replace />;
+  return (
+    <div className="page narrow">
+      <h2>Set up your organization</h2>
+      <p className="muted">
+        Projects live in an organization, together with the people who can see them. Create one for your team, or accept
+        an invitation above if someone has invited you to theirs.
+      </p>
+      <CreateOrgForm />
+    </div>
+  );
 }
 
 export function NewOrg() {
-  const [name, setName] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const navigate = useNavigate();
   return (
     <div className="page narrow">
       <h2>New organization</h2>
       <p className="muted">An organization holds projects and the people who can see them. You will be its owner.</p>
+      <CreateOrgForm />
+    </div>
+  );
+}
+
+/** Names a new org, makes the user its owner, and opens it. */
+function CreateOrgForm() {
+  const [name, setName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+  return (
+    <>
       <form className="form" onSubmit={async (e) => {
         e.preventDefault();
         try { navigate(`/orgs/${(await api.createOrg(name)).id}`); } catch (err) { setError((err as Error).message); }
@@ -30,18 +52,18 @@ export function NewOrg() {
         <button className="primary">Create organization</button>
       </form>
       {error && <p className="form-error" role="alert">{error}</p>}
-    </div>
+    </>
   );
 }
 
 /** The org's name, who the user is in it, and tabs for its pages. */
-function OrgHeader({ id, name, role, personal }: { id: string; name: string; role: OrgRole; personal: boolean }) {
+function OrgHeader({ id, name, role }: { id: string; name: string; role: OrgRole }) {
   const base = `/orgs/${id}`;
   return (
     <>
       <div className="page-head">
         <h2>{name}</h2>
-        <span className="muted">{personal ? 'Personal organization · ' : ''}You are {role === 'member' ? 'a' : 'an'} {role}</span>
+        <span className="muted">You are {role === 'member' ? 'a' : 'an'} {role}</span>
       </div>
       <nav className="org-tabs" aria-label="Organization">
         <NavLink to={base} end>Projects</NavLink>
@@ -56,7 +78,7 @@ function OrgPage({ children }: { children: (org: NonNullable<ReturnType<typeof u
   const { org, error, reload } = useOrg();
   if (error) return <div className="page"><p className="form-error" role="alert">{error}</p><Link to="/projects">Back</Link></div>;
   if (!org) return <div className="page"><p className="muted">Loading…</p></div>;
-  return <div className="page"><OrgHeader id={org.id} name={org.name} role={org.role} personal={org.personal} />{children(org, reload)}</div>;
+  return <div className="page"><OrgHeader id={org.id} name={org.name} role={org.role} />{children(org, reload)}</div>;
 }
 
 export function OrgProjects() {
@@ -301,7 +323,7 @@ function Settings({ org, reload }: { org: NonNullable<ReturnType<typeof useOrg>[
           </>
         )}
       </section>
-      {owner && !org.personal && (
+      {owner && (
         <section className="panel-section danger">
           <h3>Delete organization</h3>
           <p className="muted">Deletes every project and recording in it. This can't be undone.</p>

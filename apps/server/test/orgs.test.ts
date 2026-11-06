@@ -17,7 +17,15 @@ async function call(method: string, path: string, user: string, body?: unknown) 
 beforeAll(async () => {
   db = await openPglite();
   await migrate(db);
-  app = createApp({ db, verifyUser: async (t) => (t.startsWith('user-') ? { id: t, email: `${t}@example.com`, name: t.slice(5).toUpperCase() } : null), streamSecret: 's' });
+  // `user-x#Acme` signs in as user-x who named "Acme" on the sign-up form.
+  app = createApp({
+    db,
+    verifyUser: async (t) => {
+      const [id = '', orgName] = t.split('#');
+      return id.startsWith('user-') ? { id, email: `${id}@example.com`, name: id.slice(5).toUpperCase(), ...(orgName && { orgName }) } : null;
+    },
+    streamSecret: 's',
+  });
 }, 30_000);
 afterAll(() => db.close());
 
@@ -36,12 +44,21 @@ async function team(roles: Record<string, 'admin' | 'member'> = {}) {
 }
 
 describe('who I am', () => {
-  it('lists my organizations with my role, personal one first', async () => {
-    const me = (await call('GET', '/v1/me', 'user-me')).body;
+  it('creates the organization named at sign-up on the first request, once', async () => {
+    const me = (await call('GET', '/v1/me', 'user-me#Initech')).body;
     expect(me.user).toMatchObject({ id: 'user-me', email: 'user-me@example.com' });
-    expect(me.orgs).toMatchObject([{ personal: true, role: 'owner' }]);
+    expect(me.orgs).toMatchObject([{ name: 'Initech', role: 'owner' }]);
+    await call('GET', '/v1/me', 'user-me#Initech');
     await call('POST', '/v1/orgs', 'user-me', { name: 'Acme' });
-    expect((await call('GET', '/v1/me', 'user-me')).body.orgs.map((o: { name: string }) => o.name)).toEqual(['Personal', 'Acme']);
+    expect((await call('GET', '/v1/me', 'user-me')).body.orgs.map((o: { name: string }) => o.name)).toEqual(['Acme', 'Initech']);
+  });
+
+  it('creates no organization without a name, and never brings one back', async () => {
+    expect((await call('GET', '/v1/me', 'user-invited')).body.orgs).toEqual([]);
+    expect((await call('GET', '/v1/me', 'user-invited#   ')).body.orgs).toEqual([]);
+    const org = (await call('GET', '/v1/me', 'user-leaver#Mine')).body.orgs[0].id;
+    expect((await call('DELETE', `/v1/orgs/${org}`, 'user-leaver#Mine')).status).toBe(204);
+    expect((await call('GET', '/v1/me', 'user-leaver#Mine')).body.orgs).toEqual([]);
   });
 });
 
@@ -53,16 +70,13 @@ describe('organizations', () => {
     expect((await call('POST', '/v1/orgs', 'user-x', { name: '  ' })).status).toBe(400);
   });
 
-  it('lets only owners rename or delete, and keeps personal orgs', async () => {
+  it('lets only owners rename or delete', async () => {
     const { org, ids } = await team({ admin: 'admin', member: 'member' });
     expect((await call('PATCH', `/v1/orgs/${org}`, ids.admin!, { name: 'X' })).status).toBe(403);
     expect((await call('DELETE', `/v1/orgs/${org}`, ids.admin!)).status).toBe(403);
     expect((await call('PATCH', `/v1/orgs/${org}`, ids.owner!, { name: 'Renamed' })).body.name).toBe('Renamed');
     expect((await call('DELETE', `/v1/orgs/${org}`, ids.owner!)).status).toBe(204);
     expect((await call('GET', `/v1/orgs/${org}`, ids.owner!)).status).toBe(404);
-    const personal = (await call('GET', '/v1/me', 'user-solo')).body.orgs[0].id;
-    expect((await call('DELETE', `/v1/orgs/${personal}`, 'user-solo')).status).toBe(409);
-    expect((await call('PATCH', `/v1/orgs/${personal}`, 'user-solo', { name: 'Mine' })).status).toBe(200);
   });
 });
 

@@ -119,8 +119,13 @@ afterAll(async () => {
   resetRecorders();
 });
 
+/** A new org for `user`, as if they had just signed up. */
+async function newOrg(user = alice) {
+  return (await call('POST', '/v1/orgs', user, { name: 'Acme' })).body.id as string;
+}
+
 async function projectWithKey(user = alice, name = 'Shop') {
-  const project = (await call('POST', '/v1/projects', user, { name })).body;
+  const project = (await call('POST', `/v1/orgs/${await newOrg(user)}/projects`, user, { name })).body;
   const key = (await call('POST', `/v1/projects/${project.id}/keys`, user, { label: 'test' })).body;
   return { project, key: key.key as string, keyId: key.id as string };
 }
@@ -150,16 +155,17 @@ describe('signing in (Supabase-style tokens)', () => {
 
 describe('projects and keys', () => {
   it('creates, lists, renames and validates projects', async () => {
-    const created = await call('POST', '/v1/projects', alice, { name: '  Checkout  ' });
+    const projects = `/v1/orgs/${await newOrg()}/projects`;
+    const created = await call('POST', projects, alice, { name: '  Checkout  ' });
     expect(created.status).toBe(201);
     expect(created.body).toMatchObject({ name: 'Checkout' });
     const id = created.body.id;
     expect((await call('GET', '/v1/projects', alice)).body.map((p: { id: string }) => p.id)).toContain(id);
     expect((await call('PATCH', `/v1/projects/${id}`, alice, { name: 'Checkout v2' })).body).toMatchObject({ id, name: 'Checkout v2' });
     expect((await call('GET', `/v1/projects/${id}`, alice)).body.name).toBe('Checkout v2');
-    expect((await call('POST', '/v1/projects', alice, { name: '' })).status).toBe(400);
-    expect((await call('POST', '/v1/projects', alice, { name: 'x'.repeat(101) })).status).toBe(400);
-    expect((await call('POST', '/v1/projects', alice, '{not json', { 'Content-Type': 'application/json' })).status).toBe(400);
+    expect((await call('POST', projects, alice, { name: '' })).status).toBe(400);
+    expect((await call('POST', projects, alice, { name: 'x'.repeat(101) })).status).toBe(400);
+    expect((await call('POST', projects, alice, '{not json', { 'Content-Type': 'application/json' })).status).toBe(400);
     expect((await call('GET', '/v1/projects/not-a-uuid', alice)).status).toBe(404);
   });
 
