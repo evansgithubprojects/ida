@@ -6,7 +6,7 @@ import { NewKeyDialog } from './NewKeyDialog';
 
 /** The project's ingest keys: create one (shown once in a dialog) and revoke. Listed keys are masked. */
 export function IngestKeys({ projectId, onError }: { projectId: string; onError: (message: string | null) => void }) {
-  const keys = useApi(() => api.keys(projectId), [projectId]);
+  const keys = useApi(`keys:${projectId}`, () => api.keys(projectId));
   const [label, setLabel] = useState('');
   const [fresh, setFresh] = useState<string | null>(null);
   const active = keys.data?.filter((k) => !k.revokedAt) ?? [];

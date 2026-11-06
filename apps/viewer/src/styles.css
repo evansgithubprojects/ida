@@ -322,6 +322,7 @@ code, pre { font-family: var(--mono); font-size: 12px; }
 .row-actions { white-space: nowrap; text-align: right; }
 .row-actions button + button { margin-left: 6px; }
 .org-select { max-width: 200px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
+.org-select.pending { color: transparent; }
 .org-tabs { display: flex; gap: 4px; margin: 0 0 20px; border-bottom: 1px solid var(--border); }
 .org-tabs a { padding: 8px 14px; color: var(--muted) !important; border-bottom: 2px solid transparent; margin-bottom: -1px; text-decoration: none !important; }
 .org-tabs a:hover { color: var(--text) !important; }
@@ -449,3 +450,12 @@ button.link.skip { font-size: 12px; }
   .inspector-toggle { top: 0; left: 50%; width: 56px; height: 20px; transform: translate(-50%, -100%); border: 1px solid var(--border); border-bottom: 0; border-radius: 8px 8px 0 0; --turn: 90deg; }
   .inspector-toggle.closed { --turn: 270deg; width: auto; height: 24px; }
 }
+
+/* Loading placeholders (components/Skeleton.tsx): a bar one line of text high, inside the real page's markup. */
+.bone {
+  display: inline-block; max-width: 100%; height: .8em; vertical-align: -.05em; border-radius: 4px;
+  background: linear-gradient(90deg, var(--panel-2) 25%, var(--border) 50%, var(--panel-2) 75%) 0 0 / 300% 100%;
+  animation: bone 1.6s ease-in-out infinite;
+}
+@keyframes bone { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) { .bone { animation: none; } }

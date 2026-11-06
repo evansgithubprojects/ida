@@ -7,8 +7,8 @@ const ORG_ROLE: Record<string, string> = { owner: 'Owner', admin: 'Admin' };
 
 /** Who can open a project, for owners and admins: the org's owners and admins always can; members only when granted. */
 export function ProjectAccess({ projectId, orgId }: { projectId: string; orgId: string }) {
-  const { data: people, error, reload } = useApi(() => api.projectMembers(projectId), [projectId]);
-  const { data: orgMembers } = useApi(() => api.members(orgId), [orgId]);
+  const { data: people, error, reload } = useApi(`projectMembers:${projectId}`, () => api.projectMembers(projectId));
+  const { data: orgMembers } = useApi(`members:${orgId}`, () => api.members(orgId));
   const [pick, setPick] = useState('');
   const [role, setRole] = useState<ProjectRole>('viewer');
   const [failure, setFailure] = useState<string | null>(null);
@@ -31,7 +31,7 @@ export function ProjectAccess({ projectId, orgId }: { projectId: string; orgId: 
           <tbody>
             {people.map((m) => (
               <tr key={m.userId}>
-                <td>{name(m)}{m.name && m.email && <span className="muted"> · {m.email}</span>}</td>
+                <td>{name(m)}{m.name && m.email && m.name !== m.email && <span className="muted"> · {m.email}</span>}</td>
                 <td>
                   {m.via === 'org'
                     ? <span className="muted">{ORG_ROLE[m.orgRole] ?? m.orgRole} of the organization</span>

@@ -11,8 +11,11 @@ export function OrgSwitcher() {
   const navigate = useNavigate();
   // Refetched on every navigation, so a new, renamed or deleted org shows up as soon as the user lands on a page.
   const { key } = useLocation();
-  const { data: me } = useApi(api.me, [key]);
-  if (!me || me.orgs.length === 0) return null;
+  const { data: me } = useApi('me', api.me, { refreshOn: key });
+  // Until the orgs arrive, a blank switcher holds its place so the links beside it don't jump. Its width comes from its
+  // longest option, and "New organization…" is always one of them.
+  if (!me) return <select className="org-select pending" disabled aria-hidden="true" tabIndex={-1}><option>New organization…</option></select>;
+  if (me.orgs.length === 0) return null;
   const current = me.orgs.find((o) => o.id === orgId) ?? orgToOpen(me.orgs);
   return (
     <select

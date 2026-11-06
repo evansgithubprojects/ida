@@ -1,18 +1,19 @@
 import { Link, useParams } from 'react-router';
 import { api } from '../cloud/api';
 import { ago, useApi } from '../cloud/useApi';
+import { Bone, TableSkeleton } from '../components/Skeleton';
 
 export function Recorder() {
   const { projectId = '', recorderKey = '' } = useParams();
-  const project = useApi(() => api.project(projectId), [projectId]);
-  const sessions = useApi(() => api.sessions(projectId, recorderKey), [projectId, recorderKey], 10_000);
+  const project = useApi(`project:${projectId}`, () => api.project(projectId));
+  const sessions = useApi(`sessions:${projectId}:${recorderKey}`, () => api.sessions(projectId, recorderKey), { pollMs: 10_000 });
   const base = `/projects/${projectId}/recorders/${encodeURIComponent(recorderKey)}`;
 
   return (
     <div className="page">
       <nav className="crumbs">
         <Link to={project.data ? `/orgs/${project.data.orgId}` : "/projects"}>Projects</Link><span>›</span>
-        <Link to={`/projects/${projectId}`}>{project.data?.name ?? '…'}</Link><span>›</span>
+        <Link to={`/projects/${projectId}`}>{project.data?.name ?? <Bone w="6em" />}</Link><span>›</span>
         <code>{recorderKey}</code>
       </nav>
       <div className="page-head">
@@ -22,6 +23,7 @@ export function Recorder() {
       {sessions.error && <p className="form-error" role="alert">{sessions.error}</p>}
       <h3>Recordings</h3>
       <p className="muted">Each run of your app is one recording.</p>
+      {!sessions.data && !sessions.error && <TableSkeleton heads={['Started', 'Events', 'Runtime', 'Last data', '']} />}
       {sessions.data?.length === 0 && <p className="muted">No recordings yet.</p>}
       {!!sessions.data?.length && (
         <table className="table">

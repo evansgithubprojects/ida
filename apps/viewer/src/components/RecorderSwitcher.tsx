@@ -13,7 +13,7 @@ export function RecorderSwitcher({ projectId, recorderKey }: { projectId: string
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
-  const recorders = useApi(() => api.recorders(projectId), [projectId], 10_000);
+  const recorders = useApi(`recorders:${projectId}`, () => api.recorders(projectId), { pollMs: 10_000 });
   const rows = recorders.data ?? [];
 
   useEffect(() => {

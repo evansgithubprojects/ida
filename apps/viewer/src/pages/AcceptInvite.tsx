@@ -4,6 +4,7 @@ import { api } from '../cloud/api';
 import { useSession } from '../cloud/auth';
 import { supabase } from '../cloud/supabase';
 import { useApi } from '../cloud/useApi';
+import { NarrowSkeleton } from '../components/Skeleton';
 
 const WHY: Record<string, string> = {
   accepted: 'This invitation was already used.',
@@ -16,10 +17,10 @@ export function AcceptInvite() {
   const { token = '' } = useParams();
   const navigate = useNavigate();
   const session = useSession();
-  const { data: invite, error } = useApi(() => api.lookupInvite(token), [token]);
+  const { data: invite, error } = useApi(`invite:${token}`, () => api.lookupInvite(token));
   const [failure, setFailure] = useState<string | null>(null);
   if (error) return <div className="page narrow"><h2>Invitation not found</h2><p className="muted">This link is not valid. Check that you copied all of it, or ask for a new invitation.</p><Link to="/projects">Go to your projects</Link></div>;
-  if (!invite) return <div className="page narrow"><p className="muted">Loading…</p></div>;
+  if (!invite) return <NarrowSkeleton />;
   const as = invite.orgRole === 'admin' ? 'an admin' : 'a member';
   return (
     <div className="page narrow">

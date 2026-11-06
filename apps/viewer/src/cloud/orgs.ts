@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useParams } from 'react-router';
 import { api, type Me, type Org, type OrgRole, type ProjectAccessLevel } from './api';
 import { useApi } from './useApi';
@@ -34,18 +34,19 @@ export const canInProject = {
   administer: (a: ProjectAccessLevel) => a === 'admin',
 };
 
-/** The signed-in user and their orgs. `reload` after creating, renaming, leaving or deleting an org. */
-export function useMe(): { me: Me | undefined; error: string | null; reload: () => void } {
-  const { data, error, reload } = useApi(api.me, []);
-  return { me: data, error, reload };
+/**
+ * The signed-in user and their orgs. `reload` after creating, renaming, leaving or deleting an org. `fresh` is false
+ * while only a cached copy is known: check it before redirecting, since an org may have just been left or deleted.
+ */
+export function useMe(): { me: Me | undefined; fresh: boolean; error: string | null; reload: () => void } {
+  const { data, fresh, error, reload } = useApi('me', api.me);
+  return { me: data, fresh, error, reload };
 }
 
 /** The org named in the URL, as the signed-in user sees it, and remembers it as the last one opened. */
 export function useOrg(): { org: Org | undefined; orgId: string; error: string | null; reload: () => void } {
   const { orgId = '' } = useParams();
-  const [version, setVersion] = useState(0);
-  const { data, error } = useApi(() => api.org(orgId), [orgId, version]);
+  const { data, error, reload } = useApi(`org:${orgId}`, () => api.org(orgId));
   useEffect(() => { if (data) rememberOrg(data.id); }, [data]);
-  const reload = useCallback(() => setVersion((v) => v + 1), []);
   return { org: data, orgId, error, reload };
 }

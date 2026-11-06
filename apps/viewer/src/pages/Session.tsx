@@ -18,7 +18,7 @@ export function Session({ live = false }: { live?: boolean }) {
   const [attempt, setAttempt] = useState(0);
   const status = useStore((s) => s.live);
   const index = useStore((s) => s.index);
-  const project = useApi(() => api.project(projectId), [projectId]);
+  const project = useApi(`project:${projectId}`, () => api.project(projectId));
   const base = `/projects/${projectId}/recorders/${encodeURIComponent(recorderKey)}`;
 
   useEffect(() => { rememberRecorder(projectId, recorderKey); }, [projectId, recorderKey]);

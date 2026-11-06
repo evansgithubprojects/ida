@@ -7,12 +7,13 @@ import { ago, useApi } from '../cloud/useApi';
 import { IngestKeys } from '../components/IngestKeys';
 import { ConnectDialog } from '../components/ConnectDialog';
 import { ProjectAccess } from '../components/ProjectAccess';
+import { ProjectSkeleton, TableSkeleton } from '../components/Skeleton';
 
 export function Project() {
   const { projectId = '' } = useParams();
   const navigate = useNavigate();
-  const project = useApi(() => api.project(projectId), [projectId]);
-  const recorders = useApi(() => api.recorders(projectId), [projectId], 10_000);
+  const project = useApi(`project:${projectId}`, () => api.project(projectId));
+  const recorders = useApi(`recorders:${projectId}`, () => api.recorders(projectId), { pollMs: 10_000 });
   const [error, setError] = useState<string | null>(null);
   const location = useLocation();
   // Only a project that was just created opens on the key screen; clearing the state keeps a refresh or a later visit from showing it again.
@@ -25,7 +26,7 @@ export function Project() {
   useEffect(() => { if (project.data) rememberOrg(project.data.orgId); }, [project.data]);
 
   if (project.error) return <div className="page"><p className="form-error" role="alert">{project.error}</p><Link to="/projects">All projects</Link></div>;
-  if (!project.data) return <div className="page"><p className="muted">Loading…</p></div>;
+  if (!project.data) return <ProjectSkeleton />;
 
   const act = async (fn: () => Promise<unknown>) => {
     setError(null);
@@ -51,6 +52,7 @@ export function Project() {
 
       <section className="panel-section">
         <h3>Recorders</h3>
+        {!recorders.data && !recorders.error && <TableSkeleton heads={['Key', 'Last data']} rows={2} />}
         {recorders.data?.length === 0 && (
           <p className="muted">{manageKeys
             ? 'Nothing has been uploaded yet. Use “Connect an app” to add the setup to your app; recorders show up here once they send data.'

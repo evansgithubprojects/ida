@@ -4,15 +4,18 @@ import { api, type InviteSent, type Org, type OrgRole, type ProjectRole } from '
 import { ago, useApi } from '../cloud/useApi';
 import { can, orgToOpen, useMe, useOrg } from '../cloud/orgs';
 import { useSession } from '../cloud/auth';
+import { CardsSkeleton, OrgPageSkeleton, TableSkeleton } from '../components/Skeleton';
 
 /**
  * `/projects`: sends the user to the org they were last in. Someone in no org yet (invited people who haven't accepted,
  * or people who left every org) is asked to create one; pending invitations show in the banner above.
  */
 export function ProjectsRedirect() {
-  const { me, error } = useMe();
-  if (error) return <div className="page"><p className="form-error" role="alert">{error}</p></div>;
-  if (!me) return <div className="page"><p className="muted">Loading…</p></div>;
+  const { me, fresh, error } = useMe();
+  if (error && !me) return <div className="page"><p className="form-error" role="alert">{error}</p></div>;
+  // Wait for a fresh list: a cached one may still hold an org that was just left or deleted. Most people land on an
+  // org page, so that is the shape to hold meanwhile.
+  if (!me || (!fresh && !error)) return <OrgPageSkeleton tabs={TAB_LABELS} />;
   const org = orgToOpen(me.orgs);
   if (org) return <Navigate to={`/orgs/${org.id}`} replace />;
   return (
@@ -56,6 +59,10 @@ function CreateOrgForm() {
   );
 }
 
+/** The org's tabs, as `[path under /orgs/:orgId, label]`. The loading placeholder shows the same labels. */
+const ORG_TABS = [['', 'Projects'], ['/members', 'Members'], ['/settings', 'Settings'], ['/profile', 'Org Profile']] as const;
+const TAB_LABELS = ORG_TABS.map(([, label]) => label);
+
 /** The org's name, who the user is in it, and tabs for its pages. */
 function OrgHeader({ id, name, role }: { id: string; name: string; role: OrgRole }) {
   const base = `/orgs/${id}`;
@@ -66,10 +73,7 @@ function OrgHeader({ id, name, role }: { id: string; name: string; role: OrgRole
         <span className="muted">You are {role === 'member' ? 'a' : 'an'} {role}</span>
       </div>
       <nav className="org-tabs" aria-label="Organization">
-        <NavLink to={base} end>Projects</NavLink>
-        <NavLink to={`${base}/members`}>Members</NavLink>
-        <NavLink to={`${base}/settings`}>Settings</NavLink>
-        <NavLink to={`${base}/profile`}>Org Profile</NavLink>
+        {ORG_TABS.map(([path, label]) => <NavLink key={label} to={base + path} end={!path}>{label}</NavLink>)}
       </nav>
     </>
   );
@@ -85,7 +89,7 @@ const useOrgContext = () => useOutletContext<OrgContext>();
 export function OrgLayout() {
   const { org, error, reload } = useOrg();
   if (error) return <div className="page"><p className="form-error" role="alert">{error}</p><Link to="/projects">Back</Link></div>;
-  if (!org) return <div className="page"><p className="muted">Loading…</p></div>;
+  if (!org) return <OrgPageSkeleton tabs={TAB_LABELS} />;
   return (
     <div className="page">
       <OrgHeader id={org.id} name={org.name} role={org.role} />
@@ -101,13 +105,14 @@ export function OrgProjects() {
 }
 
 function ProjectList({ orgId, canCreate }: { orgId: string; canCreate: boolean }) {
-  const { data: projects, error } = useApi(() => api.orgProjects(orgId), [orgId]);
+  const { data: projects, error } = useApi(`orgProjects:${orgId}`, () => api.orgProjects(orgId));
   const [name, setName] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
   const navigate = useNavigate();
   return (
     <>
       {error && <p className="form-error" role="alert">{error}</p>}
+      {!projects && !error && <CardsSkeleton />}
       {projects && projects.length === 0 && (
         <p className="muted">{canCreate ? 'No projects yet. Create one to get a key for your app.' : 'You have not been given access to any projects here yet. Ask an owner or admin.'}</p>
       )}
@@ -152,7 +157,7 @@ const ROLE_LABEL: Record<OrgRole, string> = { owner: 'Owner', admin: 'Admin', me
 /** The signed-in user's own place in this org: their role, and the name the others here see. */
 export function OrgProfile() {
   const { org } = useOrgContext();
-  const { data: profile, error, reload } = useApi(() => api.orgProfile(org.id), [org.id]);
+  const { data: profile, error, reload } = useApi(`orgProfile:${org.id}`, () => api.orgProfile(org.id));
   const [name, setName] = useState('');
   const [failure, setFailure] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -196,7 +201,7 @@ export function OrgProfile() {
 }
 
 function MemberList({ orgId, myRole }: { orgId: string; myRole: OrgRole }) {
-  const { data: members, error, reload } = useApi(() => api.members(orgId), [orgId]);
+  const { data: members, error, reload } = useApi(`members:${orgId}`, () => api.members(orgId));
   const session = useSession();
   const me = session?.user.id;
   const [failure, setFailure] = useState<string | null>(null);
@@ -208,6 +213,7 @@ function MemberList({ orgId, myRole }: { orgId: string; myRole: OrgRole }) {
     <section className="panel-section">
       <h3>Members</h3>
       {(error || failure) && <p className="form-error" role="alert">{error ?? failure}</p>}
+      {!members && !error && <TableSkeleton heads={['Person', 'Role', '']} rows={2} />}
       {members && (
         <table className="table">
           <thead><tr><th>Person</th><th>Role</th><th /></tr></thead>
@@ -261,8 +267,8 @@ function SentNotice({ sent }: { sent: InviteSent }) {
 }
 
 function Invites({ orgId }: { orgId: string }) {
-  const { data: invites, error, reload } = useApi(() => api.invites(orgId), [orgId]);
-  const { data: projects } = useApi(() => api.orgProjects(orgId), [orgId]);
+  const { data: invites, error, reload } = useApi(`invites:${orgId}`, () => api.invites(orgId));
+  const { data: projects } = useApi(`orgProjects:${orgId}`, () => api.orgProjects(orgId));
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'admin' | 'member'>('member');
   const [grants, setGrants] = useState<Record<string, ProjectRole | ''>>({});

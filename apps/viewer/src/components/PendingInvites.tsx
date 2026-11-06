@@ -7,7 +7,7 @@ import { useApi } from '../cloud/useApi';
 export function PendingInvites() {
   // Refetched as the user moves around, so a new invitation shows up without a reload.
   const { key } = useLocation();
-  const { data: invites, reload } = useApi(api.pendingInvites, [key]);
+  const { data: invites, reload } = useApi('pendingInvites', api.pendingInvites, { refreshOn: key });
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   if (!invites?.length) return null;
