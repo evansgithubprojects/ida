@@ -197,6 +197,48 @@ export function createApp(opts: AppOptions) {
     return c.body(null, 204);
   });
 
+  // Who can open a project: the org's owners and admins (through their org role) and the members it was granted to.
+  app.get('/v1/projects/:projectId/members', async (c) => {
+    const g = await guard(c, 'admin');
+    if (g instanceof Response) return g;
+    const rows = await db.query<{ user_id: string; org_role: string; grant: 'editor' | 'viewer' | null; email: string | null; name: string | null }>(
+      `select m.user_id, m.role as org_role, pm.role as grant, u.email, u.name
+       from org_members m
+       left join project_members pm on pm.project_id = $1 and pm.user_id = m.user_id
+       left join users u on u.id = m.user_id
+       where m.org_id = $2 and (m.role in ('owner', 'admin') or pm.role is not null)
+       order by case m.role when 'owner' then 0 when 'admin' then 1 else 2 end, lower(coalesce(u.name, u.email, m.user_id))`,
+      [g.id, g.org_id],
+    );
+    return c.json(rows.map((r) => ({
+      userId: r.user_id, email: r.email, name: r.name, orgRole: r.org_role,
+      access: r.org_role === 'member' ? r.grant : 'admin', via: r.org_role === 'member' ? 'project' : 'org',
+    })));
+  });
+
+  app.put('/v1/projects/:projectId/members/:userId', async (c) => {
+    const g = await guard(c, 'admin');
+    if (g instanceof Response) return g;
+    const role = (await c.req.json().catch(() => ({}))).role;
+    if (role !== 'editor' && role !== 'viewer') return c.json({ error: 'role must be editor or viewer' }, 400);
+    const [m] = await db.query<{ role: string }>('select role from org_members where org_id = $1 and user_id = $2', [g.org_id, c.req.param('userId')]);
+    if (!m) return c.json({ error: 'only members of the organization can be given access' }, 404);
+    if (m.role !== 'member') return c.json({ error: 'owners and admins can already open every project in the organization' }, 400);
+    await db.query(
+      `insert into project_members (project_id, user_id, role) values ($1, $2, $3)
+       on conflict (project_id, user_id) do update set role = excluded.role`,
+      [g.id, c.req.param('userId'), role],
+    );
+    return c.json({ userId: c.req.param('userId'), access: role });
+  });
+
+  app.delete('/v1/projects/:projectId/members/:userId', async (c) => {
+    const g = await guard(c, 'admin');
+    if (g instanceof Response) return g;
+    const done = await db.query('delete from project_members where project_id = $1 and user_id = $2 returning user_id', [g.id, c.req.param('userId')]);
+    return done.length ? c.body(null, 204) : notFound(c);
+  });
+
   app.get('/v1/projects/:projectId/keys', async (c) => {
     const g = await guard(c, 'editor');
     if (g instanceof Response) return g;
