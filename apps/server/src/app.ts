@@ -10,6 +10,8 @@ import { ingest, parseBatch, SessionConflict } from './ingest';
 import { newIngestKey, parseIngestKey, sameHash, signStreamToken, verifyStreamToken } from './keys';
 import { notFound, cleanName, iso, UUID } from './http';
 import { LiveHub } from './live';
+import { inviteRoutes } from './invites';
+import type { Mailer } from './mail';
 import { orgRoutes } from './orgs';
 import { sessionRecording } from './recordings';
 
@@ -25,6 +27,10 @@ export interface AppOptions {
   maxBatchBytes?: number;
   /** Ingest requests allowed per key per minute. @default 600 */
   ingestPerMinute?: number;
+  /** Sends invitation emails. Leave out to only hand the link to the admin who invited. */
+  sendMail?: Mailer;
+  /** The web app's address, for links in emails. @default the first of `webOrigins` */
+  webAppUrl?: string;
   /** For tests. */
   now?: () => number;
 }
@@ -134,8 +140,9 @@ export function createApp(opts: AppOptions) {
     await next();
   };
   const userApi = { origin: opts.webOrigins ?? [], allowHeaders: ['Authorization', 'Content-Type'], allowMethods: ['GET', 'POST', 'PATCH', 'DELETE'] };
-  for (const path of ['/v1/me', '/v1/orgs', '/v1/orgs/*']) { app.use(path, cors(userApi)); app.use(path, authed); }
+  for (const path of ['/v1/me', '/v1/orgs', '/v1/orgs/*', '/v1/invites', '/v1/invites/*']) { app.use(path, cors(userApi)); app.use(path, authed); }
   app.route('/v1', orgRoutes(db));
+  app.route('/v1', inviteRoutes({ db, sendMail: opts.sendMail, webAppUrl: opts.webAppUrl ?? opts.webOrigins?.[0] ?? 'http://localhost:5173', now }));
   app.use('/v1/projects', authed);
   app.use('/v1/projects/*', authed);
   app.use('/v1/sessions/*', authed);

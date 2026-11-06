@@ -1,5 +1,6 @@
 import { serve } from '@hono/node-server';
 import { createApp } from './app';
+import { resendMailer } from './mail';
 import { supabaseVerifier } from './auth';
 import { connectPostgres, migrate, openPglite } from './db';
 
@@ -27,7 +28,10 @@ const app = createApp({
   verifyUser: supabaseVerifier(env.SUPABASE_URL),
   streamSecret: env.STREAM_SECRET ?? crypto.randomUUID() + crypto.randomUUID(),
   webOrigins: (env.WEB_ORIGINS ?? 'http://localhost:5173').split(',').map((s) => s.trim()).filter(Boolean),
+  webAppUrl: env.WEB_APP_URL,
+  sendMail: env.RESEND_API_KEY ? resendMailer({ apiKey: env.RESEND_API_KEY, from: env.MAIL_FROM ?? 'Ida <onboarding@resend.dev>' }) : undefined,
 });
+if (!env.RESEND_API_KEY) console.log('[server] RESEND_API_KEY is not set: invitation links are logged here and shown to the inviting admin instead of emailed.');
 
 const port = Number(env.PORT ?? 8787);
 const server = serve({ fetch: app.fetch, port }, () => console.log(`[server] listening on http://localhost:${port} (${env.DATABASE_URL ? 'Postgres' : 'PGlite'})`));
