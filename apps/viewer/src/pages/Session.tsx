@@ -67,7 +67,7 @@ export function Session({ live = false }: { live?: boolean }) {
       <header className="toolbar">
         <Link className="home-mark" to="/" aria-label="Ida home"><LogoMark /></Link>
         <nav className="crumbs">
-          <Link to="/projects">Projects</Link><span>›</span>
+          <Link to={project.data ? `/orgs/${project.data.orgId}` : '/projects'}>Projects</Link><span>›</span>
           <Link to={`/projects/${projectId}`}>{project.data?.name ?? 'Project'}</Link><span>›</span>
           <Link to={base}><code>{recorderKey}</code></Link><span>›</span>
           <span>{live ? 'Live' : 'Recording'}</span>

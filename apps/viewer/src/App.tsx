@@ -3,9 +3,10 @@ import { BrowserRouter, Link, Navigate, NavLink, Route, Routes } from 'react-rou
 import { RequireAuth, useSession } from './cloud/auth';
 import { supabase } from './cloud/supabase';
 import { Logo } from './components/Logo';
+import { OrgSwitcher } from './components/OrgSwitcher';
 import { Local } from './pages/Local';
 import { Project } from './pages/Project';
-import { Projects } from './pages/Projects';
+import { NewOrg, OrgMembers, OrgProjects, OrgSettings, ProjectsRedirect } from './pages/Orgs';
 import { Recorder } from './pages/Recorder';
 import { Session } from './pages/Session';
 import { SignIn } from './pages/SignIn';
@@ -17,7 +18,11 @@ export function App() {
         <Route path="/" element={<Navigate to={supabase ? '/projects' : '/local'} replace />} />
         <Route path="/local" element={<Local />} />
         <Route path="/login" element={<Shell><SignIn /></Shell>} />
-        <Route path="/projects" element={<Shell><RequireAuth><Projects /></RequireAuth></Shell>} />
+        <Route path="/projects" element={<Shell><RequireAuth><ProjectsRedirect /></RequireAuth></Shell>} />
+        <Route path="/orgs/new" element={<Shell><RequireAuth><NewOrg /></RequireAuth></Shell>} />
+        <Route path="/orgs/:orgId" element={<Shell><RequireAuth><OrgProjects /></RequireAuth></Shell>} />
+        <Route path="/orgs/:orgId/members" element={<Shell><RequireAuth><OrgMembers /></RequireAuth></Shell>} />
+        <Route path="/orgs/:orgId/settings" element={<Shell><RequireAuth><OrgSettings /></RequireAuth></Shell>} />
         <Route path="/projects/:projectId" element={<Shell><RequireAuth><Project /></RequireAuth></Shell>} />
         {/* The connect walkthrough is a dialog on the project page now. */}
         <Route path="/projects/:projectId/connect" element={<Navigate to=".." relative="path" replace />} />
@@ -37,6 +42,7 @@ function Shell({ children }: { children: ReactNode }) {
     <div className="shell">
       <header className="toolbar">
         <h1><Link to="/" aria-label="Ida home"><Logo /></Link></h1>
+        {supabase && session && <OrgSwitcher />}
         {supabase && <NavLink to="/projects">Projects</NavLink>}
         <NavLink to="/local">Local</NavLink>
         <span className="spacer" />

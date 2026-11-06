@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { api } from '../cloud/api';
 import { recorderToOpen } from '../cloud/lastRecorder';
+import { rememberOrg } from '../cloud/orgs';
 import { ago, useApi } from '../cloud/useApi';
 import { IngestKeys } from '../components/IngestKeys';
 import { ConnectDialog } from '../components/ConnectDialog';
@@ -20,6 +21,8 @@ export function Project() {
     if ((location.state as { connect?: boolean } | null)?.connect) navigate(location.pathname, { replace: true, state: null });
   }, [location, navigate]);
 
+  useEffect(() => { if (project.data) rememberOrg(project.data.orgId); }, [project.data]);
+
   if (project.error) return <div className="page"><p className="form-error" role="alert">{project.error}</p><Link to="/projects">All projects</Link></div>;
   if (!project.data) return <div className="page"><p className="muted">Loading…</p></div>;
 
@@ -31,7 +34,7 @@ export function Project() {
 
   return (
     <div className="page">
-      <nav className="crumbs"><Link to="/projects">Projects</Link><span>›</span><span>{project.data.name}</span></nav>
+      <nav className="crumbs"><Link to={`/orgs/${project.data.orgId}`}>Projects</Link><span>›</span><span>{project.data.name}</span></nav>
       <div className="page-head">
         <h2>{project.data.name}</h2>
         <div className="page-actions">

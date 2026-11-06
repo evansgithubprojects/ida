@@ -11,7 +11,7 @@ export function Recorder() {
   return (
     <div className="page">
       <nav className="crumbs">
-        <Link to="/projects">Projects</Link><span>›</span>
+        <Link to={project.data ? `/orgs/${project.data.orgId}` : "/projects"}>Projects</Link><span>›</span>
         <Link to={`/projects/${projectId}`}>{project.data?.name ?? '…'}</Link><span>›</span>
         <code>{recorderKey}</code>
       </nav>

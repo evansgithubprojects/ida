@@ -275,6 +275,8 @@ code, pre { font-family: var(--mono); font-size: 12px; }
     radial-gradient(1500px 420px at 50% 115%, rgb(0 163 92 / .16), transparent 70%),
     radial-gradient(700px 380px at 100% 100%, rgb(2 52 48 / .55), transparent 70%),
     linear-gradient(to bottom, #00212c, var(--bg) 50%, #00222a); }
+/* Landing (sign-in) page: a flat background so the logo stands alone as the focal point. */
+.shell:has(.hero) { background: var(--bg); }
 .shell-body { flex: 1; overflow: auto; }
 .toolbar h1 a { color: inherit; text-decoration: none; }
 .toolbar > a { color: var(--muted); text-decoration: none; font-weight: 500; padding: 4px 0; border-bottom: 2px solid transparent; }
@@ -297,6 +299,12 @@ code, pre { font-family: var(--mono); font-size: 12px; }
 .form.inline input { flex: 1 1 220px; }
 .form input { background: var(--panel); border: 1px solid var(--border-strong); border-radius: 6px; padding: 8px 12px; }
 .form-error { color: var(--error-ink); }
+.org-select { max-width: 200px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
+.org-tabs { display: flex; gap: 4px; margin: 0 0 20px; border-bottom: 1px solid var(--border); }
+.org-tabs a { padding: 8px 14px; color: var(--muted) !important; border-bottom: 2px solid transparent; margin-bottom: -1px; text-decoration: none !important; }
+.org-tabs a:hover { color: var(--text) !important; }
+.org-tabs a.active { color: var(--text) !important; border-bottom-color: var(--lg-green-base); }
+.card .muted { display: block; margin-top: 4px; font-size: 12px; }
 .cards { list-style: none; padding: 0; margin: 0 0 8px; display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
 .card { display: flex; flex-direction: column; gap: 4px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px 24px; text-decoration: none !important; color: var(--text) !important; box-shadow: 0 4px 10px -4px rgb(0 0 0 / .4); }
 .card { transition: border-color .15s, box-shadow .15s; }
@@ -351,7 +359,7 @@ a.button.primary:hover { background: var(--lg-green-dark1); box-shadow: 0 0 0 3p
 .hero { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; margin: 24px 0 28px; }
 .hero h2 { margin: 6px 0 0; font-size: 32px; font-weight: 600; }
 .hero p { margin: 0; color: var(--muted); max-width: 320px; line-height: 1.5; }
-.hero .logo-mark { filter: drop-shadow(0 0 24px rgb(var(--glow) / .45)); }
+.hero .logo-mark { filter: drop-shadow(0 0 28px rgb(var(--glow) / .6)); }
 
 /* Connect dialog: two screens that wipe from one to the next */
 .connect-modal { max-width: 660px; position: relative; overflow: hidden; }
