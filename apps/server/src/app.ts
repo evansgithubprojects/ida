@@ -137,8 +137,9 @@ export function createApp(opts: AppOptions) {
 
   // --- Web-app API (authenticated by the Supabase user's access token) ---
 
-  app.use('/v1/projects/*', cors({ origin: opts.webOrigins ?? [], allowHeaders: ['Authorization', 'Content-Type'], allowMethods: ['GET', 'POST', 'PATCH', 'DELETE'] }));
-  app.use('/v1/projects', cors({ origin: opts.webOrigins ?? [], allowHeaders: ['Authorization', 'Content-Type'], allowMethods: ['GET', 'POST'] }));
+  // Every method a project route answers to must be listed, or the browser's preflight blocks it before it is sent.
+  app.use('/v1/projects/*', cors({ origin: opts.webOrigins ?? [], allowHeaders: ['Authorization', 'Content-Type'], allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] }));
+  app.use('/v1/projects', cors({ origin: opts.webOrigins ?? [], allowHeaders: ['Authorization'], allowMethods: ['GET'] }));
   app.use('/v1/sessions/*', cors({ origin: opts.webOrigins ?? [], allowHeaders: ['Authorization'], allowMethods: ['GET'] }));
   const authed = async (c: Context<Env>, next: () => Promise<void>) => {
     const user = await verifyUser(bearer(c) ?? '');

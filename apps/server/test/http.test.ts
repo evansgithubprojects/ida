@@ -261,9 +261,26 @@ describe('ingest over HTTP', () => {
 
 describe('web-app CORS', () => {
   it('lets the configured web app call the API and no one else', async () => {
-    const pre = (origin: string) => fetch(`${base}/v1/projects`, { method: 'OPTIONS', headers: { Origin: origin, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'authorization,content-type' } });
+    const pre = (origin: string) => fetch(`${base}/v1/projects`, { method: 'OPTIONS', headers: { Origin: origin, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'authorization' } });
     expect((await pre(WEB)).headers.get('access-control-allow-origin')).toBe(WEB);
     expect((await pre('https://evil.example')).headers.get('access-control-allow-origin')).toBeNull();
+  });
+
+  // A method missing here is blocked by the browser's preflight, which the web app can only report as "can't reach
+  // the server". One request per route family and method the web app sends.
+  it.each([
+    ['PATCH', '/v1/projects/x'],
+    ['DELETE', '/v1/projects/x'],
+    ['POST', '/v1/projects/x/keys'],
+    ['PUT', '/v1/projects/x/members/u'],
+    ['DELETE', '/v1/projects/x/members/u'],
+    ['POST', '/v1/orgs'],
+    ['PATCH', '/v1/orgs/x/members/u'],
+    ['DELETE', '/v1/orgs/x'],
+    ['POST', '/v1/invites/accept'],
+  ])('allows %s %s from the web app', async (method, path) => {
+    const r = await fetch(`${base}${path}`, { method: 'OPTIONS', headers: { Origin: WEB, 'Access-Control-Request-Method': method, 'Access-Control-Request-Headers': 'authorization,content-type' } });
+    expect(r.headers.get('access-control-allow-methods')?.split(',')).toContain(method);
   });
 
   it('lets the web app open the live stream from its own origin', async () => {
