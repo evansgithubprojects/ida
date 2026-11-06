@@ -35,17 +35,18 @@ export function NewOrg() {
 }
 
 /** The org's name, who the user is in it, and tabs for its pages. */
-function OrgHeader({ name, role, personal }: { name: string; role: OrgRole; personal: boolean }) {
+function OrgHeader({ id, name, role, personal }: { id: string; name: string; role: OrgRole; personal: boolean }) {
+  const base = `/orgs/${id}`;
   return (
     <>
       <div className="page-head">
         <h2>{name}</h2>
-        <span className="muted">{personal ? 'Personal · ' : ''}you are {role === 'admin' ? 'an' : 'a'} {role}</span>
+        <span className="muted">{personal ? 'Personal organization · ' : ''}You are {role === 'member' ? 'a' : 'an'} {role}</span>
       </div>
       <nav className="org-tabs" aria-label="Organization">
-        <NavLink to="." end>Projects</NavLink>
-        <NavLink to="members">Members</NavLink>
-        <NavLink to="settings">Settings</NavLink>
+        <NavLink to={base} end>Projects</NavLink>
+        <NavLink to={`${base}/members`}>Members</NavLink>
+        <NavLink to={`${base}/settings`}>Settings</NavLink>
       </nav>
     </>
   );
@@ -55,7 +56,7 @@ function OrgPage({ children }: { children: (org: NonNullable<ReturnType<typeof u
   const { org, error, reload } = useOrg();
   if (error) return <div className="page"><p className="form-error" role="alert">{error}</p><Link to="/projects">Back</Link></div>;
   if (!org) return <div className="page"><p className="muted">Loading…</p></div>;
-  return <div className="page"><OrgHeader name={org.name} role={org.role} personal={org.personal} />{children(org, reload)}</div>;
+  return <div className="page"><OrgHeader id={org.id} name={org.name} role={org.role} personal={org.personal} />{children(org, reload)}</div>;
 }
 
 export function OrgProjects() {
@@ -136,8 +137,10 @@ function MemberList({ orgId, myRole }: { orgId: string; myRole: OrgRole }) {
           <thead><tr><th>Person</th><th>Role</th><th /></tr></thead>
           <tbody>
             {members.map((m) => {
+              // The only owner can't step down or leave: the org always needs one.
+              const lastOwner = m.role === 'owner' && members.filter((x) => x.role === 'owner').length === 1;
               // Admins manage members and other admins; owners are only touched by owners.
-              const editable = can.manageMembers(myRole) && (m.role !== 'owner' || can.touchOwner(myRole));
+              const editable = !lastOwner && can.manageMembers(myRole) && (m.role !== 'owner' || can.touchOwner(myRole));
               const roles = (can.touchOwner(myRole) ? ['owner', 'admin', 'member'] : ['admin', 'member']) as OrgRole[];
               return (
                 <tr key={m.userId}>
@@ -150,7 +153,10 @@ function MemberList({ orgId, myRole }: { orgId: string; myRole: OrgRole }) {
                     ) : ROLE_LABEL[m.role]}
                   </td>
                   <td>
-                    {m.userId === me
+                    {/* "Only owner" explains a missing Leave or Remove, so only show it to someone who could otherwise act. */}
+                    {lastOwner
+                      ? (m.userId === me || can.manageMembers(myRole)) && <span className="muted" title="Make someone else an owner first">Only owner</span>
+                      : m.userId === me
                       ? <button onClick={() => window.confirm('Leave this organization? You will lose access to its projects.') && void act(() => api.removeMember(orgId, m.userId))}>Leave</button>
                       : editable && <button onClick={() => window.confirm(`Remove ${m.name ?? m.email ?? m.userId} from this organization?`) && void act(() => api.removeMember(orgId, m.userId))}>Remove</button>}
                   </td>
@@ -210,14 +216,17 @@ function Invites({ orgId }: { orgId: string }) {
       }}>
         <div className="form inline">
           <input type="email" required placeholder="Email address" value={email} onChange={(e) => setEmail(e.target.value)} aria-label="Email address" />
-          <select value={role} onChange={(e) => setRole(e.target.value as 'admin' | 'member')} aria-label="Role">
-            <option value="member">Member</option>
-            <option value="admin">Admin (sees every project)</option>
-          </select>
+          <label>
+            Role
+            <select value={role} onChange={(e) => setRole(e.target.value as 'admin' | 'member')}>
+              <option value="member">Member</option>
+              <option value="admin">Admin (sees every project)</option>
+            </select>
+          </label>
         </div>
         {role === 'member' && !!projects?.length && (
           <fieldset className="grants">
-            <legend>Projects they can open</legend>
+            <legend>Access scope</legend>
             {projects.map((p) => (
               <label key={p.id} className="grant">
                 <span>{p.name}</span>
@@ -275,15 +284,22 @@ function Settings({ org, reload }: { org: NonNullable<ReturnType<typeof useOrg>[
       {error && <p className="form-error" role="alert">{error}</p>}
       <section className="panel-section">
         <h3>Name</h3>
-        <form className="form inline" onSubmit={async (e) => {
-          e.preventDefault();
-          setError(null);
-          try { await api.renameOrg(org.id, name); reload(); } catch (err) { setError((err as Error).message); }
-        }}>
-          <input value={name} required maxLength={100} disabled={!owner} onChange={(e) => setName(e.target.value)} aria-label="Organization name" />
-          {owner && <button className="primary" disabled={name.trim() === org.name}>Rename</button>}
-        </form>
-        {!owner && <p className="muted">Only an owner can rename the organization.</p>}
+        {owner ? (
+          <form className="form inline" onSubmit={async (e) => {
+            e.preventDefault();
+            setError(null);
+            try { await api.renameOrg(org.id, name); reload(); } catch (err) { setError((err as Error).message); }
+          }}>
+            <input value={name} required maxLength={100} onChange={(e) => setName(e.target.value)} aria-label="Organization name" />
+            <button className="primary" disabled={name.trim() === org.name}>Rename</button>
+          </form>
+        ) : (
+          <>
+            {/* Shown as text: a greyed-out field reads as editable. */}
+            <p>{org.name}</p>
+            <p className="muted">Only an owner can rename the organization.</p>
+          </>
+        )}
       </section>
       {owner && !org.personal && (
         <section className="panel-section danger">

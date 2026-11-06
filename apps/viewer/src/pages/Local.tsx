@@ -25,7 +25,7 @@ export function Local() {
         empty={(
           <div className="welcome">
             <h2>Drop a recording here</h2>
-            <p>Open a JSON export from <code>recorder.export()</code>, load the sample, or connect to a live stream.</p>
+            <p>Open a JSON export from <code>recorder.export()</code>, or connect to a live stream.</p>
           </div>
         )}
       />

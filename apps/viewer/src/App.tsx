@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { BrowserRouter, Link, Navigate, NavLink, Route, Routes } from 'react-router';
+import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router';
 import { RequireAuth, useSession } from './cloud/auth';
 import { supabase } from './cloud/supabase';
 import { Logo } from './components/Logo';
@@ -41,12 +41,17 @@ export function App() {
 
 function Shell({ children }: { children: ReactNode }) {
   const session = useSession();
+  const { pathname } = useLocation();
+  const inOrg = pathname.startsWith('/orgs/');
+  // The invite page already shows its invitation; the banner would repeat it.
+  const onInvite = pathname.startsWith('/invites/');
   return (
     <div className="shell">
       <header className="toolbar">
         <h1><Link to="/" aria-label="Ida home"><Logo /></Link></h1>
         {supabase && session && <OrgSwitcher />}
-        {supabase && <NavLink to="/projects">Projects</NavLink>}
+        {/* Org pages are where projects live, so they count as "Projects" too. */}
+        {supabase && <NavLink to="/projects" className={({ isActive }) => (isActive || inOrg ? 'active' : '')}>Projects</NavLink>}
         <NavLink to="/local">Local</NavLink>
         <span className="spacer" />
         {session && (
@@ -56,7 +61,7 @@ function Shell({ children }: { children: ReactNode }) {
           </>
         )}
       </header>
-      {supabase && session && <PendingInvites />}
+      {supabase && session && !onInvite && <PendingInvites />}
       <main className="shell-body">{children}</main>
     </div>
   );

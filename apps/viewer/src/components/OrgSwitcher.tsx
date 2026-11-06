@@ -21,7 +21,7 @@ export function OrgSwitcher() {
       value={current?.id}
       onChange={(e) => navigate(e.target.value === NEW ? '/orgs/new' : `/orgs/${e.target.value}`)}
     >
-      {me.orgs.map((o) => <option key={o.id} value={o.id}>{o.personal ? `${o.name} (you)` : o.name}</option>)}
+      {me.orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
       <option value={NEW}>New organization…</option>
     </select>
   );

@@ -21,7 +21,7 @@ export function ProjectAccess({ projectId, orgId }: { projectId: string; orgId: 
   // Owners and admins already see everything, so only plain members can be added.
   const candidates = orgMembers?.filter((m) => m.role === 'member' && !hasAccess.has(m.userId)) ?? [];
   return (
-    <section className="panel-section">
+    <section className="panel-section access">
       <h3>Access</h3>
       <p className="muted">Owners and admins of the organization can open every project. Members can open only the projects they are added to here.</p>
       {(error || failure) && <p className="form-error" role="alert">{error ?? failure}</p>}
@@ -61,7 +61,7 @@ export function ProjectAccess({ projectId, orgId }: { projectId: string; orgId: 
           <button className="primary" disabled={!pick}>Add</button>
         </form>
       ) : (
-        <p className="muted">Every member of the organization already has access. <Link to={`/orgs/${orgId}/members`}>Invite someone</Link> to add more.</p>
+        <div className="access-actions"><Link className="button" to={`/orgs/${orgId}/members`}>Add member</Link></div>
       )}
       <p className="muted">Viewers can look at recordings. Editors can also manage ingest keys and connect an app.</p>
     </section>

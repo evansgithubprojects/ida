@@ -1,5 +1,6 @@
 import type { Recording } from '@eda-debugger/core';
 import { useRef, useState } from 'react';
+import { Link } from 'react-router';
 import { useStore } from '../store';
 import { Logo } from './Logo';
 
@@ -25,7 +26,7 @@ export function Toolbar({ onError }: { onError: (msg: string | null) => void }) 
 
   return (
     <header className="toolbar">
-      <h1><Logo /></h1>
+      <h1><Link to="/" aria-label="Ida home"><Logo /></Link></h1>
       <span className="spacer" />
       {sourceName && <span className="muted source">{sourceName}</span>}
       <input

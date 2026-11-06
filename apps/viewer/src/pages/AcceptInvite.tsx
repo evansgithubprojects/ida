@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { api } from '../cloud/api';
 import { useSession } from '../cloud/auth';
+import { supabase } from '../cloud/supabase';
 import { useApi } from '../cloud/useApi';
 
 const WHY: Record<string, string> = {
@@ -23,13 +24,21 @@ export function AcceptInvite() {
   return (
     <div className="page narrow">
       <h2>Join {invite.orgName}</h2>
-      <p>{invite.invitedBy ?? 'Someone'} invited you to join <strong>{invite.orgName}</strong> as {as}.</p>
-      {invite.state !== 'open' && <p className="form-error" role="alert">{WHY[invite.state]}</p>}
+      <p>
+        {invite.invitedBy ?? 'Someone'} invited {invite.forYou ? 'you' : 'someone'} to join <strong>{invite.orgName}</strong> as {as}.
+      </p>
+      {invite.state !== 'open' && (invite.orgId
+        ? <p>You are already a member of {invite.orgName}. <Link to={`/orgs/${invite.orgId}`}>Go to {invite.orgName}</Link></p>
+        : <p className="form-error" role="alert">{WHY[invite.state]}</p>)}
       {invite.state === 'open' && !invite.forYou && (
-        <p className="form-error" role="alert">
-          This invitation was sent to a different email address{session?.user.email ? <> than the one you are signed in with ({session.user.email})</> : null}.
-          Sign out and sign in with the address it was sent to.
-        </p>
+        <>
+          <p className="form-error" role="alert">
+            This invitation was sent to a different email address{session?.user.email ? <> than the one you are signed in with ({session.user.email})</> : null}.
+            Sign out and sign in with the address it was sent to.
+          </p>
+          {/* Signing out lands on sign-in, which returns here afterwards. */}
+          <button onClick={() => void supabase?.auth.signOut()}>Sign out</button>
+        </>
       )}
       {invite.state === 'open' && invite.forYou && (
         <button className="primary" onClick={async () => {

@@ -292,6 +292,7 @@ code, pre { font-family: var(--mono); font-size: 12px; }
 .page { max-width: 1040px; margin: 0 auto; padding: 32px 24px 56px; }
 .page.narrow { max-width: 380px; }
 .page h2 { margin: 0 0 20px; font-size: 28px; line-height: 1.2; font-weight: 600; letter-spacing: -.01em; }
+.page h2 code { font-size: inherit; }
 .page h3 { margin: 0 0 10px; font-size: 16px; font-weight: 600; }
 .page a { color: var(--link); text-decoration: none; }
 .page a:hover { text-decoration: underline; text-underline-offset: 3px; }
@@ -302,10 +303,13 @@ code, pre { font-family: var(--mono); font-size: 12px; }
 .form { display: flex; flex-direction: column; gap: 10px; }
 .form label { display: flex; flex-direction: column; gap: 4px; color: var(--text); font-weight: 600; font-size: 13px; }
 .form label input { font-weight: 400; font-size: 14px; }
-.form.inline { flex-direction: row; flex-wrap: wrap; margin-top: 12px; }
+.form.inline { flex-direction: row; flex-wrap: wrap; align-items: flex-end; margin-top: 12px; }
 .form.inline input { flex: 1 1 220px; }
 .form input { background: var(--panel); border: 1px solid var(--border-strong); border-radius: 6px; padding: 8px 12px; }
 .form-error { color: var(--error-ink); }
+.access > p { margin: 0 0 12px; }
+.access > p:last-child { margin: 12px 0 0; }
+.access-actions { margin-top: 12px; }
 .invite-banner { padding: 8px 24px; background: var(--lg-green-dark3); border-bottom: 1px solid var(--lg-green-dark2); }
 .invite-banner-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 4px 0; }
 .notice { margin: 12px 0 0; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; }

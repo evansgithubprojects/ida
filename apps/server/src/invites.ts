@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { Hono } from 'hono';
+import { orgRole } from './access';
 import type { Db } from './db';
 import { forbidden, iso, notFound, UUID } from './http';
 import { inviteEmail, type Mailer } from './mail';
@@ -189,7 +190,12 @@ export function inviteRoutes(opts: InviteOptions) {
     if (!i) return notFound(c);
     const mine = !!c.get('user').email && c.get('user').email!.toLowerCase() === i.email;
     // The invite's address is only shown to the person it was sent to.
-    return c.json({ id: i.id, orgName: i.org_name, orgRole: i.org_role, invitedBy: i.inviter, state: state(i), forYou: mine, ...(mine && { email: i.email }) });
+    // The org id only goes to people already in the org, so a used link can lead them there.
+    const member = !!(await orgRole(db, c.get('user').id, i.org_id));
+    return c.json({
+      id: i.id, orgName: i.org_name, orgRole: i.org_role, invitedBy: i.inviter, state: state(i), forYou: mine,
+      ...(mine && { email: i.email }), ...(member && { orgId: i.org_id }),
+    });
   });
 
   app.post('/invites/accept', async (c) => {
