@@ -4,6 +4,8 @@ import { SPEEDS, useStore } from '../store';
 import { fmtMs } from './common';
 
 const H = 64;
+// Window bounds are wall-clock: recorder timestamps count from the recording's start.
+const fmtDate = (epochMs: number) => new Date(epochMs).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'medium' });
 type Drag = 'playhead' | 'w0' | 'w1' | null;
 
 /** The footer: Live follows the stream; Replay opens the scrub panel. */
@@ -98,7 +100,7 @@ function ReplayPanel() {
         </label>
         <span className="readout">{fmtMs(t - index.start)} / {fmtMs(span)}</span>
         <span className="readout muted" title="Only the events in the window are drawn and listed; at most 500 at a time">
-          window {fmtMs(window[0] - index.start)} – {fmtMs(window[1] - index.start)} · {shown} of {index.items.length} events
+          window {fmtDate(index.recording.startedAt + window[0])} – {fmtDate(index.recording.startedAt + window[1])} · {shown} of {index.items.length} events
         </span>
         {!atHome && <button onClick={() => setWindow(home)}>Reset window</button>}
       </div>

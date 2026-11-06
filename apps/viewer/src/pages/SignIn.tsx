@@ -4,6 +4,8 @@ import { useSession } from '../cloud/auth';
 import { supabase } from '../cloud/supabase';
 import { LogoMark } from '../components/Logo';
 
+const FADE_MS = 600; // matches the background-color transition on .shell:has(.hero) in styles.css
+
 export function SignIn() {
   const session = useSession();
   const location = useLocation();
@@ -12,8 +14,10 @@ export function SignIn() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: 'error' | 'info'; text: string } | null>(null);
+  // After a successful sign-in the darker landing background fades up to the app's color before we leave.
+  const [fading, setFading] = useState(false);
 
-  if (session) return <Navigate to={(location.state as { from?: string } | null)?.from ?? '/projects'} replace />;
+  if (session && !fading) return <Navigate to={(location.state as { from?: string } | null)?.from ?? '/projects'} replace />;
   if (!supabase) return <Navigate to="/projects" replace />;
 
   const submit = async (e: React.FormEvent) => {
@@ -23,6 +27,12 @@ export function SignIn() {
     const { data, error } = mode === 'in'
       ? await supabase!.auth.signInWithPassword({ email, password })
       : await supabase!.auth.signUp({ email, password, options: { emailRedirectTo: `${window.location.origin}/projects` } });
+    if (data?.session && !error) {
+      setFading(true);
+      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      setTimeout(() => setFading(false), reduced ? 0 : FADE_MS);
+      return;
+    }
     setBusy(false);
     if (error) return setMessage({ tone: 'error', text: error.message });
     // Sign-ups have to confirm their address first; there is no session until then.
@@ -31,7 +41,7 @@ export function SignIn() {
 
   return (
     <div className="page narrow">
-      <div className="hero">
+      <div className={fading ? 'hero signed-in' : 'hero'}>
         <LogoMark size={56} />
         <h2>{mode === 'in' ? 'Welcome to Ida' : 'Grow with Ida'}</h2>
         <p>Record every event in your app, watch how they branch, and trace each one back to its roots.</p>
