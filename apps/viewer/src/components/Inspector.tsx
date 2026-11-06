@@ -3,7 +3,7 @@ import { memo, useDeferredValue, useMemo, useRef, useState } from 'react';
 import { useModel, useRates } from '../hooks';
 import type { GraphModel } from '../graph/model';
 import { RATE_HISTORY, activityOf, chainOf, errorCode, throwIdFor, countFired, edgeId, eventKey, eventLabel, inWindow, isProblemRun, notifications, parseRunId, parseThrowId, recipientsOf, runById, throwId, type IndexedOccurrence, type Notification, type ReplayIndex, type Run, type Tier } from '../replay';
-import { TRAIL_MAX, useStore, type Selection } from '../store';
+import { TRAIL_MAX, useStore, type LiveStatus, type Selection } from '../store';
 import { Badge, CallChain, ErrorId, CaptureBadge, EventLink, EventRef, FindingBadges, FindingChain, FindingSummary, fmtMs, HandlerLink, InspectLink, Json, NodeRef, RateChart, Section, shortValue } from './common';
 
 export function Inspector() {
@@ -80,6 +80,7 @@ function Overview({ index }: { index: ReplayIndex }) {
   const model = useModel();
   const level = useStore((s) => s.level);
   const window = useStore((s) => s.window);
+  const live = useStore((s) => s.live);
   // Inside a process, the overview covers only the traffic that touches that process.
   const items = useMemo(() => {
     const all = inWindow(index, window);
@@ -91,17 +92,23 @@ function Overview({ index }: { index: ReplayIndex }) {
 
   return (
     <>
-      <Section title="Recording">
+      <Section title={<>Recording{live !== 'off' && <LiveDot status={live} />}</>}>
         <dl className="facts">
           <dt>Events</dt><dd>{items.length} in window ({index.items.length} total)</dd>
-          <dt>Processes</dt><dd>{index.recording.processes.length}</dd>
-          <dt>Handlers</dt><dd>{index.recording.nodes.filter((n) => n.kind === 'handler').length}</dd>
-          <dt>Templates</dt><dd>{index.recording.templates.length}</dd>
         </dl>
         <p className="hint">Click a node or pathway to inspect it. Double-click a process to zoom in. Click a handler to see its activity.</p>
       </Section>
       <NotificationList index={index} title="Notifications" list={list} empty="No throws or suspected corrupt payloads in this window." />
     </>
+  );
+}
+
+/** Whether the recording is still streaming in: a pulsing dot while live, the connection state otherwise. */
+function LiveDot({ status }: { status: Exclude<LiveStatus, 'off'> }) {
+  return (
+    <span className={`live live-${status} live-dot`} role="status" title={status === 'on' ? 'Receiving events from the app' : undefined}>
+      <span className="dot" aria-hidden="true">●</span> {status === 'on' ? 'live' : status}
+    </span>
   );
 }
 

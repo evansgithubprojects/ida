@@ -1,4 +1,4 @@
-import { BrowserRouter, Link, Navigate, NavLink, Outlet, Route, Routes, useLocation } from 'react-router';
+import { BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation } from 'react-router';
 import { RequireAuth, useSession } from './cloud/auth';
 import { supabase } from './cloud/supabase';
 import { Logo } from './components/Logo';
@@ -46,7 +46,6 @@ export function App() {
 function Shell() {
   const session = useSession();
   const { pathname } = useLocation();
-  const inOrg = pathname.startsWith('/orgs/');
   // The invite page already shows its invitation; the banner would repeat it.
   const onInvite = pathname.startsWith('/invites/');
   return (
@@ -54,8 +53,6 @@ function Shell() {
       <header className="toolbar">
         <h1><Link to="/" aria-label="Ida home"><Logo /></Link></h1>
         {supabase && session && <OrgSwitcher />}
-        {/* Org pages are where projects live, so they count as "Projects" too. */}
-        {supabase && <NavLink to="/projects" className={({ isActive }) => (isActive || inOrg ? 'active' : '')}>Projects</NavLink>}
         <span className="spacer" />
         {session && (
           <>

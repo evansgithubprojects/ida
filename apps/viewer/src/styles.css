@@ -205,6 +205,10 @@ button.danger:hover { background: var(--lg-red-dark3); box-shadow: 0 0 0 3px var
 .live { font-size: 12px; }
 .live-on { color: var(--ok); }
 .live-connecting, .live-error { color: var(--warn); }
+.live-dot { font-weight: 400; }
+.live-dot.live-on .dot { animation: live-blink 1.6s ease-in-out infinite; }
+@keyframes live-blink { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .live-dot.live-on .dot { animation: none; } }
 .track { position: relative; touch-action: none; cursor: col-resize; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg); }
 .track svg { display: block; }
 .bar { fill: var(--moss); }
@@ -288,8 +292,7 @@ button.danger:hover { background: var(--lg-red-dark3); box-shadow: 0 0 0 3px var
 .shell-body { flex: 1; overflow: auto; }
 .toolbar h1 a { color: inherit; text-decoration: none; }
 .toolbar > a { color: var(--muted); text-decoration: none; font-weight: 500; padding: 4px 0; border-bottom: 2px solid transparent; }
-.toolbar > a.active, .toolbar > a:hover { color: var(--text); }
-.toolbar > a.active { border-bottom-color: var(--accent); }
+.toolbar > a:hover { color: var(--text); }
 .page { max-width: 1040px; margin: 0 auto; padding: 32px 24px 56px; }
 .page.narrow { max-width: 380px; }
 .page h2 { margin: 0 0 20px; font-size: 28px; line-height: 1.2; font-weight: 600; letter-spacing: -.01em; }

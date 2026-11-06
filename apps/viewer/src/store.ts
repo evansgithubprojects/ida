@@ -66,7 +66,7 @@ function scopeFor(index: ReplayIndex | null, level: Level, sel: NonNullable<Sele
   return sel.type === 'node' || sel.type === 'run' || sel.type === 'throw' || sel.type === 'finding' ? { kind: 'handlers', processId } : null;
 }
 
-type LiveStatus = 'off' | 'connecting' | 'on' | 'error';
+export type LiveStatus = 'off' | 'connecting' | 'on' | 'error';
 
 interface State {
   recording: Recording | null;
