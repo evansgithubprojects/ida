@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { api } from '../cloud/api';
 import { recorderToOpen } from '../cloud/lastRecorder';
-import { rememberOrg } from '../cloud/orgs';
+import { canInProject, rememberOrg } from '../cloud/orgs';
 import { ago, useApi } from '../cloud/useApi';
 import { IngestKeys } from '../components/IngestKeys';
 import { ConnectDialog } from '../components/ConnectDialog';
+import { ProjectAccess } from '../components/ProjectAccess';
 
 export function Project() {
   const { projectId = '' } = useParams();
@@ -30,6 +31,10 @@ export function Project() {
     setError(null);
     try { await fn(); } catch (err) { setError((err as Error).message); }
   };
+  // Without a role from the server, show the least: the server refuses the rest anyway.
+  const access = project.data.access ?? 'viewer';
+  const manageKeys = canInProject.manageKeys(access);
+  const administer = canInProject.administer(access);
   const openKey = recorders.data ? recorderToOpen(projectId, recorders.data) : null;
 
   return (
@@ -38,7 +43,7 @@ export function Project() {
       <div className="page-head">
         <h2>{project.data.name}</h2>
         <div className="page-actions">
-          <button className="link" onClick={() => setConnect('setup')}>Connect an app</button>
+          {manageKeys && <button className="link" onClick={() => setConnect('setup')}>Connect an app</button>}
           {openKey && <Link className="button primary" to={`/projects/${projectId}/recorders/${encodeURIComponent(openKey)}/live`} title={`Opens ${openKey}`}>Open viewer</Link>}
         </div>
       </div>
@@ -46,7 +51,11 @@ export function Project() {
 
       <section className="panel-section">
         <h3>Recorders</h3>
-        {recorders.data?.length === 0 && <p className="muted">Nothing has been uploaded yet. Use “Connect an app” to add the setup to your app; recorders show up here once they send data.</p>}
+        {recorders.data?.length === 0 && (
+          <p className="muted">{manageKeys
+            ? 'Nothing has been uploaded yet. Use “Connect an app” to add the setup to your app; recorders show up here once they send data.'
+            : 'Nothing has been uploaded yet. Recorders show up here once the app sends data.'}</p>
+        )}
         {!!recorders.data?.length && (
           <table className="table">
             <thead><tr><th>Key</th><th>Last data</th></tr></thead>
@@ -62,17 +71,23 @@ export function Project() {
         )}
       </section>
 
-      <section className="panel-section">
-        <h3>Ingest keys</h3>
-        <IngestKeys key={keysVersion} projectId={projectId} onError={setError} />
-      </section>
+      {manageKeys && (
+        <section className="panel-section">
+          <h3>Ingest keys</h3>
+          <IngestKeys key={keysVersion} projectId={projectId} onError={setError} />
+        </section>
+      )}
 
-      <section className="panel-section danger">
-        <h3>Delete project</h3>
-        <p className="muted">Deletes every recorder and recording in it, and its keys stop working.</p>
-        <button onClick={() => window.confirm(`Delete ${project.data!.name} and all of its recordings? This can't be undone.`) && act(async () => { await api.deleteProject(projectId); navigate('/projects'); })}>Delete project</button>
-      </section>
-      {connect && <ConnectDialog projectId={projectId} startAt={connect} onClose={() => setConnect(null)} onKeyCreated={() => setKeysVersion((v) => v + 1)} />}
+      {administer && <ProjectAccess projectId={projectId} orgId={project.data.orgId} />}
+
+      {administer && (
+        <section className="panel-section danger">
+          <h3>Delete project</h3>
+          <p className="muted">Deletes every recorder and recording in it, and its keys stop working.</p>
+          <button onClick={() => window.confirm(`Delete ${project.data!.name} and all of its recordings? This can't be undone.`) && act(async () => { await api.deleteProject(projectId); navigate(`/orgs/${project.data!.orgId}`); })}>Delete project</button>
+        </section>
+      )}
+      {manageKeys && connect && <ConnectDialog projectId={projectId} startAt={connect} onClose={() => setConnect(null)} onKeyCreated={() => setKeysVersion((v) => v + 1)} />}
     </div>
   );
 }

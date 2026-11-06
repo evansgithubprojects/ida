@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Org } from '../src/cloud/api';
-import { can, orgToOpen, rememberOrg } from '../src/cloud/orgs';
+import { can, canInProject, orgToOpen, rememberOrg } from '../src/cloud/orgs';
 
 const org = (id: string, personal = false): Org => ({ id, name: id, personal, role: 'owner', createdAt: '' });
 
@@ -33,5 +33,12 @@ describe('what each org role is shown', () => {
     expect(['owner', 'admin', 'member'].map((r) => can.manageMembers(r as never))).toEqual([true, true, false]);
     expect(['owner', 'admin', 'member'].map((r) => can.editOrg(r as never))).toEqual([true, false, false]);
     expect(['owner', 'admin', 'member'].map((r) => can.touchOwner(r as never))).toEqual([true, false, false]);
+  });
+});
+
+describe('what each project access level is shown', () => {
+  it('lets editors and admins manage keys, and only admins delete or choose who has access', () => {
+    expect((['viewer', 'editor', 'admin'] as const).map(canInProject.manageKeys)).toEqual([false, true, true]);
+    expect((['viewer', 'editor', 'admin'] as const).map(canInProject.administer)).toEqual([false, false, true]);
   });
 });

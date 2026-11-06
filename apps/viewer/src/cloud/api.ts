@@ -19,6 +19,9 @@ export type InviteSent = Invite & { emailed: boolean; mailError?: string; link?:
 export interface PendingInvite { id: string; orgId: string; orgName: string; orgRole: 'admin' | 'member'; invitedBy: string | null; expiresAt: string }
 export interface InviteLookup { id: string; orgName: string; orgRole: 'admin' | 'member'; invitedBy: string | null; state: 'open' | 'accepted' | 'revoked' | 'expired'; forYou: boolean; email?: string }
 
+export type ProjectAccessLevel = 'viewer' | 'editor' | 'admin';
+export interface ProjectMember { userId: string; email: string | null; name: string | null; orgRole: OrgRole; access: ProjectAccessLevel; via: 'org' | 'project' }
+
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
@@ -55,6 +58,9 @@ export const api = {
   deleteOrg: (id: string) => request<void>('DELETE', o(id)),
   orgProjects: (id: string) => request<OrgProject[]>('GET', `${o(id)}/projects`),
   createOrgProject: (id: string, name: string) => request<Project>('POST', `${o(id)}/projects`, { name }),
+  projectMembers: (id: string) => request<ProjectMember[]>('GET', `${p(id)}/members`),
+  setProjectAccess: (id: string, userId: string, role: ProjectRole) => request<{ userId: string; access: ProjectRole }>('PUT', `${p(id)}/members/${encodeURIComponent(userId)}`, { role }),
+  removeProjectAccess: (id: string, userId: string) => request<void>('DELETE', `${p(id)}/members/${encodeURIComponent(userId)}`),
   invites: (id: string) => request<Invite[]>('GET', `${o(id)}/invites`),
   createInvite: (id: string, email: string, orgRole: 'admin' | 'member', projects: { projectId: string; role: ProjectRole }[]) =>
     request<InviteSent>('POST', `${o(id)}/invites`, { email, orgRole, projects }),

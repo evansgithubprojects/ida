@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router';
-import { api, type Me, type Org, type OrgRole } from './api';
+import { api, type Me, type Org, type OrgRole, type ProjectAccessLevel } from './api';
 import { useApi } from './useApi';
 
 const KEY = 'ida_last_org';
@@ -24,6 +24,14 @@ export const can = {
   editOrg: (role: OrgRole) => role === 'owner',
   /** Only owners hand out or take away ownership. */
   touchOwner: (role: OrgRole) => role === 'owner',
+};
+
+/** What each level of access to a project may do. Again the server enforces it; this only decides what to show. */
+export const canInProject = {
+  /** Ingest keys and connecting an app. */
+  manageKeys: (a: ProjectAccessLevel) => a === 'editor' || a === 'admin',
+  /** Deleting the project and choosing who can open it. */
+  administer: (a: ProjectAccessLevel) => a === 'admin',
 };
 
 /** The signed-in user and their orgs. `reload` after creating, renaming, leaving or deleting an org. */
