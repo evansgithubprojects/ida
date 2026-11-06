@@ -105,6 +105,22 @@ describe('members', () => {
     expect((await call('GET', `/v1/orgs/${org}/members`, 'user-stranger')).status).toBe(404);
   });
 
+  it('names people by their email until they pick a display name for an org', async () => {
+    const { org, ids } = await team({ amy: 'member' });
+    const email = `${ids.amy}@example.com`;
+    expect((await call('GET', `/v1/orgs/${org}/profile`, ids.amy!)).body).toMatchObject({ role: 'member', displayName: email, usingDefault: true });
+    expect((await call('GET', `/v1/orgs/${org}/members`, ids.owner!)).body.find((m: { userId: string }) => m.userId === ids.amy).name).toBe(email);
+    const set = await call('PATCH', `/v1/orgs/${org}/profile`, ids.amy!, { displayName: '  Amy at Team  ' });
+    expect(set.body).toMatchObject({ displayName: 'Amy at Team', usingDefault: false });
+    expect((await call('GET', `/v1/orgs/${org}/members`, ids.owner!)).body.find((m: { userId: string }) => m.userId === ids.amy).name).toBe('Amy at Team');
+    // Blank, or their email, goes back to the default.
+    expect((await call('PATCH', `/v1/orgs/${org}/profile`, ids.amy!, { displayName: '   ' })).body).toMatchObject({ displayName: email, usingDefault: true });
+    await call('PATCH', `/v1/orgs/${org}/profile`, ids.amy!, { displayName: 'Amy' });
+    expect((await call('PATCH', `/v1/orgs/${org}/profile`, ids.amy!, { displayName: email.toUpperCase() })).body.usingDefault).toBe(true);
+    expect((await call('PATCH', `/v1/orgs/${org}/profile`, ids.amy!, { displayName: 'x'.repeat(101) })).status).toBe(400);
+    expect((await call('GET', `/v1/orgs/${org}/profile`, 'user-stranger')).status).toBe(404);
+  });
+
   it('lets admins manage members and admins, but only owners touch ownership', async () => {
     const { org, ids } = await team({ admin: 'admin', member: 'member', other: 'admin' });
     const set = (by: string, who: string, role: string) => call('PATCH', `/v1/orgs/${org}/members/${who}`, by, { role });

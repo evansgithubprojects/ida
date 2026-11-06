@@ -100,13 +100,47 @@ export function orgRoutes(db: Db) {
   app.get('/orgs/:orgId/members', async (c) => {
     const g = await guard(c, 'member');
     if (g instanceof Response) return g;
+    // `name` is what the person goes by in this org: their display name here, else their email until they pick one.
     const rows = await db.query<{ user_id: string; role: OrgRole; created_at: string; email: string | null; name: string | null }>(
-      `select m.user_id, m.role, m.created_at, u.email, u.name
+      `select m.user_id, m.role, m.created_at, u.email, coalesce(m.display_name, u.email, u.name) as name
        from org_members m left join users u on u.id = m.user_id where m.org_id = $1
-       order by case m.role when 'owner' then 0 when 'admin' then 1 else 2 end, lower(coalesce(u.name, u.email, m.user_id))`,
+       order by case m.role when 'owner' then 0 when 'admin' then 1 else 2 end, lower(coalesce(m.display_name, u.email, u.name, m.user_id))`,
       [g.org.id],
     );
     return c.json(rows.map((m) => ({ userId: m.user_id, email: m.email, name: m.name, role: m.role, joinedAt: iso(m.created_at) })));
+  });
+
+  /**
+   * The signed-in user's own membership: their role here, and the name they go by in this org. Until they pick a name
+   * they go by their email, which `usingDefault` flags so the viewer can nudge them to replace it.
+   */
+  const profile = async (orgId: string, userId: string) => {
+    const [r] = await db.query<{ role: OrgRole; display_name: string | null; email: string | null; created_at: string }>(
+      `select m.role, m.display_name, m.created_at, u.email
+       from org_members m left join users u on u.id = m.user_id where m.org_id = $1 and m.user_id = $2`,
+      [orgId, userId],
+    );
+    return { userId, role: r!.role, email: r!.email, displayName: r!.display_name ?? r!.email ?? userId, usingDefault: !r!.display_name, joinedAt: iso(r!.created_at) };
+  };
+
+  app.get('/orgs/:orgId/profile', async (c) => {
+    const g = await guard(c, 'member');
+    if (g instanceof Response) return g;
+    return c.json(await profile(g.org.id, c.get('user').id));
+  });
+
+  // Anyone can change their own name here; blank, or their email, goes back to the default (their email).
+  app.patch('/orgs/:orgId/profile', async (c) => {
+    const g = await guard(c, 'member');
+    if (g instanceof Response) return g;
+    const raw = (await c.req.json().catch(() => ({}))).displayName;
+    if (raw !== null && raw !== undefined && typeof raw !== 'string') return c.json({ error: 'displayName must be text' }, 400);
+    const trimmed = typeof raw === 'string' ? raw.trim() : '';
+    if (trimmed.length > 100) return c.json({ error: 'displayName can be at most 100 characters' }, 400);
+    const current = await profile(g.org.id, c.get('user').id);
+    const isEmail = !!current.email && trimmed.toLowerCase() === current.email.toLowerCase();
+    await db.query('update org_members set display_name = $3 where org_id = $1 and user_id = $2', [g.org.id, c.get('user').id, trimmed && !isEmail ? trimmed : null]);
+    return c.json(await profile(g.org.id, c.get('user').id));
   });
 
   /** Who holds each role, so a change can be refused when it would leave the org without an owner. */

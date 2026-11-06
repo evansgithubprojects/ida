@@ -201,12 +201,12 @@ export function createApp(opts: AppOptions) {
     const g = await guard(c, 'admin');
     if (g instanceof Response) return g;
     const rows = await db.query<{ user_id: string; org_role: string; grant: 'editor' | 'viewer' | null; email: string | null; name: string | null }>(
-      `select m.user_id, m.role as org_role, pm.role as grant, u.email, u.name
+      `select m.user_id, m.role as org_role, pm.role as grant, u.email, coalesce(m.display_name, u.email, u.name) as name
        from org_members m
        left join project_members pm on pm.project_id = $1 and pm.user_id = m.user_id
        left join users u on u.id = m.user_id
        where m.org_id = $2 and (m.role in ('owner', 'admin') or pm.role is not null)
-       order by case m.role when 'owner' then 0 when 'admin' then 1 else 2 end, lower(coalesce(u.name, u.email, m.user_id))`,
+       order by case m.role when 'owner' then 0 when 'admin' then 1 else 2 end, lower(coalesce(m.display_name, u.email, u.name, m.user_id))`,
       [g.id, g.org_id],
     );
     return c.json(rows.map((r) => ({
