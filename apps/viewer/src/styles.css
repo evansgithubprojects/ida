@@ -299,6 +299,16 @@ code, pre { font-family: var(--mono); font-size: 12px; }
 .form.inline input { flex: 1 1 220px; }
 .form input { background: var(--panel); border: 1px solid var(--border-strong); border-radius: 6px; padding: 8px 12px; }
 .form-error { color: var(--error-ink); }
+.invite-banner { padding: 8px 24px; background: var(--lg-green-dark3); border-bottom: 1px solid var(--lg-green-dark2); }
+.invite-banner-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 4px 0; }
+.notice { margin: 12px 0 0; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; }
+.notice p { margin: 0 0 8px; }
+.grants { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin: 0; }
+.grants legend { padding: 0 6px; font-size: 13px; font-weight: 600; }
+.grant { display: flex; flex-direction: row !important; align-items: center; justify-content: space-between; gap: 12px; padding: 3px 0; font-weight: 400 !important; }
+.page h3.sub { margin-top: 20px; }
+.row-actions { white-space: nowrap; text-align: right; }
+.row-actions button + button { margin-left: 6px; }
 .org-select { max-width: 200px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
 .org-tabs { display: flex; gap: 4px; margin: 0 0 20px; border-bottom: 1px solid var(--border); }
 .org-tabs a { padding: 8px 14px; color: var(--muted) !important; border-bottom: 2px solid transparent; margin-bottom: -1px; text-decoration: none !important; }

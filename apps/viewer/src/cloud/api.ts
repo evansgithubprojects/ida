@@ -12,6 +12,13 @@ export interface Me { user: { id: string; email: string | null; name: string | n
 export interface OrgProject { id: string; name: string; orgId: string; createdAt: string; recorders: number; lastSeenAt: string | null }
 export interface Member { userId: string; email: string | null; name: string | null; role: OrgRole; joinedAt: string }
 
+export type ProjectRole = 'editor' | 'viewer';
+export interface Invite { id: string; email: string; orgRole: 'admin' | 'member'; projects: { projectId: string; role: ProjectRole }[]; createdAt: string; expiresAt: string; expired: boolean }
+/** What creating or resending an invitation reports: whether the email went out, else the link to share by hand. */
+export type InviteSent = Invite & { emailed: boolean; mailError?: string; link?: string };
+export interface PendingInvite { id: string; orgId: string; orgName: string; orgRole: 'admin' | 'member'; invitedBy: string | null; expiresAt: string }
+export interface InviteLookup { id: string; orgName: string; orgRole: 'admin' | 'member'; invitedBy: string | null; state: 'open' | 'accepted' | 'revoked' | 'expired'; forYou: boolean; email?: string }
+
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
@@ -48,6 +55,14 @@ export const api = {
   deleteOrg: (id: string) => request<void>('DELETE', o(id)),
   orgProjects: (id: string) => request<OrgProject[]>('GET', `${o(id)}/projects`),
   createOrgProject: (id: string, name: string) => request<Project>('POST', `${o(id)}/projects`, { name }),
+  invites: (id: string) => request<Invite[]>('GET', `${o(id)}/invites`),
+  createInvite: (id: string, email: string, orgRole: 'admin' | 'member', projects: { projectId: string; role: ProjectRole }[]) =>
+    request<InviteSent>('POST', `${o(id)}/invites`, { email, orgRole, projects }),
+  resendInvite: (id: string, inviteId: string) => request<InviteSent>('POST', `${o(id)}/invites/${inviteId}/resend`),
+  revokeInvite: (id: string, inviteId: string) => request<void>('DELETE', `${o(id)}/invites/${inviteId}`),
+  pendingInvites: () => request<PendingInvite[]>('GET', '/v1/invites'),
+  lookupInvite: (token: string) => request<InviteLookup>('POST', '/v1/invites/lookup', { token }),
+  acceptInvite: (by: { token: string } | { id: string }) => request<{ orgId: string }>('POST', '/v1/invites/accept', by),
   members: (id: string) => request<Member[]>('GET', `${o(id)}/members`),
   setMemberRole: (id: string, userId: string, role: OrgRole) => request<{ userId: string; role: OrgRole }>('PATCH', `${o(id)}/members/${encodeURIComponent(userId)}`, { role }),
   removeMember: (id: string, userId: string) => request<void>('DELETE', `${o(id)}/members/${encodeURIComponent(userId)}`),

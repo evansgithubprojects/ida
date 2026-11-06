@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Navigate, NavLink, useNavigate } from 'react-router';
-import { api, type OrgRole } from '../cloud/api';
+import { api, type InviteSent, type OrgRole, type ProjectRole } from '../cloud/api';
 import { ago, useApi } from '../cloud/useApi';
 import { can, orgToOpen, useMe, useOrg } from '../cloud/orgs';
 import { useSession } from '../cloud/auth';
@@ -104,7 +104,16 @@ function ProjectList({ orgId, canCreate }: { orgId: string; canCreate: boolean }
 }
 
 export function OrgMembers() {
-  return <OrgPage>{(org) => <MemberList orgId={org.id} myRole={org.role} />}</OrgPage>;
+  return (
+    <OrgPage>
+      {(org) => (
+        <>
+          <MemberList orgId={org.id} myRole={org.role} />
+          {can.manageMembers(org.role) && <Invites orgId={org.id} />}
+        </>
+      )}
+    </OrgPage>
+  );
 }
 
 const ROLE_LABEL: Record<OrgRole, string> = { owner: 'Owner', admin: 'Admin', member: 'Member' };
@@ -150,6 +159,101 @@ function MemberList({ orgId, myRole }: { orgId: string; myRole: OrgRole }) {
             })}
           </tbody>
         </table>
+      )}
+    </section>
+  );
+}
+
+/** Tells an admin what happened to an invitation: emailed, or here is the link to share by hand. */
+function SentNotice({ sent }: { sent: InviteSent }) {
+  if (sent.emailed) return <p className="notice" role="status">Invitation emailed to {sent.email}.</p>;
+  return (
+    <div className="notice" role="status">
+      <p>{sent.mailError ? `The email could not be sent (${sent.mailError}).` : 'Email is not set up on this server.'} Share this link with {sent.email} yourself. It works for 7 days and only with that address.</p>
+      <div className="form inline">
+        <input readOnly value={sent.link ?? ''} aria-label="Invitation link" onFocus={(e) => e.currentTarget.select()} />
+        <button type="button" onClick={() => void navigator.clipboard?.writeText(sent.link ?? '')}>Copy link</button>
+      </div>
+    </div>
+  );
+}
+
+function Invites({ orgId }: { orgId: string }) {
+  const { data: invites, error, reload } = useApi(() => api.invites(orgId), [orgId]);
+  const { data: projects } = useApi(() => api.orgProjects(orgId), [orgId]);
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState<'admin' | 'member'>('member');
+  const [grants, setGrants] = useState<Record<string, ProjectRole | ''>>({});
+  const [sent, setSent] = useState<InviteSent | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const act = async (fn: () => Promise<InviteSent | void>) => {
+    setFailure(null);
+    try { const r = await fn(); setSent(r ?? null); reload(); } catch (err) { setFailure((err as Error).message); }
+  };
+  const nameOf = (id: string) => projects?.find((p) => p.id === id)?.name ?? 'a deleted project';
+  return (
+    <section className="panel-section">
+      <h3>Invite people</h3>
+      {(error || failure) && <p className="form-error" role="alert">{error ?? failure}</p>}
+      <form className="form" onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        await act(async () => {
+          const chosen = role === 'member' ? Object.entries(grants).filter(([, r]) => r).map(([projectId, r]) => ({ projectId, role: r as ProjectRole })) : [];
+          const result = await api.createInvite(orgId, email, role, chosen);
+          setEmail('');
+          setGrants({});
+          return result;
+        });
+        setBusy(false);
+      }}>
+        <div className="form inline">
+          <input type="email" required placeholder="Email address" value={email} onChange={(e) => setEmail(e.target.value)} aria-label="Email address" />
+          <select value={role} onChange={(e) => setRole(e.target.value as 'admin' | 'member')} aria-label="Role">
+            <option value="member">Member</option>
+            <option value="admin">Admin (sees every project)</option>
+          </select>
+        </div>
+        {role === 'member' && !!projects?.length && (
+          <fieldset className="grants">
+            <legend>Projects they can open</legend>
+            {projects.map((p) => (
+              <label key={p.id} className="grant">
+                <span>{p.name}</span>
+                <select value={grants[p.id] ?? ''} onChange={(e) => setGrants({ ...grants, [p.id]: e.target.value as ProjectRole | '' })} aria-label={`Access to ${p.name}`}>
+                  <option value="">No access</option>
+                  <option value="viewer">Viewer</option>
+                  <option value="editor">Editor</option>
+                </select>
+              </label>
+            ))}
+          </fieldset>
+        )}
+        <div><button className="primary" disabled={busy}>Send invitation</button></div>
+      </form>
+      {sent && <SentNotice sent={sent} />}
+      {!!invites?.length && (
+        <>
+          <h3 className="sub">Waiting to be accepted</h3>
+          <table className="table">
+            <thead><tr><th>Email</th><th>Role</th><th>Projects</th><th>Expires</th><th /></tr></thead>
+            <tbody>
+              {invites.map((i) => (
+                <tr key={i.id}>
+                  <td>{i.email}</td>
+                  <td>{i.orgRole === 'admin' ? 'Admin' : 'Member'}</td>
+                  <td>{i.orgRole === 'admin' ? 'All' : i.projects.length ? i.projects.map((g) => `${nameOf(g.projectId)} (${g.role})`).join(', ') : 'None yet'}</td>
+                  <td>{i.expired ? <span className="form-error">Expired</span> : new Date(i.expiresAt).toLocaleDateString()}</td>
+                  <td className="row-actions">
+                    <button onClick={() => void act(() => api.resendInvite(orgId, i.id))}>Resend</button>
+                    <button onClick={() => void act(async () => { await api.revokeInvite(orgId, i.id); })}>Revoke</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
     </section>
   );

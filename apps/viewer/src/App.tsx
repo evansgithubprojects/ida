@@ -4,6 +4,8 @@ import { RequireAuth, useSession } from './cloud/auth';
 import { supabase } from './cloud/supabase';
 import { Logo } from './components/Logo';
 import { OrgSwitcher } from './components/OrgSwitcher';
+import { PendingInvites } from './components/PendingInvites';
+import { AcceptInvite } from './pages/AcceptInvite';
 import { Local } from './pages/Local';
 import { Project } from './pages/Project';
 import { NewOrg, OrgMembers, OrgProjects, OrgSettings, ProjectsRedirect } from './pages/Orgs';
@@ -19,6 +21,7 @@ export function App() {
         <Route path="/local" element={<Local />} />
         <Route path="/login" element={<Shell><SignIn /></Shell>} />
         <Route path="/projects" element={<Shell><RequireAuth><ProjectsRedirect /></RequireAuth></Shell>} />
+        <Route path="/invites/:token" element={<Shell><RequireAuth><AcceptInvite /></RequireAuth></Shell>} />
         <Route path="/orgs/new" element={<Shell><RequireAuth><NewOrg /></RequireAuth></Shell>} />
         <Route path="/orgs/:orgId" element={<Shell><RequireAuth><OrgProjects /></RequireAuth></Shell>} />
         <Route path="/orgs/:orgId/members" element={<Shell><RequireAuth><OrgMembers /></RequireAuth></Shell>} />
@@ -53,6 +56,7 @@ function Shell({ children }: { children: ReactNode }) {
           </>
         )}
       </header>
+      {supabase && session && <PendingInvites />}
       <main className="shell-body">{children}</main>
     </div>
   );
