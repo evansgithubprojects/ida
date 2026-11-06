@@ -58,3 +58,16 @@ export async function projectAccess(db: Db, userId: string, projectId: string): 
   if (!row) return null;
   return row.role === 'owner' || row.role === 'admin' ? 'admin' : row.grant;
 }
+
+/** The projects a user can see, newest first, with how many recorders each has. Limited to one org when given. */
+export async function visibleProjects(db: Db, userId: string, orgId?: string) {
+  return db.query<{ id: string; name: string; created_at: string; org_id: string; recorders: number; last_seen_at: string | null }>(
+    `select p.id, p.name, p.created_at, p.org_id, count(r.id)::int as recorders, max(r.last_seen_at) as last_seen_at
+     from projects p left join recorders r on r.project_id = p.id
+     where ($2::uuid is null or p.org_id = $2)
+       and exists (select 1 from org_members om where om.org_id = p.org_id and om.user_id = $1
+                     and (om.role in ('owner', 'admin') or exists (select 1 from project_members pm where pm.project_id = p.id and pm.user_id = $1)))
+     group by p.id order by p.created_at desc`,
+    [userId, orgId ?? null],
+  );
+}

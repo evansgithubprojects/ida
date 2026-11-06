@@ -3,12 +3,14 @@ import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
 import { streamSSE } from 'hono/streaming';
-import { allows, ensureUser, personalOrg, projectAccess, type Access } from './access';
+import { allows, ensureUser, personalOrg, projectAccess, visibleProjects, type Access } from './access';
 import type { User, VerifyUser } from './auth';
 import type { Db } from './db';
 import { ingest, parseBatch, SessionConflict } from './ingest';
 import { newIngestKey, parseIngestKey, sameHash, signStreamToken, verifyStreamToken } from './keys';
+import { notFound, cleanName, iso, UUID } from './http';
 import { LiveHub } from './live';
+import { orgRoutes } from './orgs';
 import { sessionRecording } from './recordings';
 
 export interface AppOptions {
@@ -131,6 +133,9 @@ export function createApp(opts: AppOptions) {
     await ensureUser(db, user);
     await next();
   };
+  const userApi = { origin: opts.webOrigins ?? [], allowHeaders: ['Authorization', 'Content-Type'], allowMethods: ['GET', 'POST', 'PATCH', 'DELETE'] };
+  for (const path of ['/v1/me', '/v1/orgs', '/v1/orgs/*']) { app.use(path, cors(userApi)); app.use(path, authed); }
+  app.route('/v1', orgRoutes(db));
   app.use('/v1/projects', authed);
   app.use('/v1/projects/*', authed);
   app.use('/v1/sessions/*', authed);
@@ -148,17 +153,9 @@ export function createApp(opts: AppOptions) {
     const [p] = await db.query<ProjectRow>('select id, name, created_at, org_id from projects where id = $1', [id]);
     return p ? { ...p, access } : notFound(c);
   };
-  const notFound = (c: Context) => c.json({ error: 'not found' }, 404);
 
   app.get('/v1/projects', async (c) => {
-    const rows = await db.query<ProjectRow & { recorders: number; last_seen_at: string | null }>(
-      `select p.id, p.name, p.created_at, p.org_id, count(r.id)::int as recorders, max(r.last_seen_at) as last_seen_at
-       from projects p left join recorders r on r.project_id = p.id
-       where exists (select 1 from org_members om where om.org_id = p.org_id and om.user_id = $1
-                       and (om.role in ('owner', 'admin') or exists (select 1 from project_members pm where pm.project_id = p.id and pm.user_id = $1)))
-       group by p.id order by p.created_at desc`,
-      [c.get('user').id],
-    );
+    const rows = await visibleProjects(db, c.get('user').id);
     return c.json(rows.map((r) => ({ ...project(r), recorders: r.recorders, lastSeenAt: iso(r.last_seen_at) })));
   });
 
@@ -291,14 +288,10 @@ export function createApp(opts: AppOptions) {
   return app;
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 interface ProjectRow { id: string; name: string; created_at: string; org_id: string }
 
-const iso = (v: string | Date | null) => (v ? new Date(v).toISOString() : null);
 const project = (p: ProjectRow) => ({ id: p.id, name: p.name, orgId: p.org_id, createdAt: iso(p.created_at) });
 const bearer = (c: Context) => /^Bearer (.+)$/.exec(c.req.header('Authorization') ?? '')?.[1];
-const cleanName = (v: unknown) => (typeof v === 'string' && v.trim().length > 0 && v.trim().length <= 100 ? v.trim() : null);
 
 async function latestSession(db: Db, recorderId: string): Promise<string | null> {
   const [s] = await db.query<{ id: string }>('select id from sessions where recorder_id = $1 order by started_at desc limit 1', [recorderId]);
