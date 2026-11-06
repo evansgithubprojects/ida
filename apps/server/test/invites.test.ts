@@ -98,7 +98,9 @@ describe('sending an invitation', () => {
     try {
       const res = await call('POST', `/v1/orgs/${org}/invites`, owner, { email: 'down@example.com' });
       expect(res.status).toBe(201);
-      expect(res.body).toMatchObject({ emailed: false, mailError: expect.stringContaining('provider down') });
+      expect(res.body).toMatchObject({ emailed: false, mailError: true });
+      // Why it failed stays on the server.
+      expect(JSON.stringify(res.body)).not.toContain('provider down');
       expect(res.body.link).toContain('https://app.example.com/invites/');
     } finally {
       failMail = false;

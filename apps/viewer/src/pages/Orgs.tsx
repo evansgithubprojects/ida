@@ -197,7 +197,7 @@ function SentNotice({ sent }: { sent: InviteSent }) {
   if (sent.emailed) return <p className="notice" role="status">Invitation emailed to {sent.email}.</p>;
   return (
     <div className="notice" role="status">
-      <p>{sent.mailError ? `The email could not be sent (${sent.mailError}).` : 'Email is not set up on this server.'} Share this link with {sent.email} yourself. It works for 7 days and only with that address.</p>
+      <p>{sent.mailError ? 'The email could not be sent.' : 'Email is not set up on this server.'} Share this link with {sent.email} yourself. It works for 7 days and only with that address.</p>
       <div className="form inline">
         <input readOnly value={sent.link ?? ''} aria-label="Invitation link" onFocus={(e) => e.currentTarget.select()} />
         <button type="button" onClick={() => void navigator.clipboard?.writeText(sent.link ?? '')}>Copy link</button>

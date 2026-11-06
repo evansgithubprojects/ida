@@ -15,7 +15,7 @@ export interface Member { userId: string; email: string | null; name: string | n
 export type ProjectRole = 'editor' | 'viewer';
 export interface Invite { id: string; email: string; orgRole: 'admin' | 'member'; projects: { projectId: string; role: ProjectRole }[]; createdAt: string; expiresAt: string; expired: boolean }
 /** What creating or resending an invitation reports: whether the email went out, else the link to share by hand. */
-export type InviteSent = Invite & { emailed: boolean; mailError?: string; link?: string };
+export type InviteSent = Invite & { emailed: boolean; mailError?: boolean; link?: string };
 export interface PendingInvite { id: string; orgId: string; orgName: string; orgRole: 'admin' | 'member'; invitedBy: string | null; expiresAt: string }
 export interface InviteLookup { id: string; orgName: string; orgRole: 'admin' | 'member'; invitedBy: string | null; state: 'open' | 'accepted' | 'revoked' | 'expired'; forYou: boolean; email?: string; orgId?: string }
 

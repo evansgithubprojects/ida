@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createRecorder, type IngestBatch, type RecorderMessage, type Recording } from '@eda-debugger/core';
 import { createApp } from '../src/app';
 import { migrate, openPglite, type Db } from '../src/db';
@@ -190,5 +190,23 @@ describe('live stream', () => {
     expect((await app.request('/v1/live?token=abc.1.def')).status).toBe(401);
     const expired = signStreamToken(SECRET, randomUUID(), -1);
     expect((await app.request(`/v1/live?token=${expired}`)).status).toBe(401);
+  });
+});
+
+describe('unexpected errors', () => {
+  it('are logged on the server and never described to the client', async () => {
+    const leak = new Error('relation "secret_table" does not exist');
+    const broken: Db = { query: () => Promise.reject(leak), transaction: () => Promise.reject(leak), close: async () => {} };
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await createApp({ db: broken, verifyUser: async () => ({ id: 'user-a' }), streamSecret: SECRET }).request('/v1/projects', { headers: as('user-a') });
+      expect(res.status).toBe(500);
+      const text = await res.text();
+      expect(JSON.parse(text)).toEqual({ error: 'something went wrong on the server' });
+      expect(text).not.toContain('secret_table');
+      expect(logged).toHaveBeenCalled();
+    } finally {
+      logged.mockRestore();
+    }
   });
 });

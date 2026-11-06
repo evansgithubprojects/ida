@@ -44,7 +44,7 @@ export function inviteRoutes(opts: InviteOptions) {
   });
 
   /** Mails the link. Resolves to whether it was sent; a missing or failing mail provider never fails the invite. */
-  async function deliver(i: { email: string }, orgName: string, inviter: string, token: string): Promise<{ emailed: boolean; mailError?: string; link?: string }> {
+  async function deliver(i: { email: string }, orgName: string, inviter: string, token: string): Promise<{ emailed: boolean; mailError?: boolean; link?: string }> {
     const link = linkFor(token);
     if (!opts.sendMail) {
       console.log(`[server] invite for ${i.email} to ${orgName} (no mail provider set): ${link}`);
@@ -54,8 +54,9 @@ export function inviteRoutes(opts: InviteOptions) {
       await opts.sendMail({ to: i.email, ...inviteEmail({ orgName, inviter, link, expiresInDays: INVITE_DAYS }) });
       return { emailed: true };
     } catch (err) {
+      // The reason stays in the server log: a mail provider's error can describe the account, its key or its domain.
       console.warn(`[server] could not email the invite to ${i.email}: ${(err as Error).message}`);
-      return { emailed: false, mailError: (err as Error).message, link };
+      return { emailed: false, mailError: true, link };
     }
   }
 

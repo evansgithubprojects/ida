@@ -2,6 +2,7 @@ import { RECORDING_VERSION, type Recording } from '@eda-debugger/core';
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
+import { HTTPException } from 'hono/http-exception';
 import { streamSSE } from 'hono/streaming';
 import { allows, ensureUser, projectAccess, visibleProjects, type Access } from './access';
 import type { User, VerifyUser } from './auth';
@@ -45,6 +46,13 @@ export function createApp(opts: AppOptions) {
   const hub = opts.hub ?? new LiveHub();
   const now = opts.now ?? Date.now;
   const app = new Hono<Env>();
+  // Anything unexpected (a database or driver error, say) is logged here and never described to the client: its
+  // message can name tables, SQL or infrastructure. Covers the mounted org and invite routes too.
+  app.onError((err, c) => {
+    if (err instanceof HTTPException) return err.getResponse();
+    console.error(`[server] unhandled error on ${c.req.method} ${c.req.path}:`, err);
+    return c.json({ error: 'something went wrong on the server' }, 500);
+  });
 
   // --- Ingest (SDK, authenticated by project key) ---
 
