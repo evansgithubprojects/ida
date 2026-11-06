@@ -29,7 +29,7 @@ enableEventEmitterRecording(recorder); // one line: patches EventEmitter.prototy
 fs.writeFileSync('recording.json', JSON.stringify(recorder.export()));
 ```
 
-Open `recording.json` in the viewer (drag and drop), or stream live with `startBridge` from `@eda-debugger/core/bridge-node` and press **Connect live**.
+On a replay screen, open **Recordings** and use **Open file…** (or drop the file on that window) to view `recording.json`, or stream live with `startBridge` from `@eda-debugger/core/bridge-node` and connect to it from the recorder dropdown under **View Remote Endpoint**.
 
 ### Projects: upload recorders to the web app
 

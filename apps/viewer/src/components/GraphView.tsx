@@ -3,7 +3,7 @@ import {
   type Edge, type EdgeProps, type InternalNode, type Node, type NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { accumulate, layoutBounds, layoutSeen, NODE_H, NODE_W, type Positions, type Seen } from '../graph/layout';
 import { processNodeId, type Level, type ModelEdge, type ModelNode } from '../graph/model';
 import {
@@ -367,7 +367,7 @@ function ZoomCrumbs() {
  * being entered and fades away, uncovering the child, which starts small inside that card. Going back plays
  * the same thing in reverse. Only CSS transforms and opacity animate, so React Flow never re-renders mid-zoom.
  */
-export function GraphView() {
+export function GraphView({ actions }: { /** Extra buttons shown left of the settings cog. */ actions?: ReactNode } = {}) {
   const level = useStore((s) => s.level);
   const box = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<Size | null>(null);
@@ -452,7 +452,7 @@ export function GraphView() {
   return (
     <div ref={box} className="graph-stack">
       <ZoomCrumbs />
-      <GraphSettings />
+      <div className="graph-actions">{actions}<GraphSettings /></div>
       {size && [current, outgoing].map((layer) => layer && (
         <div
           key={layer.key}

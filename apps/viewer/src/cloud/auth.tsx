@@ -45,7 +45,7 @@ function NotConfigured() {
       <h2>Projects aren't set up here</h2>
       <p>
         Set <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_PUBLISHABLE_KEY</code> in <code>apps/viewer/.env.local</code> (see
-        <code> .env.example</code>), then restart the dev server. Local recordings still work under <a href="/local">Local</a>.
+        <code> .env.example</code>), then restart the dev server.
       </p>
     </div>
   );

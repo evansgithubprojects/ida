@@ -116,7 +116,7 @@ const findings = analyze(JSON.parse(fs.readFileSync('recording.json', 'utf8')));
 ```ts
 import { startBridge } from '@eda-debugger/core/bridge-node';
 const bridge = await startBridge(recorder, { port: 7777 });
-// open the viewer and press "Connect live"; later: await bridge.close();
+// in the viewer, open the recorder dropdown and choose "View Remote Endpoint"; later: await bridge.close();
 ```
 
 Streams a snapshot on connect, then every new occurrence and finding, over Server-Sent Events. `port` defaults to `7777` (use `0` for a free one) and `host` to `127.0.0.1`. Keep it on loopback: the stream carries your event data.

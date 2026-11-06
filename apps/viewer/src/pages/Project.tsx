@@ -64,7 +64,7 @@ export function Project() {
             <tbody>
               {recorders.data.map((r) => (
                 <tr key={r.key}>
-                  <td><Link to={`/projects/${projectId}/recorders/${encodeURIComponent(r.key)}`}><code>{r.key}</code></Link></td>
+                  <td><Link to={`/projects/${projectId}/recorders/${encodeURIComponent(r.key)}/live`}><code>{r.key}</code></Link></td>
                   <td>{ago(r.lastSeenAt)}</td>
                 </tr>
               ))}

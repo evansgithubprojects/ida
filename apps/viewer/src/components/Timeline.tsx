@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { capWindow, inWindow, mergeTicks, type ReplayIndex, type Tick } from '../replay';
 import { SPEEDS, useStore } from '../store';
 import { fmtMs } from './common';
@@ -8,8 +8,8 @@ const H = 64;
 const fmtDate = (epochMs: number) => new Date(epochMs).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'medium' });
 type Drag = 'playhead' | 'w0' | 'w1' | null;
 
-/** The footer: Live follows the stream; Replay opens the scrub panel. */
-export function Timeline() {
+/** The footer: Live follows the stream; Replay opens the scrub panel. A saved recording shows only the scrub panel. */
+export function Timeline({ exit }: { /** Shown at the right end of the play controls. */ exit?: ReactNode }) {
   const index = useStore((s) => s.index)!;
   const mode = useStore((s) => s.mode);
   const live = useStore((s) => s.live);
@@ -18,30 +18,31 @@ export function Timeline() {
   const shown = useMemo(() => inWindow(index, window).length, [index, window]);
   return (
     <div className="timeline">
+      {/* A saved recording has no stream to follow, so there is nothing to switch between. */}
+      {live !== 'off' && (
       <div className="modebar">
         <div className="segmented" role="group" aria-label="View mode">
           <button
             className={mode === 'live' ? 'primary' : ''}
             aria-pressed={mode === 'live'}
-            disabled={live === 'off'}
-            title={live === 'off' ? 'No live stream: this is a saved recording' : undefined}
             onClick={() => setMode('live')}
           >● Live</button>
           <button className={mode === 'replay' ? 'primary' : ''} aria-pressed={mode === 'replay'} onClick={() => setMode('replay')}>Replay</button>
         </div>
         {mode === 'live' && (
           <>
-            {live !== 'off' && <span className={`live live-${live}`}>● {live === 'on' ? 'live' : live}</span>}
+            <span className={`live live-${live}`}>● {live === 'on' ? 'live' : live}</span>
             <span className="readout muted">newest {shown} events</span>
           </>
         )}
       </div>
-      {mode === 'replay' && <ReplayPanel />}
+      )}
+      {mode === 'replay' && <ReplayPanel exit={exit} />}
     </div>
   );
 }
 
-function ReplayPanel() {
+function ReplayPanel({ exit }: { exit?: ReactNode }) {
   const index = useStore((s) => s.index)!;
   const t = useStore((s) => s.t);
   const playing = useStore((s) => s.playing);
@@ -103,6 +104,7 @@ function ReplayPanel() {
           window {fmtDate(index.recording.startedAt + window[0])} – {fmtDate(index.recording.startedAt + window[1])} · {shown} of {index.items.length} events
         </span>
         {!atHome && <button onClick={() => setWindow(home)}>Reset window</button>}
+        {exit && <span className="controls-end">{exit}</span>}
       </div>
       <div
         className="track"
