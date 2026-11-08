@@ -337,6 +337,7 @@ button.danger:hover { background: var(--lg-red-dark3); box-shadow: 0 0 0 3px var
 .table { width: 100%; border-collapse: collapse; }
 .table th { text-align: left; color: var(--text); font-weight: 600; font-size: 13px; border-bottom-width: 2px !important; }
 .table th, .table td { padding: 10px 8px; border-bottom: 1px solid var(--border); }
+.table .recorder-chip { display: inline-block; margin: 2px 6px 2px 0; }
 .table tbody tr:hover td { background: rgb(28 45 56 / .6); }
 .table td .badge { margin-left: 6px; }
 .snippet { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 12px; overflow-x: auto; font-size: 12.5px; margin: 0; }

@@ -405,6 +405,21 @@ export function capWindow(index: ReplayIndex, window: [number, number], keep: 's
     : [window[0], (index.items[lo + max - 1] as IndexedOccurrence).occ.ts];
 }
 
+/** How many events past the playhead an automatic window reaches, so playback has room before the window has to move. */
+export const TRAIL_AHEAD_EVENTS = 100;
+
+/**
+ * The window that trails playhead `t`: the newest `max` events up to a little past `t`. The viewer moves to it only
+ * when `t` leaves the current window, so playing doesn't rebuild the graph on every frame.
+ */
+export function windowAround(index: ReplayIndex, t: number, max = MAX_WINDOW_EVENTS, ahead = TRAIL_AHEAD_EVENTS): [number, number] {
+  const n = index.items.length;
+  if (!n) return [index.start, index.end];
+  const hi = Math.min(firstAfter(index.items, t) + ahead, n);
+  const lo = Math.max(hi - max, 0);
+  return [lo === 0 ? index.start : (index.items[lo] as IndexedOccurrence).occ.ts, hi >= n ? index.end : (index.items[hi - 1] as IndexedOccurrence).occ.ts];
+}
+
 /**
  * How many of the ascending `times` have fired by playhead `t`. The playhead starts on the first event, so
  * counting is strict (an event at `t` hasn't ticked yet) and every counter starts at zero; at the end of the

@@ -179,9 +179,40 @@ describe('the replay window cap', () => {
     const old = s.index!.items[10]!;
     useStore.getState().selectAt({ type: 'occurrence', id: old.occ.id }, old.occ.id);
     const after = useStore.getState();
-    expect(after.window[0]).toBe(old.occ.ts);
     expect(after.t).toBe(old.occ.ts);
+    expect(after.window[0]).toBeLessThanOrEqual(old.occ.ts);
+    expect(after.window[1]).toBeGreaterThan(old.occ.ts);
     expect(held()).toBeLessThanOrEqual(MAX_WINDOW_EVENTS);
+  });
+
+  it('scrubbing anywhere in the recording moves the window to trail the playhead', () => {
+    const s = load(1500);
+    const mid = s.index!.items[700]!.occ.ts;
+    useStore.getState().setT(mid);
+    const after = useStore.getState();
+    expect(after.t).toBe(mid);
+    expect(after.window[0]).toBeLessThanOrEqual(mid);
+    expect(after.window[1]).toBeGreaterThan(mid);
+    expect(held()).toBeLessThanOrEqual(MAX_WINDOW_EVENTS);
+  });
+
+  it('leaves the window alone while the playhead stays inside it', () => {
+    const s = load(1500);
+    const before = s.window;
+    useStore.getState().setT(s.index!.items[1200]!.occ.ts);
+    expect(useStore.getState().window).toEqual(before);
+  });
+
+  it('plays past the end of a window by moving it, and stops at the end of the recording', () => {
+    const s = load(1500);
+    useStore.getState().setT(s.index!.start);
+    const first = useStore.getState().window;
+    useStore.getState().togglePlay();
+    for (let i = 0; i < 1000 && useStore.getState().playing; i++) useStore.getState().tick(500);
+    const end = useStore.getState();
+    expect(end.window).not.toEqual(first);
+    expect(end.playing).toBe(false);
+    expect(end.t).toBe(end.index!.end);
   });
 });
 

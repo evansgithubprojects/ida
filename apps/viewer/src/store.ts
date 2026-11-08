@@ -2,7 +2,7 @@ import type { RecorderMessage, Recording } from '@eda-debugger/core';
 import { create } from 'zustand';
 import type { Level } from './graph/model';
 import { ZOOM_MS } from './graph/zoom';
-import { buildIndex, capWindow, keepNewest, parseRunId, parseThrowId, type ReplayIndex } from './replay';
+import { buildIndex, capWindow, keepNewest, parseRunId, parseThrowId, windowAround, type ReplayIndex } from './replay';
 
 export const SPEEDS = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4];
 /** Wall-clock lengths of the lit fade and the red flash, scaled to recording time by playback speed. */
@@ -109,7 +109,7 @@ interface State {
   select(selection: Selection, opts?: { fromGraph?: boolean }): void;
   /** Inspects an occurrence and moves the playhead to it; see `selectAt`. */
   seekToOccurrence(id: string): void;
-  /** Selects `selection` and moves the playhead to the occurrence it is about, widening the window to include it. */
+  /** Selects `selection` and moves the playhead to the occurrence it is about; the window follows it if needed. */
   selectAt(selection: NonNullable<Selection>, occurrenceId: string): void;
   /** Inspects a handler: zooms into its process if needed, selects it and pans the graph to it. */
   inspectNode(rawNodeId: string): void;
@@ -167,6 +167,10 @@ export const useStore = create<State>()((set, get) => {
     set({ focus: { ...target, seq } });
     setTimeout(() => { if (get().focus?.seq === seq) set({ focus: null }); }, 1600 + extraMs);
   };
+
+  /** The replay window stays put while the playhead is inside it; once it leaves, the window moves to trail it. */
+  const trailing = (index: ReplayIndex | null, window: [number, number], t: number): [number, number] =>
+    !index || (t >= window[0] && t <= window[1]) ? window : windowAround(index, t);
 
   /** Selects `selection` and shows it on the graph, first changing zoom level if it isn't drawn at the current one. */
   const reveal = (selection: NonNullable<Selection>, extra: Partial<State> = {}) => {
@@ -262,13 +266,15 @@ export const useStore = create<State>()((set, get) => {
       }
     },
     setT(t) {
-      const [w0, w1] = get().window;
-      set({ t: Math.min(Math.max(t, w0), w1), following: false, mode: 'replay' });
+      const { index, window } = get();
+      const at = index ? Math.min(Math.max(t, index.start), index.end) : t;
+      set({ t: at, window: trailing(index, window, at), following: false, mode: 'replay' });
     },
     togglePlay() {
-      const { playing, t, window } = get();
+      const { playing, t, index, window } = get();
       if (playing) return set({ playing: false });
-      set({ playing: true, t: t >= window[1] ? window[0] : t, following: false, mode: 'replay' });
+      const at = index && t >= index.end ? index.start : t;
+      set({ playing: true, t: at, window: trailing(index, window, at), following: false, mode: 'replay' });
     },
     pause() { set({ playing: false }); },
     tick(wallMs) {
@@ -279,8 +285,9 @@ export const useStore = create<State>()((set, get) => {
         return;
       }
       const next = t + wallMs * speed;
-      if (next >= window[1]) set({ t: window[1], playing: false });
-      else set({ t: next });
+      const end = index ? index.end : window[1];
+      if (next >= end) set({ t: end, window: trailing(index, window, end), playing: false });
+      else set({ t: next, window: trailing(index, window, next) });
     },
     setSpeed(speed) { set({ speed }); },
     setWindow(window, keep = 'end') {
@@ -309,13 +316,9 @@ export const useStore = create<State>()((set, get) => {
     selectAt(selection, occurrenceId) {
       const item = get().index?.byId.get(occurrenceId);
       if (!item) return;
-      const { window: [w0, w1], index } = get();
+      const { window, index } = get();
       const ts = item.occ.ts;
-      // Widen to take in the event, then trim from the far side so the window slides there instead of growing.
-      reveal(selection, {
-        t: ts, playing: false, following: false, mode: 'replay',
-        window: index ? capWindow(index, [Math.min(w0, ts), Math.max(w1, ts)], ts < w0 ? 'start' : 'end') : [Math.min(w0, ts), Math.max(w1, ts)],
-      });
+      reveal(selection, { t: ts, playing: false, following: false, mode: 'replay', window: trailing(index, window, ts) });
     },
     inspectNode(nodeId) { reveal({ type: 'node', id: nodeId }); },
 
