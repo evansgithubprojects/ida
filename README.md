@@ -45,7 +45,7 @@ enableEventEmitterRecording();
 connectRecorder('payments').track(paymentsBus); // anywhere: same key, same recorder
 ```
 
-Each recorder appears under the project with one recording per run of your app, and can be watched live. If the server can't be reached, batches are kept on disk (Node) or in IndexedDB (browser), the console says so, and they are uploaded in order once the connection is back. The viewer marks events that arrived late and gaps where data was lost.
+Each recorder appears under the project with one recording per run of your app, and can be watched live. On a replay screen, **Recordings** lists them, and each row has a **View** button that opens it. If the server can't be reached, batches are kept on disk (Node) or in IndexedDB (browser), the console says so, and they are uploaded in order once the connection is back. The viewer marks events that arrived late and gaps where data was lost.
 
 ### Storage: templates, not full copies
 

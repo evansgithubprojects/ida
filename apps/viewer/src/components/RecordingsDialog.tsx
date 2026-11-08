@@ -80,12 +80,12 @@ export function RecordingsDialog({ projectId, recorderKey, currentSessionId, sou
       <h3 id="recordings-title">Recordings · <code>{recorderKey}</code></h3>
       <p className="muted">Each run of your app is one recording.</p>
       {sessions.error && <p className="form-error" role="alert">{sessions.error}</p>}
-      {!sessions.data && !sessions.error && <TableSkeleton heads={['Started', 'Events', 'Runtime', 'Last data', '']} />}
+      {!sessions.data && !sessions.error && <TableSkeleton heads={['Started', 'Events', 'Runtime', 'Last data', '', '']} />}
       {sessions.data?.length === 0 && <p className="muted">No recordings yet.</p>}
       {!!sessions.data?.length && (
         <div className="recordings-scroll">
           <table className="table">
-            <thead><tr><th>Started</th><th>Events</th><th>Runtime</th><th>Last data</th><th /></tr></thead>
+            <thead><tr><th>Started</th><th>Events</th><th>Runtime</th><th>Last data</th><th /><th /></tr></thead>
             <tbody>
               {sessions.data.map((s) => (
                 <tr key={s.id} aria-current={s.id === viewing ? 'true' : undefined}>
@@ -102,6 +102,11 @@ export function RecordingsDialog({ projectId, recorderKey, currentSessionId, sou
                   <td className="muted">{s.runtime || '—'}</td>
                   <td>{ago(s.lastSeenAt)}</td>
                   <td>{s.live && <span className="live live-on">● live</span>}</td>
+                  <td>
+                    <Link className="button" to={`${base}/sessions/${s.id}`} onClick={() => { onSource({ kind: 'cloud' }); onClose(); }}>
+                      View
+                    </Link>
+                  </td>
                 </tr>
               ))}
             </tbody>
