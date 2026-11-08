@@ -212,8 +212,7 @@ button.danger:hover { background: var(--lg-red-dark3); box-shadow: 0 0 0 3px var
 .track { position: relative; touch-action: none; cursor: col-resize; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg); }
 .track svg { display: block; }
 .bar { fill: var(--moss); }
-.dim { fill: rgb(0 15 22 / .7); }
-.handle { fill: var(--accent); cursor: ew-resize; }
+.window-band { fill: var(--accent); opacity: .12; pointer-events: none; }
 .playhead { stroke: #fff; stroke-width: 2; filter: drop-shadow(0 0 3px rgb(var(--glow) / .9)); }
 .tick-error { stroke: var(--error); stroke-width: 2; }
 .tick-warn { stroke: var(--warn); stroke-width: 2; }

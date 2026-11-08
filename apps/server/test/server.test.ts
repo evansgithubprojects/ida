@@ -83,6 +83,7 @@ describe('ingest', () => {
     const recorders = (await call('GET', `/v1/projects/${project.id}/recorders`, as('user-a'))).body;
     expect(recorders).toMatchObject([{ key: 'payments', sessions: 1, live: true, processes: expect.any(Array) }]);
     expect(recorders[0].processes.length).toBeGreaterThan(0);
+    expect((await call('GET', `/v1/projects/${project.id}/keys`, as('user-a'))).body[0].recorders).toEqual(['payments']);
     const sessions = (await call('GET', `/v1/projects/${project.id}/recorders/payments/sessions`, as('user-a'))).body;
     expect(sessions).toMatchObject([{ id: sessionId, startedAt, occurrences: 2, late: 0 }]);
 

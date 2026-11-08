@@ -22,12 +22,13 @@ export function IngestKeys({ projectId, onError }: { projectId: string; onError:
       <p className="muted">Keys can only upload data. Revoke one if it leaks; apps using it stop uploading.</p>
       {active.length > 0 ? (
         <table className="table">
-          <thead><tr><th>Key</th><th>Label</th><th>Created</th><th>Last used</th><th /></tr></thead>
+          <thead><tr><th>Key</th><th>Label</th><th>Recorders</th><th>Created</th><th>Last used</th><th /></tr></thead>
           <tbody>
             {active.map((k) => (
               <tr key={k.id}>
                 <td><code>{maskKey()}</code></td>
                 <td>{k.label || <span className="muted">—</span>}</td>
+                <td>{k.recorders.length ? k.recorders.map((r) => <code key={r} className="recorder-chip">{r}</code>) : <span className="muted">—</span>}</td>
                 <td>{ago(k.createdAt)}</td>
                 <td>{ago(k.lastUsedAt)}</td>
                 <td>

@@ -96,6 +96,7 @@ export function createApp(opts: AppOptions) {
       try {
         const { recorderId, stored } = await ingest(db, key.project_id, batch);
         void db.query('update project_keys set last_used_at = now() where id = $1', [key.id]);
+        await db.query('insert into key_recorders (key_id, recorder_id) values ($1, $2) on conflict do nothing', [key.id, recorderId]);
         if (stored) hub.publish(recorderId, { sessionId: batch.sessionId, messages: batch.messages });
         return c.json({ ok: true, duplicate: !stored });
       } catch (err) {
@@ -241,11 +242,13 @@ export function createApp(opts: AppOptions) {
   app.get('/v1/projects/:projectId/keys', async (c) => {
     const g = await guard(c, 'editor');
     if (g instanceof Response) return g;
-    const rows = await db.query<{ id: string; prefix: string; label: string; created_at: string; last_used_at: string | null; revoked_at: string | null }>(
-      'select id, prefix, label, created_at, last_used_at, revoked_at from project_keys where project_id = $1 order by created_at desc',
+    const rows = await db.query<{ id: string; prefix: string; label: string; created_at: string; last_used_at: string | null; revoked_at: string | null; recorders: string[] }>(
+      `select k.id, k.prefix, k.label, k.created_at, k.last_used_at, k.revoked_at,
+              coalesce((select array_agg(r.key order by r.key) from key_recorders kr join recorders r on r.id = kr.recorder_id where kr.key_id = k.id), '{}') as recorders
+         from project_keys k where k.project_id = $1 order by k.created_at desc`,
       [c.req.param('projectId')],
     );
-    return c.json(rows.map((k) => ({ id: k.id, prefix: `ida_${k.prefix}_`, label: k.label, createdAt: iso(k.created_at), lastUsedAt: iso(k.last_used_at), revokedAt: iso(k.revoked_at) })));
+    return c.json(rows.map((k) => ({ id: k.id, prefix: `ida_${k.prefix}_`, label: k.label, createdAt: iso(k.created_at), lastUsedAt: iso(k.last_used_at), revokedAt: iso(k.revoked_at), recorders: k.recorders })));
   });
 
   app.post('/v1/projects/:projectId/keys', async (c) => {
