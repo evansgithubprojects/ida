@@ -1,7 +1,7 @@
 import { useEffect, useState, ViewTransition } from 'react';
 import { Link, Navigate, NavLink, Outlet, useNavigate, useOutletContext } from 'react-router';
 import { api, type InviteSent, type Org, type OrgRole, type ProjectRole } from '../cloud/api';
-import { ago, useApi } from '../cloud/useApi';
+import { useApi } from '../cloud/useApi';
 import { can, orgToOpen, useMe, useOrg } from '../cloud/orgs';
 import { useSession } from '../cloud/auth';
 import { CardsSkeleton, OrgPageSkeleton, TableSkeleton } from '../components/Skeleton';
@@ -122,7 +122,6 @@ function ProjectList({ orgId, canCreate }: { orgId: string; canCreate: boolean }
             <li key={p.id}>
               <Link className="card" to={`/projects/${p.id}`}>
                 <strong>{p.name}</strong>
-                <span className="muted">{p.recorders} recorder{p.recorders === 1 ? '' : 's'} · {ago(p.lastSeenAt)}</span>
               </Link>
             </li>
           ))}
