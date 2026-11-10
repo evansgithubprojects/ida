@@ -1,4 +1,4 @@
-import { onRecorder, type IngestBatch, type Recorder, type RecorderMessage } from '@ida/core';
+import { onRecorder, type IngestBatch, type Recorder, type RecorderMessage } from '@ida-dev/core';
 import { fitMessage, jsonBytes } from './fit';
 import { memoryStore, Spool, type SpoolStore } from './spool';
 

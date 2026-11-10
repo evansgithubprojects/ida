@@ -1,4 +1,4 @@
-import type { Recording } from '@ida/core';
+import type { Recording } from '@ida-dev/core';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { api } from '../cloud/api';

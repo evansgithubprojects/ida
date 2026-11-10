@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createRecorder, type Recording } from '@ida/core';
+import { createRecorder, type Recording } from '@ida-dev/core';
 import { activeAt, activityOf, buildIndex, callChain, chainOf, edgeId, isProblemRun, parseRunId, runById, runId, throwId, throwIdFor, errorCode, capWindow, inWindow, keepNewest, MAX_WINDOW_EVENTS, mergeTicks, notifications, rateSeries, fmtRate, RATE_STEP_MS, RATE_HISTORY, recentRates, shownRates, MAX_PULSES, SPIKE_MIN, SPIKE_RATIO, type HeldSpikes, type RateSeries, type RecentRates } from '../src/replay';
 
 function recordShop(): Recording {

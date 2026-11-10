@@ -8,10 +8,10 @@ An event is **who called it and what it called, including payloads**. Handlers a
 
 | Package | What it does |
 | --- | --- |
-| [`@ida/core`](packages/core/README.md) | Recorder, ring buffer, templates, causality, corruption detection, JSON export. No DOM dependency. |
-| [`@ida/adapter-eventemitter`](packages/adapter-eventemitter/README.md) | Records Node `EventEmitter`. |
-| [`@ida/adapter-eventtarget`](packages/adapter-eventtarget/README.md) | Records DOM `EventTarget` (native events and `dispatchEvent`). |
-| [`@ida/cloud`](packages/cloud/README.md) | Uploads recorders to a project on the server; spools locally while offline. |
+| [`@ida-dev/core`](packages/core/README.md) | Recorder, ring buffer, templates, causality, corruption detection, JSON export. No DOM dependency. |
+| [`@ida-dev/adapter-eventemitter`](packages/adapter-eventemitter/README.md) | Records Node `EventEmitter`. |
+| [`@ida-dev/adapter-eventtarget`](packages/adapter-eventtarget/README.md) | Records DOM `EventTarget` (native events and `dispatchEvent`). |
+| [`@ida-dev/cloud`](packages/cloud/README.md) | Uploads recorders to a project on the server; spools locally while offline. |
 | `apps/server` | Ingest and project API (Node, Hono, Postgres), with Supabase sign-in. See [its README](apps/server/README.md). |
 | `apps/viewer` | The web app: projects, recorders and recordings, plus the replay viewer (also usable locally, without an account). |
 | `apps/demo` | A stand-in user app (Node and browser) that uses the built packages and uploads to a project. Dev only. |
@@ -19,8 +19,8 @@ An event is **who called it and what it called, including payloads**. Handlers a
 ## Quick start
 
 ```ts
-import { enable } from '@ida/core';
-import { enableEventEmitterRecording } from '@ida/adapter-eventemitter';
+import { enable } from '@ida-dev/core';
+import { enableEventEmitterRecording } from '@ida-dev/adapter-eventemitter';
 
 const recorder = enable({ windowMs: 60_000 });
 enableEventEmitterRecording(recorder); // one line: patches EventEmitter.prototype.emit
@@ -29,16 +29,16 @@ enableEventEmitterRecording(recorder); // one line: patches EventEmitter.prototy
 fs.writeFileSync('recording.json', JSON.stringify(recorder.export()));
 ```
 
-On a replay screen, open **Recordings** and use **Open file…** (or drop the file on that window) to view `recording.json`, or stream live with `startBridge` from `@ida/core/bridge-node` and connect to it from the recorder dropdown under **View Remote Endpoint**.
+On a replay screen, open **Recordings** and use **Open file…** (or drop the file on that window) to view `recording.json`, or stream live with `startBridge` from `@ida-dev/core/bridge-node` and connect to it from the recorder dropdown under **View Remote Endpoint**.
 
 ### Projects: upload recorders to the web app
 
 Create a project in the web app, make an ingest key, and add:
 
 ```ts
-import { configure } from '@ida/cloud';
-import { connectRecorder } from '@ida/core';
-import { enableEventEmitterRecording } from '@ida/adapter-eventemitter';
+import { configure } from '@ida-dev/cloud';
+import { connectRecorder } from '@ida-dev/core';
+import { enableEventEmitterRecording } from '@ida-dev/adapter-eventemitter';
 
 configure({ projectKey: process.env.IDA_PROJECT_KEY!, endpoint: 'https://your-server' });
 enableEventEmitterRecording();
@@ -82,7 +82,7 @@ npm run build   # packages (dist/), server (apps/server/dist), web app (apps/vie
 npm start       # runs the server: node apps/server/dist/main.js
 ```
 
-Set `NODE_ENV=production`, `SUPABASE_URL`, `DATABASE_URL`, `STREAM_SECRET` and `WEB_ORIGINS` for the server (see `apps/server/.env.example`). Build the web app with `VITE_*` set for production and serve `apps/viewer/dist` from any static host. Publish packages with `npm publish -w @ida/<name>`.
+Set `NODE_ENV=production`, `SUPABASE_URL`, `DATABASE_URL`, `STREAM_SECRET` and `WEB_ORIGINS` for the server (see `apps/server/.env.example`). Build the web app with `VITE_*` set for production and serve `apps/viewer/dist` from any static host. Publish packages with `npm publish -w @ida-dev/<name>`.
 
 Replay never re-runs your code: it plays recorded data back against the graph.
 

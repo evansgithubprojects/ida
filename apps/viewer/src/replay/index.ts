@@ -1,4 +1,4 @@
-import type { Finding, GraphNode, Occurrence, Recording, Template } from '@ida/core';
+import type { Finding, GraphNode, Occurrence, Recording, Template } from '@ida-dev/core';
 import { compareRank, findingRank, throwRank, tierOf, type Rank, type Tier } from './severity';
 export type { Tier } from './severity';
 

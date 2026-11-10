@@ -13,22 +13,22 @@ export function SetupSnippet({ language, projectKey }: { language: Language; pro
     ? `# .env
 IDA_PROJECT_KEY=${key}
 
-npm install @ida/core @ida/cloud @ida/adapter-eventemitter
+npm install @ida-dev/core @ida-dev/cloud @ida-dev/adapter-eventemitter
 
-import { configure } from '@ida/cloud';
-import { connectRecorder } from '@ida/core';
-import { enableEventEmitterRecording } from '@ida/adapter-eventemitter';
+import { configure } from '@ida-dev/cloud';
+import { connectRecorder } from '@ida-dev/core';
+import { enableEventEmitterRecording } from '@ida-dev/adapter-eventemitter';
 
 configure({ projectKey: process.env.IDA_PROJECT_KEY, endpoint: '${API_URL}' });
 enableEventEmitterRecording();
 
 // anywhere in your app
 connectRecorder('payments').track(paymentsBus);`
-    : `npm install @ida/core @ida/cloud @ida/adapter-eventtarget
+    : `npm install @ida-dev/core @ida-dev/cloud @ida-dev/adapter-eventtarget
 
-import { configure } from '@ida/cloud';
-import { connectRecorder } from '@ida/core';
-import { enableEventTargetRecording } from '@ida/adapter-eventtarget';
+import { configure } from '@ida-dev/cloud';
+import { connectRecorder } from '@ida-dev/core';
+import { enableEventTargetRecording } from '@ida-dev/adapter-eventtarget';
 
 configure({ projectKey: '${key}', endpoint: '${API_URL}' });
 

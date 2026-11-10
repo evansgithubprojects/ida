@@ -3,7 +3,7 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { connectRecorder, type IngestBatch, type Recorder } from '@ida/core';
+import { connectRecorder, type IngestBatch, type Recorder } from '@ida-dev/core';
 import { resetRecorders } from '../../core/src/registry';
 import { memoryStore, Spool, type SpoolStore } from '../src/spool';
 import { fileStore } from '../src/store-node';

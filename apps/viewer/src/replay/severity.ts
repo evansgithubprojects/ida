@@ -1,4 +1,4 @@
-import type { Finding } from '@ida/core';
+import type { Finding } from '@ida-dev/core';
 
 /** Tunable weights for ranking the notification list. Higher scores sit nearer the top. */
 export const SEVERITY = {

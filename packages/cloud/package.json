@@ -1,5 +1,5 @@
 {
-  "name": "@ida/cloud",
+  "name": "@ida-dev/cloud",
   "version": "0.0.0",
   "description": "Uploads event chain recordings to the Ida server, spooling locally while offline",
   "type": "module",
@@ -25,7 +25,7 @@
     "dev": "tsup --watch"
   },
   "dependencies": {
-    "@ida/core": "*"
+    "@ida-dev/core": "*"
   },
   "license": "MIT",
   "devDependencies": {

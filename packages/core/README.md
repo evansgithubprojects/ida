@@ -1,9 +1,9 @@
-# @ida/core
+# @ida-dev/core
 
-Recorder for [Ida](../../README.md): templates, causality, corruption detection and JSON export. No DOM or Node-only imports, except the optional `@ida/core/bridge-node`.
+Recorder for [Ida](../../README.md): templates, causality, corruption detection and JSON export. No DOM or Node-only imports, except the optional `@ida-dev/core/bridge-node`.
 
 ```bash
-npm install @ida/core
+npm install @ida-dev/core
 ```
 
 You normally pair it with an adapter ([`adapter-eventemitter`](../adapter-eventemitter/README.md), [`adapter-eventtarget`](../adapter-eventtarget/README.md)), which calls the recorder for you.
@@ -11,8 +11,8 @@ You normally pair it with an adapter ([`adapter-eventemitter`](../adapter-evente
 ## Quick start
 
 ```ts
-import { enable } from '@ida/core';
-import { enableEventEmitterRecording } from '@ida/adapter-eventemitter';
+import { enable } from '@ida-dev/core';
+import { enableEventEmitterRecording } from '@ida-dev/adapter-eventemitter';
 
 const recorder = enable({ windowMs: 60_000 });
 enableEventEmitterRecording(recorder);
@@ -46,7 +46,7 @@ enableEventEmitterRecording();
 
 Passing a recorder to an adapter (`enableEventEmitterRecording(recorder)`) skips routing: that recorder gets everything.
 
-To upload recorders to a project in the web app, see [`@ida/cloud`](../cloud/README.md).
+To upload recorders to a project in the web app, see [`@ida-dev/cloud`](../cloud/README.md).
 
 ### `RecorderOptions`
 
@@ -105,16 +105,16 @@ Core can't see inside a handler, so declare what talks to the outside world with
 ## Analyzing a recording
 
 ```ts
-import { analyze } from '@ida/core';
+import { analyze } from '@ida-dev/core';
 const findings = analyze(JSON.parse(fs.readFileSync('recording.json', 'utf8')));
 ```
 
 `analyze(recording, options?)` replays the live detection rules in time order, so it also finds payloads emitted before their handler threw. `options` are the same detection options as `corruption`.
 
-## Live viewing: `@ida/core/bridge-node`
+## Live viewing: `@ida-dev/core/bridge-node`
 
 ```ts
-import { startBridge } from '@ida/core/bridge-node';
+import { startBridge } from '@ida-dev/core/bridge-node';
 const bridge = await startBridge(recorder, { port: 7777 });
 // in the viewer, open the recorder dropdown and choose "View Remote Endpoint"; later: await bridge.close();
 ```

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createRecorder } from '@ida/core';
+import { createRecorder } from '@ida-dev/core';
 import { buildModel, processNodeId } from '../src/graph/model';
 import { buildIndex, countFired } from '../src/replay';
 

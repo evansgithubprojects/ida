@@ -1,9 +1,9 @@
-# @ida/cloud
+# @ida-dev/cloud
 
 Uploads [Ida](../../README.md) recorders to a project on the Ida server, so you can browse their recordings and watch them live in the web app. Works in Node and browsers.
 
 ```bash
-npm install @ida/core @ida/cloud
+npm install @ida-dev/core @ida-dev/cloud
 ```
 
 ## Setup
@@ -11,8 +11,8 @@ npm install @ida/core @ida/cloud
 Create a project in the web app and make an ingest key, then call `configure` once at startup:
 
 ```ts
-import { configure } from '@ida/cloud';
-import { connectRecorder } from '@ida/core';
+import { configure } from '@ida-dev/cloud';
+import { connectRecorder } from '@ida-dev/core';
 
 configure({ projectKey: process.env.IDA_PROJECT_KEY!, endpoint: 'https://your-server' });
 

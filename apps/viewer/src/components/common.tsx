@@ -1,4 +1,4 @@
-import type { Finding, Occurrence } from '@ida/core';
+import type { Finding, Occurrence } from '@ida-dev/core';
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { callChain, errorCode, eventKey, fmtRate, RATE_STEP_MS, recipientsOf, throwId, throwIdFor, type ReplayIndex } from '../replay';

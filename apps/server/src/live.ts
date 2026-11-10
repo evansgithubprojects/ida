@@ -1,4 +1,4 @@
-import type { RecorderMessage } from '@ida/core';
+import type { RecorderMessage } from '@ida-dev/core';
 
 /** What a live viewer is sent after a batch is stored. */
 export interface LiveBatch {

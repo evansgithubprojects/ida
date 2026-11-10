@@ -1,4 +1,4 @@
-import { RECORDING_VERSION, type Recording } from '@ida/core';
+import { RECORDING_VERSION, type Recording } from '@ida-dev/core';
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';

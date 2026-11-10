@@ -1,5 +1,5 @@
 {
-  "name": "@ida/viewer",
+  "name": "@ida-dev/viewer",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -8,7 +8,7 @@
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
-    "@ida/core": "*",
+    "@ida-dev/core": "*",
     "@supabase/supabase-js": "^2.118.0",
     "@xyflow/react": "^12.3.0",
     "react": "^19.0.0",

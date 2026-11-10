@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { exportJWK, generateKeyPair, SignJWT, type CryptoKey } from 'jose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { connectRecorder, type IngestBatch, type Recording } from '@ida/core';
+import { connectRecorder, type IngestBatch, type Recording } from '@ida-dev/core';
 import { resetRecorders } from '../../../packages/core/src/registry';
 import { memoryStore } from '../../../packages/cloud/src/spool';
 import { createUploader } from '../../../packages/cloud/src/uploader';

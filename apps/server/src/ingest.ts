@@ -1,4 +1,4 @@
-import type { IngestBatch, Occurrence, RecorderMessage } from '@ida/core';
+import type { IngestBatch, Occurrence, RecorderMessage } from '@ida-dev/core';
 import type { Db } from './db';
 
 const KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;

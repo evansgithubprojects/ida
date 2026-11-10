@@ -1,5 +1,5 @@
 {
-  "name": "@ida/demo",
+  "name": "@ida-dev/demo",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -8,8 +8,8 @@
     "node": "tsx watch src/node.ts"
   },
   "dependencies": {
-    "@ida/adapter-eventemitter": "*",
-    "@ida/cloud": "*",
-    "@ida/core": "*"
+    "@ida-dev/adapter-eventemitter": "*",
+    "@ida-dev/cloud": "*",
+    "@ida-dev/core": "*"
   }
 }

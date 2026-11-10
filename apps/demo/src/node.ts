@@ -1,7 +1,7 @@
 import type { EventEmitter } from 'node:events';
-import { configure } from '@ida/cloud';
-import { connectRecorder, setDefaultRecorder } from '@ida/core';
-import { enableEventEmitterRecording } from '@ida/adapter-eventemitter';
+import { configure } from '@ida-dev/cloud';
+import { connectRecorder, setDefaultRecorder } from '@ida-dev/core';
+import { enableEventEmitterRecording } from '@ida-dev/adapter-eventemitter';
 import { createAttacks } from './attacks';
 import { createAuth } from './auth';
 import { startDashboard } from './dashboard';
@@ -9,7 +9,7 @@ import { createShop } from './shop';
 
 /**
  * The shop, uploaded to a project. Payments get their own recorder; everything else goes to `shop`.
- *   npm run node -w @ida/demo [-- --outage]   (reads IDA_PROJECT_KEY from apps/demo/.env)
+ *   npm run node -w @ida-dev/demo [-- --outage]   (reads IDA_PROJECT_KEY from apps/demo/.env)
  * The attack simulator is served at http://localhost:5175 (DEMO_PORT): brute force and corrupt-request overload.
  * `--outage` cuts the connection for 8 s out of every 20, to watch the spool and the recovery.
  */

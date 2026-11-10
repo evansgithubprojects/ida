@@ -1,4 +1,4 @@
-import { dispatchAll, enable, recordersFor, type Recorder } from '@ida/core';
+import { dispatchAll, enable, recordersFor, type Recorder } from '@ida-dev/core';
 
 /** Call to restore the original `EventTarget` methods and stop recording. */
 export type Uninstall = () => void;

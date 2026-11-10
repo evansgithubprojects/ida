@@ -1,4 +1,4 @@
-import type { Gap, IngestBatch } from '@ida/core';
+import type { Gap, IngestBatch } from '@ida-dev/core';
 
 /** Where spooled batches are kept. Entries are read back in increasing `id` order. */
 export interface SpoolStore {
