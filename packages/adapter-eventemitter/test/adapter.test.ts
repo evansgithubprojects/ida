@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { connectRecorder, createRecorder, enable, setDefaultRecorder } from '@ida-dev/core';
 import { resetRecorders } from '../../core/src/registry';
 import { enableEventEmitterRecording } from '../src';
@@ -106,7 +106,7 @@ describe('routed by tracking', () => {
   });
 
   it('records nothing for untracked emitters without a default recorder', () => {
-    uninstall = enableEventEmitterRecording();
+    uninstall = enableEventEmitterRecording(undefined, { warnIfNoRecorder: false });
     const payments = connectRecorder('payments');
     const e = new EventEmitter();
     let ran = 0;
@@ -114,6 +114,51 @@ describe('routed by tracking', () => {
     e.emit('x');
     expect(ran).toBe(1);
     expect(payments.export().occurrences).toHaveLength(0);
+  });
+
+  describe('warning when nothing is recording', () => {
+    const warnings = () => (console.warn as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+    beforeEach(() => { vi.spyOn(console, 'warn').mockImplementation(() => {}); });
+    afterEach(() => { vi.restoreAllMocks(); });
+
+    const emitTwice = () => {
+      const e = new EventEmitter();
+      e.on('x', () => {});
+      e.emit('x');
+      e.emit('x');
+    };
+
+    it('says so once when an emit has no recorder to receive it', () => {
+      uninstall = enableEventEmitterRecording();
+      connectRecorder('payments');
+      emitTwice();
+      expect(warnings()).toHaveLength(1);
+      expect(warnings()[0]).toContain('[ida] "x" was emitted but no recorder is receiving it');
+      expect(warnings()[0]).toContain('enable()');
+    });
+
+    it('stays quiet with a default recorder, a tracking recorder, an explicit recorder, or when turned off', () => {
+      uninstall = enableEventEmitterRecording();
+      enable();
+      emitTwice();
+      uninstall();
+      setDefaultRecorder(null);
+
+      uninstall = enableEventEmitterRecording();
+      const bus = new EventEmitter();
+      connectRecorder('payments').track(bus);
+      bus.on('x', () => {});
+      bus.emit('x');
+      uninstall();
+
+      uninstall = enableEventEmitterRecording(createRecorder());
+      emitTwice();
+      uninstall();
+
+      uninstall = enableEventEmitterRecording(undefined, { warnIfNoRecorder: false });
+      emitTwice();
+      expect(warnings()).toHaveLength(0);
+    });
   });
 
   it('runs listeners once when two recorders track the same emitter', () => {

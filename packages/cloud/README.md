@@ -12,12 +12,18 @@ Create a project in the web app and make an ingest key, then call `configure` on
 
 ```ts
 import { configure } from '@ida-dev/cloud';
-import { connectRecorder } from '@ida-dev/core';
+import { connectRecorder, enable } from '@ida-dev/core';
 
 configure({ projectKey: process.env.IDA_PROJECT_KEY!, endpoint: 'https://your-server' });
 
+enable();                                     // the default recorder, for everything not claimed by a keyed one
 const payments = connectRecorder('payments'); // anywhere in your app
+payments.track(paymentsBus);                  // an adapter records this emitter here instead
 ```
+
+`configure` only uploads recorders; an adapter still has to be installed (`enableEventEmitterRecording()` or
+`enableEventTargetRecording()`), and an emitter nothing records isn't uploaded. The adapters warn once when an emit has
+no recorder to go to.
 
 Every recorder made with `connectRecorder()` or `enable()` is uploaded: those that exist already (including what they recorded before `configure`) and those created later. Each run of your app becomes one recording of each recorder.
 

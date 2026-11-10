@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { createRecorder } from '@ida-dev/core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createRecorder, enable, setDefaultRecorder } from '@ida-dev/core';
 import { enableEventTargetRecording } from '../src';
 
 let uninstall: (() => void) | undefined;
@@ -90,5 +90,44 @@ describe('dom adapter', () => {
     expect(rec.export().occurrences[0]!.handlerResults.map((h) => !!h.error)).toEqual([true, false]);
     un();
     expect(EventTarget.prototype.addEventListener).toBe(original);
+  });
+});
+
+describe('warning when nothing is recording', () => {
+  const warnings = () => (console.warn as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+  beforeEach(() => { vi.spyOn(console, 'warn').mockImplementation(() => {}); });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    setDefaultRecorder(null);
+  });
+
+  const dispatchTwice = () => {
+    const el = document.createElement('div');
+    el.addEventListener('ping', () => {});
+    el.dispatchEvent(new CustomEvent('ping'));
+    el.dispatchEvent(new CustomEvent('ping'));
+  };
+
+  it('says so once when an event has no recorder to receive it', () => {
+    uninstall = enableEventTargetRecording();
+    dispatchTwice();
+    expect(warnings()).toHaveLength(1);
+    expect(warnings()[0]).toContain('[ida] "ping" was dispatched but no recorder is receiving it');
+  });
+
+  it('stays quiet with a default recorder, an explicit recorder, or when turned off', () => {
+    uninstall = enableEventTargetRecording();
+    enable();
+    dispatchTwice();
+    uninstall();
+    setDefaultRecorder(null);
+
+    uninstall = enableEventTargetRecording(createRecorder());
+    dispatchTwice();
+    uninstall();
+
+    uninstall = enableEventTargetRecording(undefined, { warnIfNoRecorder: false });
+    dispatchTwice();
+    expect(warnings()).toHaveLength(0);
   });
 });

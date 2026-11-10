@@ -37,13 +37,16 @@ Create a project in the web app, make an ingest key, and add:
 
 ```ts
 import { configure } from '@ida-dev/cloud';
-import { connectRecorder } from '@ida-dev/core';
+import { connectRecorder, enable } from '@ida-dev/core';
 import { enableEventEmitterRecording } from '@ida-dev/adapter-eventemitter';
 
 configure({ projectKey: process.env.IDA_PROJECT_KEY!, endpoint: 'https://your-server' });
+enable();                                       // the default recorder: catches every emitter nothing else claims
 enableEventEmitterRecording();
 connectRecorder('payments').track(paymentsBus); // anywhere: same key, same recorder
 ```
+
+Without `enable()`, only emitters that a recorder `track()`s are recorded. The adapter prints one console warning the first time an emit has nowhere to go (turn it off with `{ warnIfNoRecorder: false }`).
 
 Each recorder appears under the project with one recording per run of your app, and can be watched live. On a replay screen, **Recordings** lists them, and each row has a **View** button that opens it. If the server can't be reached, batches are kept on disk (Node) or in IndexedDB (browser), the console says so, and they are uploaded in order once the connection is back. The viewer marks events that arrived late and gaps where data was lost.
 

@@ -1,4 +1,4 @@
-import { dispatchAll, enable, recordersFor, type Recorder } from '@ida-dev/core';
+import { dispatchAll, enable, getDefaultRecorder, recordersFor, type Recorder } from '@ida-dev/core';
 
 /** Call to restore the original `EventTarget` methods and stop recording. */
 export type Uninstall = () => void;
@@ -17,6 +17,13 @@ export interface EventTargetAdapterOptions {
    * { label: (t) => (t === document ? 'Page' : undefined) }
    */
   label?: (target: EventTarget) => string | undefined;
+  /**
+   * Print one console warning the first time an event is dispatched but no recorder is there to receive it: no default
+   * recorder (`enable()`) and no recorder that `track()`s the target. Without it those events are dropped silently.
+   * Ignored when you pass a recorder. Turn it off if leaving some targets unrecorded is on purpose.
+   * @default true
+   */
+  warnIfNoRecorder?: boolean;
 }
 
 type Listener = EventListenerOrEventListenerObject;
@@ -62,12 +69,26 @@ export function enableEventTargetRecording(recorder?: Recorder, options: EventTa
   const targets = recorder ? () => (recorder.recording ? [recorder] : []) : recordersFor;
   const captureOf = (o?: boolean | AddEventListenerOptions) => (typeof o === 'boolean' ? o : !!o?.capture);
 
+  let warned = false;
+  /** An event is going nowhere because nothing is recording: say so once instead of staying silent. */
+  const warnUnrecorded = (type: string) => {
+    if (warned || recorder || options.warnIfNoRecorder === false || getDefaultRecorder()) return;
+    warned = true;
+    console.warn(
+      `[ida] "${type}" was dispatched but no recorder is receiving it, so it isn't recorded (and neither are other untracked targets). ` +
+      'Call enable() before your events start, or connectRecorder(key).track(target) to record a target on its own recorder. ' +
+      'Pass { warnIfNoRecorder: false } to enableEventTargetRecording() to silence this.',
+    );
+  };
+
   const handlersFor = (t: EventTarget, type: string): Listener[] => registered.get(t)?.get(type) ?? [];
 
   /** Runs `fn` inside an occurrence for `event` on `target`, reusing one already open for this Event. */
   function record(target: EventTarget, event: Event, run: () => boolean): boolean {
+    const recorders = targets(target);
+    if (!recorders.length) warnUnrecorded(event.type);
     return dispatchAll(
-      targets(target),
+      recorders,
       {
         emitter: target, label: options.label?.(target) ?? describeTarget(target), eventName: event.type,
         handlers: handlersFor(target, event.type).map((l) => (typeof l === 'function' ? l : (l.handleEvent as Function))),
@@ -129,7 +150,11 @@ export function enableEventTargetRecording(recorder?: Recorder, options: EventTa
   } as typeof proto.removeEventListener;
 
   proto.dispatchEvent = function (this: EventTarget, event: Event) {
-    if (!tracked(this) || open.has(event) || !targets(this).length) return dispatchEvent.call(this, event);
+    if (!tracked(this) || open.has(event)) return dispatchEvent.call(this, event);
+    if (!targets(this).length) {
+      warnUnrecorded(event.type);
+      return dispatchEvent.call(this, event);
+    }
     return record(this, event, () => dispatchEvent.call(this, event));
   };
 

@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { Server as NetServer } from 'node:net';
 import { Stream } from 'node:stream';
-import { dispatchAll, enable, isTracked, recordersFor, type Recorder } from '@ida-dev/core';
+import { dispatchAll, enable, getDefaultRecorder, isTracked, recordersFor, type Recorder } from '@ida-dev/core';
 import { installOriginTracking } from './origin';
 
 /** Call to restore the original `EventEmitter.prototype.emit` and stop recording. */
@@ -32,6 +32,13 @@ export interface EventEmitterAdapterOptions {
    * { isAppFile: (file) => !file.includes('node_modules') || file.includes('node_modules/@acme/') }
    */
   isAppFile?: (file: string) => boolean;
+  /**
+   * Print one console warning the first time an emit would be recorded but no recorder is there to receive it: no
+   * default recorder (`enable()`) and no recorder that `track()`s the emitter. Without it those emits are dropped silently.
+   * Ignored when you pass a recorder. Turn it off if leaving some emitters unrecorded is on purpose.
+   * @default true
+   */
+  warnIfNoRecorder?: boolean;
 }
 
 // Emitters Node creates for its own plumbing (fs handles, worker threads, child processes, ...).
@@ -84,10 +91,24 @@ export function enableEventEmitterRecording(recorder?: Recorder, options: EventE
     return origin.hasAppListener(raw.map((l) => l.listener ?? l));
   };
 
+  let warned = false;
+  /** An emit the app cares about is going nowhere because nothing is recording: say so once instead of staying silent. */
+  const warnUnrecorded = (name: string | symbol) => {
+    if (warned || recorder || options.warnIfNoRecorder === false || getDefaultRecorder()) return;
+    warned = true;
+    console.warn(
+      `[ida] "${String(name)}" was emitted but no recorder is receiving it, so it isn't recorded (and neither are other untracked emitters). ` +
+      'Call enable() before your events start, or connectRecorder(key).track(emitter) to record an emitter on its own recorder. ' +
+      'Pass { warnIfNoRecorder: false } to enableEventEmitterRecording() to silence this.',
+    );
+  };
+
   const patchedEmit = function patchedEmit(this: EventEmitter, name: string | symbol, ...args: unknown[]): boolean {
     if (!options.includeInternals && isInternal(this)) return original.call(this, name, ...args);
     const raw = this.rawListeners(name) as Array<Function & { listener?: Function }>;
-    const recorders = wanted(this, raw) ? targets(this) : [];
+    const isWanted = wanted(this, raw);
+    const recorders = isWanted ? targets(this) : [];
+    if (isWanted && !recorders.length) warnUnrecorded(name);
     if (!recorders.length) return original.call(this, name, ...args);
     const info = {
       emitter: this,

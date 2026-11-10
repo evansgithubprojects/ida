@@ -1,0 +1,15 @@
+{
+  "name": "ida-quickstart",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "A tiny app that uses Ida exactly as a new user would: installed from npm, outside the monorepo's workspaces.",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/index.js"
+  },
+  "dependencies": {
+    "@ida-dev/adapter-eventemitter": "^0.0.0",
+    "@ida-dev/cloud": "^0.0.0",
+    "@ida-dev/core": "^0.0.0"
+  }
+}

@@ -16,10 +16,11 @@ IDA_PROJECT_KEY=${key}
 npm install @ida-dev/core @ida-dev/cloud @ida-dev/adapter-eventemitter
 
 import { configure } from '@ida-dev/cloud';
-import { connectRecorder } from '@ida-dev/core';
+import { connectRecorder, enable } from '@ida-dev/core';
 import { enableEventEmitterRecording } from '@ida-dev/adapter-eventemitter';
 
 configure({ projectKey: process.env.IDA_PROJECT_KEY, endpoint: '${API_URL}' });
+enable(); // records every emitter nothing else claims
 enableEventEmitterRecording();
 
 // anywhere in your app
