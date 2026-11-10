@@ -13,7 +13,8 @@
     "build": "npm run build:packages && npm run build -w @ida-dev/server && npm run build -w @ida-dev/viewer",
     "start": "npm start -w @ida-dev/server",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/adapter-eventemitter && tsc --noEmit -p packages/adapter-eventtarget && tsc --noEmit -p packages/adapter-kafkajs && tsc --noEmit -p packages/adapter-amqplib && tsc --noEmit -p packages/cloud && tsc --noEmit -p apps/viewer && tsc --noEmit -p apps/demo && tsc --noEmit -p apps/server"
+    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/adapter-eventemitter && tsc --noEmit -p packages/adapter-eventtarget && tsc --noEmit -p packages/adapter-kafkajs && tsc --noEmit -p packages/adapter-amqplib && tsc --noEmit -p packages/cloud && tsc --noEmit -p apps/viewer && tsc --noEmit -p apps/demo && tsc --noEmit -p apps/server",
+    "demo:brokers": "sh examples/brokers/pack.sh && docker compose -f examples/brokers/compose.yaml up --build"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

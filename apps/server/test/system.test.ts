@@ -331,4 +331,15 @@ describe('an occurrence sent again', () => {
     expect(rows[0]!.wall_ts).toBe(T0 + 20);
     expect(rows[0]!.data).toMatchObject({ durationMs: 80, handlerResults: [{ error: { message: 'declined' } }] });
   });
+
+  it('keeps the later copy when both are in one batch', async () => {
+    const { key } = await newProject();
+    const a = randomUUID();
+    const settled = consumer(20).filter((m) => m.type === 'occurrence')
+      .map((m) => m.type === 'occurrence' ? { ...m, occurrence: { ...m.occurrence, durationMs: 80 } } : m);
+    expect(await ingest(key, batch('payments', a, T0, [...consumer(20), ...settled]))).toMatchObject({ status: 200 });
+    const rows = await db.query<{ data: Occurrence }>('select data from occurrences where session_id = $1', [a]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.data).toMatchObject({ durationMs: 80 });
+  });
 });

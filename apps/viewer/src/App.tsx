@@ -4,6 +4,7 @@ import { supabase } from './cloud/supabase';
 import { Logo } from './components/Logo';
 import { OrgSwitcher } from './components/OrgSwitcher';
 import { PendingInvites } from './components/PendingInvites';
+import { Docs } from './pages/Docs';
 import { Home } from './pages/Home';
 import { AcceptInvite } from './pages/AcceptInvite';
 import { Project } from './pages/Project';
@@ -21,6 +22,8 @@ export function App() {
         <Route element={<Shell />}>
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<SignIn />} />
+          <Route path="/docs" element={<Docs />} />
+          <Route path="/docs/:integration" element={<Docs />} />
           <Route path="/projects" element={<RequireAuth><ProjectsRedirect /></RequireAuth>} />
           <Route path="/invites/:token" element={<RequireAuth><AcceptInvite /></RequireAuth>} />
           <Route path="/orgs/new" element={<RequireAuth><NewOrg /></RequireAuth>} />

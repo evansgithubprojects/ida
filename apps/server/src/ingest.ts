@@ -133,6 +133,9 @@ export async function ingest(db: Db, projectId: string, batch: IngestBatch, rece
     await upsert('session_templates', templates);
     await upsert('findings', findings);
     if (occurrences.length) {
+      // One batch can hold an occurrence twice: sent when its emit returned, then again when its async handlers
+      // settled. Keep the later copy; Postgres refuses to update one row twice in a single insert.
+      const latest = [...new Map(occurrences.map((o) => [o.id, o])).values()];
       // Wall time comes from the session's stored start and clock offset, so a batch can't move its own events in time.
       // An occurrence sent again is the same one, complete: its async handlers have settled. Batches arrive in order,
       // so the later copy wins. Its time and `late` mark stay as first stored.
@@ -140,9 +143,9 @@ export async function ingest(db: Db, projectId: string, batch: IngestBatch, rece
         `insert into occurrences (session_id, id, ts, data, late, project_id, wall_ts)
          select $1, x->>'id', (x->>'ts')::float8, x, $3, $4, $5::float8 + $6::float8 + (x->>'ts')::float8 from jsonb_array_elements($2::jsonb) as t(x)
          on conflict (session_id, id) do update set data = excluded.data`,
-        [sid, JSON.stringify(occurrences), !!batch.spooled, projectId, session!.started_at, offset],
+        [sid, JSON.stringify(latest), !!batch.spooled, projectId, session!.started_at, offset],
       );
-      const links = occurrences.flatMap((o) => {
+      const links = latest.flatMap((o) => {
         const p = remoteParentOf(o);
         return p ? [{ child: o.id, parentSession: p.sessionId, parent: p.occurrenceId }] : [];
       });

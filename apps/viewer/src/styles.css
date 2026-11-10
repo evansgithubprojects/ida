@@ -417,7 +417,8 @@ a.button.primary:hover { background: var(--lg-green-dark1); box-shadow: 0 0 0 3p
 .wizard-screen { flex: 0 0 100%; min-width: 0; }
 .wizard-screen[inert] { visibility: hidden; }
 .wizard-screen:focus-visible, .wizard-screen h3:focus { outline: none; }
-.lang-select { display: flex; flex-direction: row; align-items: center; gap: 10px; margin: 0 0 10px; font-weight: 600; font-size: 13px; }
+.lang-select { display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 0 0 10px; font-weight: 600; font-size: 13px; }
+.lang-select .pick { display: flex; align-items: center; gap: 10px; }
 .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgb(255 255 255 / .35); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; }
 button.primary[aria-busy='true'] { min-width: 96px; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -539,3 +540,21 @@ a.cta:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 }
 
 .toolbar a.login-btn { padding: 5px 14px; color: #fff; border-bottom: 1px solid var(--border-strong); }
+
+/* Language tabs over a snippet. */
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.tabs button { background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 5px 12px; color: var(--muted); }
+.tabs button:hover { color: var(--text); }
+.tabs button.current { background: var(--panel); border-color: var(--border); color: var(--text); }
+
+/* Integration cards and docs pages. */
+a.feature.integration { display: block; color: inherit; text-decoration: none; transition: border-color .15s; }
+a.feature.integration:hover { border-color: var(--border-strong); text-decoration: none; }
+a.feature.integration h4 { color: var(--text); }
+.feature.integration p.muted { margin-top: 10px; font-size: 12.5px; }
+.docs-nav { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-bottom: 24px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.page .docs-nav a { color: var(--muted); }
+.page .docs-nav a.active { color: var(--text); font-weight: 600; }
+.docs .lede { max-width: none; margin-bottom: 12px; }
+.docs h4 { margin: 16px 0 8px; font-size: 14px; }
+.docs ul { line-height: 1.6; padding-left: 20px; }
