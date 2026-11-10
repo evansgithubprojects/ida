@@ -4,6 +4,7 @@ import { supabase } from './cloud/supabase';
 import { Logo } from './components/Logo';
 import { OrgSwitcher } from './components/OrgSwitcher';
 import { PendingInvites } from './components/PendingInvites';
+import { Home } from './pages/Home';
 import { AcceptInvite } from './pages/AcceptInvite';
 import { Project } from './pages/Project';
 import { NewOrg, OrgLayout, OrgMembers, OrgProfile, OrgProjects, OrgSettings, ProjectsRedirect } from './pages/Orgs';
@@ -14,10 +15,10 @@ export function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Navigate to="/projects" replace />} />
         <Route path="/local" element={<Navigate to="/" replace />} />
         {/* Every page with the header shares one shell. */}
         <Route element={<Shell />}>
+          <Route path="/" element={<Home />} />
           <Route path="/login" element={<SignIn />} />
           <Route path="/projects" element={<RequireAuth><ProjectsRedirect /></RequireAuth>} />
           <Route path="/invites/:token" element={<RequireAuth><AcceptInvite /></RequireAuth>} />
@@ -59,6 +60,9 @@ function Shell() {
             <span className="muted">{session.user.email}</span>
             <button onClick={() => void supabase?.auth.signOut()}>Sign out</button>
           </>
+        )}
+        {supabase && session === null && pathname !== '/login' && (
+          <Link className="cta login-btn" to="/login">Log in</Link>
         )}
       </header>
       {supabase && session && !onInvite && <PendingInvites />}
