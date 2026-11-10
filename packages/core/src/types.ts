@@ -1,5 +1,8 @@
-/** Version of the `Recording` format, written to `Recording.version` on export. */
-export const RECORDING_VERSION = 1;
+/**
+ * Version of the `Recording` format, written to `Recording.version` on export.
+ * 2 added broker processes, `meta`, `remoteParent` and `'propagated'` causality; every v1 recording is valid v2.
+ */
+export const RECORDING_VERSION = 2;
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
@@ -14,6 +17,14 @@ export interface Process {
   id: string;
   /** Display name, from `recorder.labelEmitter()` or the adapter's guess. */
   label: string;
+  /**
+   * What the process stands for. Broker processes (`topic`, `exchange`, `queue`) are shared between services: their
+   * ids are deterministic (see `brokerProcessId`), so every service that uses one topic points at the same process.
+   * @default 'emitter'
+   */
+  kind?: 'emitter' | 'topic' | 'exchange' | 'queue';
+  /** Set on broker processes: which broker, and which cluster or vhost when known. */
+  broker?: { type: 'kafka' | 'rabbitmq'; cluster?: string };
 }
 
 /** A node in the web: either a handler, or the emitter itself (root of events fired outside any handler). */
@@ -86,8 +97,21 @@ export interface Occurrence {
   capture: Capture;
   /** The payload, as JSON-safe data. Only present when `capture` is `'full'`. */
   payload?: JsonValue;
-  /** 'inferred' is reserved for async hops once async context tracking lands. */
-  causality: 'sync' | 'inferred';
+  /**
+   * How `parentId` / `remoteParent` was found: `'sync'` from the call stack, `'inferred'` across an async hop,
+   * `'propagated'` from a header carried on a broker message (see `remoteParent`).
+   */
+  causality: 'sync' | 'inferred' | 'propagated';
+  /**
+   * The occurrence that published the message this one consumed, in another session (usually another service).
+   * Read from the `ida-parent` header; the server resolves it. Only links within one project.
+   */
+  remoteParent?: { sessionId: string; occurrenceId: string };
+  /**
+   * Small facts about a broker message (topic, partition, offset, key, exchange, routingKey, queue, group).
+   * Always kept, even when the payload is template-only.
+   */
+  meta?: Record<string, JsonValue>;
   /** Emitted as an `error` event carrying an Error: treated as a taint signal. */
   signalsError?: boolean;
   /** Suspected-corrupt and policy was 'block': no handler was called. */
@@ -195,6 +219,19 @@ export interface IngestBatch {
   seq: number;
   /** Where the recorder runs, e.g. "node 24.1" or a browser user agent. */
   runtime?: string;
+  /** Which SDK sent the batch. */
+  sdk?: { language: 'js' | 'python'; version: string };
+  /**
+   * `recorder.wallTime()` when this request was sent. Lets the server estimate the clock offset from a single
+   * request when no round-trip estimate (`clock`) exists yet. Left out for batches from an earlier run.
+   */
+  sentAt?: number;
+  /**
+   * The SDK's best recent estimate of server clock minus recorder clock, from earlier round trips (see the ingest
+   * response's `receivedAt` / `repliedAt`). `errorMs` is half the round-trip network delay: the true offset is within
+   * that of `offsetMs`. The server puts the session on its own clock with it, so services can be compared.
+   */
+  clock?: { offsetMs: number; errorMs: number };
   /** Sent from the offline spool rather than straight away. */
   spooled?: boolean;
   messages: RecorderMessage[];

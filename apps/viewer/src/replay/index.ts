@@ -1,4 +1,5 @@
-import type { Finding, GraphNode, Occurrence, Recording, Template } from '@ida-dev/core';
+import type { Finding, GraphNode, Occurrence, Process, Recording, Template } from '@ida-dev/core';
+import { buildServiceIndex, type ServiceIndex, type SystemView } from './system';
 import { compareRank, findingRank, throwRank, tierOf, type Rank, type Tier } from './severity';
 export type { Tier } from './severity';
 
@@ -38,6 +39,9 @@ export interface ReplayIndex {
   /** Handlers (and emitters) that deliver to an external system. */
   externalNodes: Set<string>;
   processLabel: Map<string, string>;
+  processes: Map<string, Process>;
+  /** Set for a system view: which service each node and process belongs to, and the links between services. */
+  system: ServiceIndex | null;
   findingsByOcc: Map<string, Finding[]>;
   findingsById: Map<string, Finding>;
   /** Findings traced to a throw, keyed by `throwId`. */
@@ -152,7 +156,8 @@ export function runById(index: ReplayIndex, id: string): Run | null {
 /** A run that threw, or whose payload is suspected corrupt. */
 export const isProblemRun = (index: ReplayIndex, run: Run) => !!run.error || index.findingsByOcc.has(run.item.occ.id);
 
-export function buildIndex(recording: Recording): ReplayIndex {
+/** `system` is the rest of a system view, when `recording` is one. */
+export function buildIndex(recording: Recording, system?: Omit<SystemView, 'recording'> | null): ReplayIndex {
   const templates = new Map(recording.templates.map((t) => [t.id, t]));
   const nodes = new Map(recording.nodes.map((n) => [n.id, n]));
   const findingsByOcc = new Map<string, Finding[]>();
@@ -168,14 +173,19 @@ export function buildIndex(recording: Recording): ReplayIndex {
   }
   const propagations = new Map<string, { occurrenceId: string; handlerId: string }[]>();
   const items: IndexedOccurrence[] = [];
+  const occById = new Map(recording.occurrences.map((o) => [o.id, o]));
   for (const occ of [...recording.occurrences].sort((a, b) => a.ts - b.ts)) {
     const template = templates.get(occ.templateId);
     if (!template) continue;
     // Events nobody listens to dead-end at their own emitter so they still show up.
     const targets = template.handlerIds.length ? template.handlerIds : [template.emitterId];
+    // A message published to one broker node and consumed from another (a RabbitMQ exchange routing it to a queue)
+    // also travelled between the two: draw that route too, or the exchange and the queue look unconnected.
+    const publishedTo = occ.causality === 'propagated' && occ.parentId ? templates.get(occById.get(occ.parentId)?.templateId ?? '')?.emitterId : undefined;
+    const routed = publishedTo && publishedTo !== template.emitterId && nodes.has(publishedTo) ? [{ src: publishedTo, dst: template.emitterId }] : [];
     items.push({
       occ, template,
-      hops: targets.map((dst) => ({ src: occ.sourceNodeId, dst })),
+      hops: [...routed, ...targets.map((dst) => ({ src: occ.sourceNodeId, dst }))],
       throws: occ.handlerResults
         .filter((r) => r.error)
         .map((r) => ({
@@ -207,7 +217,12 @@ export function buildIndex(recording: Recording): ReplayIndex {
   return {
     recording, events, items, byId: new Map(items.map((i) => [i.occ.id, i])), nodes, externalNodes,
     processLabel: new Map(recording.processes.map((p) => [p.id, p.label])),
-    findingsByOcc, findingsById, findingsBySource, propagations, start, end, origin: 0,
+    processes: new Map(recording.processes.map((p) => [p.id, p])),
+    system: system ? buildServiceIndex(system, recording) : null,
+    findingsByOcc, findingsById, findingsBySource, propagations, start, end,
+    // A system view's times count from its window, which can start long before anything happened: count from the
+    // first event instead. It is a fixed recording, so `start` never moves under it.
+    origin: system ? start : 0,
   };
 }
 

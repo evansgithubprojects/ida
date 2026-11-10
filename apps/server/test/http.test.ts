@@ -252,8 +252,8 @@ describe('ingest over HTTP', () => {
     const { project, key } = await projectWithKey();
     const sessionId = randomUUID();
     const occ = { type: 'occurrence', occurrence: { id: 'e1', templateId: 't1', parentId: null, sourceNodeId: 'n1', ts: 5, durationMs: 0, handlerResults: [], capture: 'template', causality: 'sync' }, template: { id: 't1' }, nodes: [], processes: [] } as never;
-    expect((await call('POST', '/v1/ingest', key, batch(sessionId, 0, { messages: [occ] }))).body).toEqual({ ok: true, duplicate: false });
-    expect((await call('POST', '/v1/ingest', key, batch(sessionId, 0, { messages: [occ], spooled: true }))).body).toEqual({ ok: true, duplicate: true });
+    expect((await call('POST', '/v1/ingest', key, batch(sessionId, 0, { messages: [occ] }))).body).toMatchObject({ ok: true, duplicate: false });
+    expect((await call('POST', '/v1/ingest', key, batch(sessionId, 0, { messages: [occ], spooled: true }))).body).toMatchObject({ ok: true, duplicate: true });
     const [s] = (await call('GET', `/v1/projects/${project.id}/recorders/payments/sessions`, alice)).body;
     expect(s).toMatchObject({ occurrences: 1, late: 0 });
   });
@@ -355,7 +355,7 @@ describe('restarts', () => {
     base = await startServer();
     expect((server as ChildProcess & { log: () => string }).log()).not.toContain('applied migrations');
     expect((await call('GET', `/v1/projects/${project.id}`, alice)).body.name).toBe('Survives restart');
-    expect((await call('POST', '/v1/ingest', key, batch(sessionId, 0))).body).toEqual({ ok: true, duplicate: true });
-    expect((await call('POST', '/v1/ingest', key, batch(sessionId, 1))).body).toEqual({ ok: true, duplicate: false });
+    expect((await call('POST', '/v1/ingest', key, batch(sessionId, 0))).body).toMatchObject({ ok: true, duplicate: true });
+    expect((await call('POST', '/v1/ingest', key, batch(sessionId, 1))).body).toMatchObject({ ok: true, duplicate: false });
   }, 60_000);
 });

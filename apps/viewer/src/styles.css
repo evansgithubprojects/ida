@@ -162,6 +162,14 @@ code, pre { font-family: var(--mono); font-size: 12px; }
 /* Dimmed with colour, not opacity: pathways run a little under their cards and must not show through. */
 .node-card.kind-stub { border-style: dotted; background: color-mix(in srgb, var(--panel) 70%, var(--bg)); }
 .node-card.kind-stub .node-title, .node-card.kind-stub .node-detail { opacity: .75; }
+/* System view: a service is the outermost card; brokers are shared between services and drawn by kind. */
+.node-card.kind-service { border-width: 2px; border-color: var(--border-strong); background: color-mix(in srgb, var(--lg-blue-light1) 12%, var(--panel)); }
+.node-card.broker { background: color-mix(in srgb, var(--lg-yellow-dark3) 55%, var(--panel)); border-color: var(--lg-yellow-dark2); }
+.node-card.broker-topic { border-radius: 999px; padding-left: 18px; padding-right: 18px; }
+.node-card.broker-exchange { border-style: double; border-width: 3px; border-radius: 4px; }
+.node-card.broker-queue { border-radius: 4px 14px 14px 4px; box-shadow: 3px 3px 0 -1px var(--panel), 3px 3px 0 0 var(--lg-yellow-dark2); }
+.node-card.broker.kind-stub { opacity: .8; }
+.broker-kind { font-size: 9px; letter-spacing: .06em; text-transform: uppercase; color: var(--lg-yellow-base); margin-right: 6px; vertical-align: 1px; }
 .node-card.selected { outline: 2px solid var(--link); outline-offset: 2px; }
 .node-card.has-thrown { border-color: var(--error); box-shadow: inset 0 0 0 1px var(--error); }
 .node-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

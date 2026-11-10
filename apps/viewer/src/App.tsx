@@ -9,6 +9,7 @@ import { AcceptInvite } from './pages/AcceptInvite';
 import { Project } from './pages/Project';
 import { NewOrg, OrgLayout, OrgMembers, OrgProfile, OrgProjects, OrgSettings, ProjectsRedirect } from './pages/Orgs';
 import { Session } from './pages/Session';
+import { SystemPage } from './pages/System';
 import { SignIn } from './pages/SignIn';
 
 export function App() {
@@ -39,6 +40,7 @@ export function App() {
         {/* The replay screens fill the window, so they bring their own header. */}
         <Route path="/projects/:projectId/recorders/:recorderKey/live" element={<RequireAuth><Session live /></RequireAuth>} />
         <Route path="/projects/:projectId/recorders/:recorderKey/sessions/:sessionId" element={<RequireAuth><Session /></RequireAuth>} />
+        <Route path="/projects/:projectId/system" element={<RequireAuth><SystemPage /></RequireAuth>} />
       </Routes>
     </BrowserRouter>
   );

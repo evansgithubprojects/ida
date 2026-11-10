@@ -17,12 +17,15 @@ export { analyze, SuspectedCorruptionError } from './corruption';
 // Customization: template grouping and causality tracking
 export { payloadShape, defaultTemplateKey } from './templates';
 export type { TemplateKeyFn, TemplateParts } from './templates';
-export { SyncStackContext } from './causality';
-export type { CausalityContext } from './causality';
+export { AsyncStorageContext, defaultContext, SyncStackContext } from './causality';
+export type { AsyncStorage, CausalityContext } from './causality';
 
 // For adapter authors
-export type { DispatchInfo, Frame, Invoke } from './recorder';
+export type { DispatchInfo, Frame, Invoke, Recorded } from './recorder';
+export type { BrokerRef } from './ids';
 export { dispatchAll, isTracked, recordersFor } from './routing';
+export { PARENT_HEADER, brokerProcessId, formatParentHeader, parseParentHeader } from './propagation';
+export type { BrokerKind, RemoteParent } from './propagation';
 
 /** The key `enable()` uses for the shared recorder. */
 export const DEFAULT_RECORDER_KEY = 'default';

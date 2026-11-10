@@ -17,6 +17,7 @@ import { inviteRoutes } from './invites';
 import type { Mailer } from './mail';
 import { orgRoutes } from './orgs';
 import { MAX_RECORDING_OCCURRENCES, sessionRecording, sessionRecordingWindow } from './recordings';
+import { systemView } from './system';
 
 export interface AppOptions {
   db: Db;
@@ -52,6 +53,11 @@ type Env = { Variables: { user: User } };
 
 /** A recorder counts as live when it sent something this recently. */
 const LIVE_MS = 30_000;
+/** The system view's window when none is given, and the longest one allowed. */
+const SYSTEM_WINDOW_MS = 5 * 60_000;
+const SYSTEM_MAX_WINDOW_MS = 24 * 60 * 60_000;
+/** Most occurrences one system view returns; matches the SDK's default `maxEvents`. */
+const SYSTEM_MAX_OCCURRENCES = 50_000;
 
 export function createApp(opts: AppOptions) {
   const { db, verifyUser, streamSecret } = opts;
@@ -103,6 +109,8 @@ export function createApp(opts: AppOptions) {
     },
     bodyLimit({ maxSize: maxBatchBytes, onError: tooLarge }), // bodies without a Content-Length
     async (c) => {
+      // Taken first, for the SDK's clock estimate (see `clock` on IngestBatch).
+      const receivedAt = now();
       const ip = clientIp(c);
       if (failures.over(ip)) return tooMany(c);
       const presented = parseIngestKey(bearer(c) ?? '');
@@ -117,11 +125,11 @@ export function createApp(opts: AppOptions) {
       const batch = parseBatch(await c.req.json().catch(() => null));
       if (typeof batch === 'string') return c.json({ error: batch }, 400);
       try {
-        const { recorderId, stored } = await ingest(db, key.project_id, batch);
+        const { recorderId, stored } = await ingest(db, key.project_id, batch, receivedAt);
         void db.query('update project_keys set last_used_at = now() where id = $1', [key.id]);
         await db.query('insert into key_recorders (key_id, recorder_id) values ($1, $2) on conflict do nothing', [key.id, recorderId]);
         if (stored) hub.publish(recorderId, { sessionId: batch.sessionId, messages: batch.messages });
-        return c.json({ ok: true, duplicate: !stored });
+        return c.json({ ok: true, duplicate: !stored, receivedAt, repliedAt: now() });
       } catch (err) {
         if (err instanceof SessionConflict) return c.json({ error: err.message }, 409);
         throw err;
@@ -392,6 +400,23 @@ export function createApp(opts: AppOptions) {
     const r = await ownRecorder(c);
     if (r instanceof Response) return r;
     return c.json({ token: signStreamToken(streamSecret, { recorderId: r.id, projectId: c.req.param('projectId'), userId: c.get('user').id }, 30_000, now()) });
+  });
+
+  // Every service's events in one wall-clock window, linked across services. `from` / `to` are epoch ms.
+  app.get('/v1/projects/:projectId/system', async (c) => {
+    const g = await guard(c, 'viewer');
+    if (g instanceof Response) return g;
+    const num = (name: string) => {
+      const v = c.req.query(name);
+      return v === undefined ? undefined : /^\d+(\.\d+)?$/.test(v) ? Number(v) : NaN;
+    };
+    const to = num('to') ?? now();
+    const from = num('from') ?? to - SYSTEM_WINDOW_MS;
+    const limit = num('limit') ?? SYSTEM_MAX_OCCURRENCES;
+    if (![from, to, limit].every(Number.isFinite) || from > to) return c.json({ error: 'from and to must be epoch milliseconds, from <= to' }, 400);
+    if (to - from > SYSTEM_MAX_WINDOW_MS) return c.json({ error: 'the window can be at most 24 hours' }, 400);
+    if (!Number.isInteger(limit) || limit < 1 || limit > SYSTEM_MAX_OCCURRENCES) return c.json({ error: `limit must be 1-${SYSTEM_MAX_OCCURRENCES}` }, 400);
+    return c.json(await systemView(db, g.id, from, to, limit));
   });
 
   app.get('/v1/sessions/:sessionId/recording', async (c) => {

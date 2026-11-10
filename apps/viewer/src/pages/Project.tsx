@@ -45,6 +45,7 @@ export function Project() {
         <h2>{project.data.name}</h2>
         <div className="page-actions">
           {manageKeys && <button className="link" onClick={() => setConnect('setup')}>Connect an app</button>}
+          {!!recorders.data?.length && <Link className="button" to={`/projects/${projectId}/system`} title="Every service together, linked through Kafka and RabbitMQ">System view</Link>}
           {openKey && <Link className="button primary" to={`/projects/${projectId}/recorders/${encodeURIComponent(openKey)}/live`} title={`Opens ${openKey}`}>Open viewer</Link>}
         </div>
       </div>

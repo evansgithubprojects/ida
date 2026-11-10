@@ -78,7 +78,7 @@ describe('ingest', () => {
     const { project, key } = await newProject();
     const { messages, startedAt } = recorded();
     const sessionId = randomUUID();
-    expect((await ingest(key, { recorderKey: 'payments', sessionId, startedAt, seq: 0, messages, runtime: 'node' })).body).toEqual({ ok: true, duplicate: false });
+    expect((await ingest(key, { recorderKey: 'payments', sessionId, startedAt, seq: 0, messages, runtime: 'node' })).body).toMatchObject({ ok: true, duplicate: false });
 
     const recorders = (await call('GET', `/v1/projects/${project.id}/recorders`, as('user-a'))).body;
     expect(recorders).toMatchObject([{ key: 'payments', sessions: 1, live: true, processes: expect.any(Array) }]);
@@ -102,7 +102,7 @@ describe('ingest', () => {
     const { messages, startedAt } = recorded();
     const batch = { recorderKey: 'r', sessionId: randomUUID(), startedAt, seq: 3, messages };
     await ingest(key, batch);
-    expect((await ingest(key, { ...batch, spooled: true })).body).toEqual({ ok: true, duplicate: true });
+    expect((await ingest(key, { ...batch, spooled: true })).body).toMatchObject({ ok: true, duplicate: true });
     const rows = await db.query<{ n: number }>('select count(*)::int as n from occurrences where session_id = $1', [batch.sessionId]);
     expect(rows[0]?.n).toBe(2);
   });

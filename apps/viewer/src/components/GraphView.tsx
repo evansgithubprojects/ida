@@ -5,7 +5,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { accumulate, layoutBounds, layoutSeen, NODE_H, NODE_W, type Positions, type Seen } from '../graph/layout';
-import { processNodeId, type Level, type ModelEdge, type ModelNode } from '../graph/model';
+import { levelDepth, levelInto, parentLevel, processNodeId, sameLevel, serviceNodeId, serviceOfProcess, type Level, type ModelEdge, type ModelNode } from '../graph/model';
 import {
   centreViewport, fitViewport, MAX_ZOOM, sameViewport, saveViewport, takeSavedViewport, MIN_ZOOM, motion, rectOnScreen, toKeyframes, ZOOM_MS, zoomFrames, type Rect, type Viewport,
 } from '../graph/zoom';
@@ -53,11 +53,14 @@ const NodeCard = memo(function NodeCard({ id }: NodeProps<RouteNode>) {
   const rateOut = rates?.out.get(id);
   const flashing = active.flashingNodes.has(id);
   const thrown = active.thrownNodes.get(id) ?? 0;
-  const cls = ['node-card', `kind-${model.kind}`, flashing && 'flash', thrown > 0 && 'has-thrown', model.idle && 'idle', selectedId === id && 'selected', focusedId === id && 'focused'];
+  const cls = ['node-card', `kind-${model.kind}`, model.broker && `broker broker-${model.broker}`, flashing && 'flash', thrown > 0 && 'has-thrown', model.idle && 'idle', selectedId === id && 'selected', focusedId === id && 'focused'];
   return (
     <div className={cls.filter(Boolean).join(' ')} style={{ width: NODE_W, height: NODE_H }}>
       <Handle type="target" position={Position.Left} isConnectable={false} style={hiddenHandle} />
-      <div className="node-title" title={model.label}>{model.kind === 'process' || model.kind === 'stub' ? model.label : <NodeRef id={model.id} label={model.label} qualify={false} />}</div>
+      <div className="node-title" title={model.broker ? `${model.broker}: ${model.label}` : model.label}>
+        {model.broker && <span className="broker-kind">{model.broker}</span>}
+        {model.kind === 'process' || model.kind === 'stub' || model.kind === 'service' ? model.label : <NodeRef id={model.id} label={model.label} qualify={false} />}
+      </div>
       <div className={`node-detail ${rateIn?.spike || rateOut?.spike ? 'spike' : ''}`} title={rateIn?.spike || rateOut?.spike ? 'Spike, held until the next update' : undefined}>
         {model.kind === 'stub' ? model.detail : `${fmtRate(rateIn?.value ?? 0)}/s in · ${fmtRate(rateOut?.value ?? 0)}/s out`}
       </div>
@@ -143,10 +146,12 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
       <BaseEdge
         id={id}
         path={path}
-        className={focusedEdgeId === id ? 'edge-focused' : undefined}
+        className={[focusedEdgeId === id && 'edge-focused', edge.propagated && 'edge-propagated'].filter(Boolean).join(' ') || undefined}
         style={{
           stroke: flagged ? 'var(--warn-dim)' : 'var(--edge)', strokeWidth: width, opacity: 0.75,
-          strokeDasharray: flagged ? '7 5' : undefined,
+          // Dotted: these events reached here in a message from another service (an ida-parent header).
+          strokeDasharray: flagged ? '7 5' : edge.propagated ? '1 5' : undefined,
+          strokeLinecap: edge.propagated && !flagged ? 'round' : undefined,
         }}
       />
       {flights.map((progress, i) => (
@@ -171,7 +176,10 @@ const nodeTypes = { route: NodeCard, ring: RingNodeView };
 const edgeTypes = { route: RouteEdgeView };
 
 const boxOf = (p: { x: number; y: number }): Rect => ({ x: p.x, y: p.y, width: NODE_W, height: NODE_H });
-const sameLevel = (a: Level, b: Level) => a.kind === b.kind && (a.kind === 'process' || (b.kind === 'handlers' && a.processId === b.processId));
+
+/** The card a level is entered through, in the level above it. */
+const entryCard = (level: Level) =>
+  level.kind === 'handlers' ? processNodeId(level.processId) : level.kind === 'process' && level.service ? serviceNodeId(level.service) : null;
 
 /** What a transition needs to know about a mounted layer: where its nodes are and where the camera is. */
 interface Geometry {
@@ -331,7 +339,8 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
         onNodeDoubleClick={(_, n) => {
           const m = model.nodes.find((x) => x.id === n.id);
           if (!m) return;
-          if (m.kind === 'process' || m.kind === 'stub') setLevel({ kind: 'handlers', processId: m.processId });
+          const into = levelInto(m);
+          if (into) setLevel(into);
         }}
       >
         <Controls showInteractive={false} />
@@ -348,16 +357,23 @@ function ZoomCrumbs() {
   const index = useStore((s) => s.index);
   const level = useStore((s) => s.level);
   const setLevel = useStore((s) => s.setLevel);
-  const processLabel = level.kind === 'handlers' ? index?.processLabel.get(level.processId) : undefined;
+  // Every level from the top down to this one.
+  const path: Level[] = [];
+  for (let l: Level | null = level; l; l = parentLevel(index, l)) path.unshift(l);
+  const name = (l: Level) => {
+    if (l.kind === 'services') return 'Services';
+    if (l.kind === 'process') return l.service ?? 'Processes';
+    const service = serviceOfProcess(index, l.processId);
+    return index?.processLabel.get(l.processId) ?? (service ? `${service} process` : l.processId);
+  };
   return (
     <nav className="crumbs zoom-crumbs" aria-label="Zoom level">
-      <button className={level.kind === 'process' ? 'current' : ''} onClick={() => setLevel({ kind: 'process' })}>Processes</button>
-      {processLabel && (
-        <>
-          <span>›</span>
-          <button className="current">{processLabel}</button>
-        </>
-      )}
+      {path.map((l, k) => (
+        <span key={k}>
+          {k > 0 && <span>›</span>}
+          <button className={k === path.length - 1 ? 'current' : ''} onClick={() => setLevel(l)}>{name(l)}</button>
+        </span>
+      ))}
     </nav>
   );
 }
@@ -395,7 +411,7 @@ export function GraphView({ actions }: { /** Extra buttons shown left of the set
   }, []);
 
   const { current, outgoing } = layers;
-  const zoomOut = !!outgoing && outgoing.level.kind === 'handlers' && current.level.kind === 'process';
+  const zoomOut = !!outgoing && levelDepth(outgoing.level) > levelDepth(current.level);
 
   useLayoutEffect(() => {
     if (!outgoing) return;
@@ -410,8 +426,7 @@ export function GraphView({ actions }: { /** Extra buttons shown left of the set
     // The parent is the layer holding the card that gets zoomed into: the old one going in, the new one coming out.
     const parent = zoomOut ? current : outgoing;
     const child = zoomOut ? outgoing : current;
-    const focusLevel = child.level;
-    const focusId = focusLevel.kind === 'handlers' ? processNodeId(focusLevel.processId) : null;
+    const focusId = entryCard(child.level);
     const g = geometry.get(parent.key);
     const p = focusId ? g?.positions.get(focusId) : undefined;
 

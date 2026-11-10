@@ -1,7 +1,7 @@
 import type { Finding } from '@ida-dev/core';
 import { memo, useDeferredValue, useMemo, useRef, useState } from 'react';
 import { useModel, useRates } from '../hooks';
-import type { GraphModel } from '../graph/model';
+import { levelInto, serviceOfProcess, type GraphModel, type ModelNode } from '../graph/model';
 import { RATE_HISTORY, activityOf, chainOf, errorCode, throwIdFor, countFired, edgeId, eventKey, eventLabel, inWindow, isProblemRun, notifications, parseRunId, parseThrowId, recipientsOf, runById, throwId, type IndexedOccurrence, type Notification, type ReplayIndex, type Run, type Tier } from '../replay';
 import { TRAIL_MAX, useStore, type LiveStatus, type Selection } from '../store';
 import { Badge, CallChain, ErrorId, CaptureBadge, EventLink, EventRef, FindingBadges, FindingChain, FindingSummary, fmtMs, HandlerLink, InspectLink, Json, NodeRef, RateChart, Section, shortValue } from './common';
@@ -57,11 +57,12 @@ function Crumbs({ index }: { index: ReplayIndex }) {
     return item ? eventLabel(index, item) : t.id;
   };
   const labelNode = (t: NonNullable<Selection>) => {
-    if (t.type === 'node') return model?.nodes.find((n) => n.id === t.id)?.kind === 'process' ? label(t) : <NodeRef id={t.id} label={label(t)} />;
+    if (t.type === 'node') return ['process', 'service', 'stub'].includes(model?.nodes.find((n) => n.id === t.id)?.kind ?? '') ? label(t) : <NodeRef id={t.id} label={label(t)} />;
     if (t.type === 'edge' || t.type === 'throw' || t.type === 'finding' || t.type === 'run') return label(t);
     return <EventRef>{label(t)}</EventRef>;
   };
-  const root = level.kind === 'handlers' ? index.processLabel.get(level.processId) ?? level.processId : 'Processes';
+  const root = level.kind === 'handlers' ? index.processLabel.get(level.processId) ?? level.processId
+    : level.kind === 'services' ? 'Services' : level.service ?? 'Processes';
   return (
     <nav className="inspector-crumbs" aria-label="Inspection trail">
       <button className={selection ? '' : 'current'} onClick={() => select(null)} title="Overview of this level">{root}</button>
@@ -84,7 +85,13 @@ function Overview({ index }: { index: ReplayIndex }) {
   // Inside a process, the overview covers only the traffic that touches that process.
   const items = useMemo(() => {
     const all = inWindow(index, window);
-    if (level.kind !== 'handlers' || !model) return all;
+    if (!model) return all;
+    if (level.kind === 'process' && level.service) {
+      // Inside a service: the traffic it took part in.
+      const own = (id: string) => index.system?.nodeService.get(id) === level.service;
+      return all.filter((i) => i.hops.some((h) => own(h.src) || own(h.dst)));
+    }
+    if (level.kind !== 'handlers') return all;
     const inside = (id: string) => !model.mapNode(id)?.startsWith('p:');
     return all.filter((i) => i.hops.some((h) => inside(h.src) || inside(h.dst)));
   }, [index, window, level, model]);
@@ -96,7 +103,11 @@ function Overview({ index }: { index: ReplayIndex }) {
         <dl className="facts">
           <dt>Events</dt><dd>{items.length} in window ({index.items.length} total)</dd>
         </dl>
-        <p className="hint">Click a node or pathway to inspect it. Double-click a process to zoom in. Click a handler to see its activity.</p>
+        <p className="hint">
+          {level.kind === 'services'
+            ? 'Each card is a service; topics, exchanges and queues sit between the services that use them. Dotted pathways carry messages from one service to another. Double-click a card to zoom in.'
+            : 'Click a node or pathway to inspect it. Double-click a process to zoom in. Click a handler to see its activity.'}
+        </p>
       </Section>
       <NotificationList index={index} title="Notifications" list={list} empty="No throws or suspected corrupt payloads in this window." />
     </>
@@ -210,7 +221,7 @@ function NodeName({ model, id }: { model: GraphModel; id: string }) {
   const select = useStore((s) => s.select);
   const m = model.nodes.find((n) => n.id === id);
   const label = m?.label ?? id;
-  if (m?.kind === 'process' || m?.kind === 'stub') return <InspectLink label={label} onOpen={() => select({ type: 'node', id })}>{label}</InspectLink>;
+  if (m?.kind === 'process' || m?.kind === 'stub' || m?.kind === 'service') return <InspectLink label={label} onOpen={() => select({ type: 'node', id })}>{label}</InspectLink>;
   return <HandlerLink id={id} label={label} />;
 }
 
@@ -291,14 +302,15 @@ function NodeDetail({ index, id }: { index: ReplayIndex; id: string }) {
   }
   return (
     <>
-      <Section title={m.kind === 'process' || m.kind === 'stub' ? m.label : <NodeRef id={m.id} label={m.label} />} aside={<Badge tone="muted">{m.kind}</Badge>}>
+      <Section title={m.kind === 'process' || m.kind === 'stub' || m.kind === 'service' ? m.label : <NodeRef id={m.id} label={m.label} />} aside={<Badge tone="muted">{m.broker ?? (m.service && m.kind === 'stub' ? 'service' : m.kind)}</Badge>}>
         <dl className="facts">
-          <dt>Process</dt><dd>{index.processLabel.get(m.processId)}</dd>
+          {m.processId && <><dt>Process</dt><dd>{index.processLabel.get(m.processId)}</dd></>}
+          <SystemFacts index={index} m={m} />
           <dt>Traffic</dt><dd>{m.detail}</dd>
           <dt>Throws</dt><dd>{threw ? <Badge tone="error">✕ {threw}</Badge> : 'none'}</dd>
           {runs && <><dt>Activity</dt><dd>handled {handled.length} · emitted {runs.length - handled.length} · avg {fmtMs(avg)}</dd></>}
         </dl>
-        {(m.kind === 'process' || m.kind === 'stub') && <button className="primary" onClick={() => setLevel({ kind: 'handlers', processId: m.processId })}>Zoom into process</button>}
+        {levelInto(m) && <button className="primary" onClick={() => setLevel(levelInto(m)!)}>Zoom into {m.service ? 'service' : m.broker ?? 'process'}</button>}
       </Section>
       {m.kind !== 'stub' && <RateSection id={id} kind="node" />}
       <EventList title="Receiving" events={receiving} />
@@ -306,6 +318,107 @@ function NodeDetail({ index, id }: { index: ReplayIndex; id: string }) {
       {runs && <ActivitySection index={index} runs={runs} window={window} />}
     </>
   );
+}
+
+const CAUSALITY: Record<string, string> = {
+  sync: 'sync',
+  inferred: 'inferred (after an await or a timer)',
+  propagated: 'from another service, in a message header',
+};
+
+const META_NAMES: Record<string, string> = {
+  topic: 'Topic', partition: 'Partition', offset: 'Offset', group: 'Consumer group', key: 'Key', exchange: 'Exchange',
+  routingKey: 'Routing key', queue: 'Queue', deliveryTag: 'Delivery tag', redelivered: 'Redelivered', messages: 'Messages',
+  firstOffset: 'First offset', lastOffset: 'Last offset',
+};
+
+/** One broker fact recorded with a message. */
+function MetaFact({ name, value }: { name: string; value: unknown }) {
+  const shown = value === '' && name === 'exchange' ? '(default exchange)' : typeof value === 'string' ? value : JSON.stringify(value);
+  return <><dt>{META_NAMES[name] ?? name}</dt><dd><code>{shown}</code></dd></>;
+}
+
+/**
+ * In a system view, where a consumed message came from and where a published one went. Only a parent in the window
+ * can be jumped to; one outside it, or one that was never recorded, is said so.
+ */
+function CrossService({ index, item }: { index: ReplayIndex; item: IndexedOccurrence }) {
+  const seek = useStore((s) => s.seekToOccurrence);
+  const sys = index.system;
+  const consumers = sys?.consumers.get(item.occ.id) ?? [];
+  if (!sys) return item.occ.remoteParent ? <><dt>From</dt><dd className="muted">another service (open the system view to follow it)</dd></> : null;
+  const link = sys.links.get(item.occ.id);
+  const serviceOf = (occId: string) => {
+    const i = index.byId.get(occId);
+    return i ? sys.nodeService.get(i.occ.sourceNodeId) ?? sys.nodeService.get(i.template.handlerIds[0] ?? '') : undefined;
+  };
+  return (
+    <>
+      {link && (
+        <>
+          <dt>Published by</dt>
+          <dd>
+            {link.status === 'in-view' ? (
+              <button className="link" onClick={() => seek(sys.parentId(link))}>
+                {serviceOf(sys.parentId(link)) ?? 'another service'} · <EventRef>{eventLabel(index, index.byId.get(sys.parentId(link))!)}</EventRef>
+              </button>
+            ) : link.status === 'outside-window'
+              ? <span className="muted">a service, before this window</span>
+              : <span className="muted">a service Ida doesn't record (or another project)</span>}
+            {link.skewMs !== undefined && (
+              <div><Badge tone="warn" title="Consumed before it was published, by the services' clocks: they disagree by at least this much. Times are shown as recorded.">clock skew ≥ {fmtMs(link.skewMs)}</Badge></div>
+            )}
+          </dd>
+        </>
+      )}
+      {consumers.length > 0 && (
+        <>
+          <dt>Consumed by</dt>
+          <dd>
+            <ul className="handler-list">
+              {consumers.map((l) => (
+                <li key={l.occurrenceId}>
+                  <button className="link" onClick={() => seek(l.occurrenceId)}>
+                    {serviceOf(l.occurrenceId) ?? 'a service'} · <EventRef>{eventLabel(index, index.byId.get(l.occurrenceId)!)}</EventRef>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </dd>
+        </>
+      )}
+    </>
+  );
+}
+
+/** In a system view: which service a node is in, or for a service, its runs; for a broker, which broker it is. */
+function SystemFacts({ index, m }: { index: ReplayIndex; m: ModelNode }) {
+  const sys = index.system;
+  if (!sys) return null;
+  const broker = m.broker && index.processes.get(m.processId)?.broker;
+  if (broker) {
+    return <><dt>Broker</dt><dd>{broker.type === 'kafka' ? 'Kafka' : 'RabbitMQ'}{broker.cluster ? ` · ${broker.type === 'kafka' ? 'cluster' : 'vhost'} ${broker.cluster}` : ''}</dd></>;
+  }
+  const service = m.service ? sys.services.get(m.service) : undefined;
+  if (service) {
+    const runtimes = [...new Set(service.sessions.map((s) => [s.sdk && `${s.sdk.language === 'js' ? 'JavaScript' : 'Python'} SDK ${s.sdk.version}`, s.runtime].filter(Boolean).join(' · ')))];
+    return (
+      <>
+        <dt>Runs</dt><dd>{service.sessions.length} in this window{service.sessions.length > 1 && <span className="muted"> (restarts or instances)</span>}</dd>
+        <dt>Runtime</dt><dd>{runtimes.map((r) => <div key={r}>{r || <span className="muted">unknown</span>}</div>)}</dd>
+        {service.sessions.some((s) => s.clockShiftMs) && (
+          <>
+            <dt>Clock</dt>
+            <dd title="Its clock put a consume before the publish it came from, so its events are drawn that much later. The order within the service is unchanged.">
+              drawn {fmtMs(Math.max(...service.sessions.map((s) => s.clockShiftMs ?? 0)))} later, to keep each message after its publish
+            </dd>
+          </>
+        )}
+      </>
+    );
+  }
+  const owner = m.rawId ? sys.nodeService.get(m.rawId) : serviceOfProcess(index, m.processId);
+  return owner ? <><dt>Service</dt><dd>{owner}</dd></> : null;
 }
 
 /** What a handler did over time (handled above the line, emitted below), then its runs. Clean runs are hidden until asked for. */
@@ -587,7 +700,11 @@ function EventFacts({ index, item, chain: showChain = true }: { index: ReplayInd
             ))}
           </ul>
         </dd>
-        <dt>Causality</dt><dd>{item.occ.causality}</dd>
+        <dt>Causality</dt><dd>{CAUSALITY[item.occ.causality] ?? item.occ.causality}</dd>
+        <CrossService index={index} item={item} />
+        {item.occ.meta && Object.entries(item.occ.meta).map(([k, v]) => (
+          <MetaFact key={k} name={k} value={v} />
+        ))}
       </dl>
       {showChain && <div className="chain" aria-label="Causal chain">
         {chain.map((c, k) => (

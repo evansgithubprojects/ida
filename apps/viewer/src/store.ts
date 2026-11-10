@@ -1,8 +1,9 @@
 import type { RecorderMessage, Recording } from '@ida-dev/core';
 import { create } from 'zustand';
-import type { Level } from './graph/model';
+import { topLevel, type Level } from './graph/model';
 import { ZOOM_MS } from './graph/zoom';
 import { buildIndex, capWindow, keepNewest, parseRunId, parseThrowId, windowAround, type ReplayIndex } from './replay';
+import type { SystemView } from './replay/system';
 
 export const SPEEDS = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4];
 /** Wall-clock lengths of the lit fade and the red flash, scaled to recording time by playback speed. */
@@ -94,7 +95,8 @@ interface State {
   mode: 'live' | 'replay';
 
   setMode(mode: 'live' | 'replay'): void;
-  load(recording: Recording, name: string): void;
+  /** `system` is the rest of a system view, when `recording` is one: it opens on the services. */
+  load(recording: Recording, name: string, system?: Omit<SystemView, 'recording'>): void;
   setT(t: number): void;
   togglePlay(): void;
   pause(): void;
@@ -214,10 +216,10 @@ export const useStore = create<State>()((set, get) => {
     return out;
   }
 
-  function applyRecording(streamed: Recording, live: boolean, name?: string) {
+  function applyRecording(streamed: Recording, live: boolean, name?: string, system?: Omit<SystemView, 'recording'>) {
     // A live stream never ends, so only its newest events are kept. A saved recording is loaded whole.
     const recording = live ? keepNewest(streamed) : streamed;
-    const index = buildIndex(recording);
+    const index = buildIndex(recording, system);
     const s = get();
     const keepView = live && s.index !== null;
     const mode: 'live' | 'replay' = keepView ? s.mode : live ? 'live' : 'replay';
@@ -236,7 +238,7 @@ export const useStore = create<State>()((set, get) => {
       t: keepView && !following ? Math.min(Math.max(s.t, kept[0]), kept[1])
         : following && live ? followT(index.end, keepView ? s.t : null) : full[0],
       speed: keepView ? s.speed : pickSpeed(full[1] - full[0]),
-      level: keepView ? s.level : { kind: 'process' },
+      level: keepView ? s.level : topLevel(index),
       selection: keepView ? s.selection : null,
       trail: keepView ? s.trail : [],
       playing: false,
@@ -249,9 +251,9 @@ export const useStore = create<State>()((set, get) => {
     recording: null, index: null, sourceName: '', t: 0, playing: false, speed: 1, window: [0, 0],
     level: { kind: 'process' }, ...loadSettings(), selection: null, trail: [], focus: null, live: 'off', following: true, mode: 'live', liveShift: new Map(),
 
-    load(recording, name) {
+    load(recording, name, system) {
       get().disconnectLive();
-      applyRecording(recording, false, name);
+      applyRecording(recording, false, name, system);
     },
     setMode(mode) {
       const { index, t, live } = get();
