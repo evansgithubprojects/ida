@@ -3,40 +3,21 @@ import { configure } from '@ida-dev/cloud';
 import { connectRecorder, enable } from '@ida-dev/core';
 import { enableEventEmitterRecording } from '@ida-dev/adapter-eventemitter';
 
-// 1. Upload every recorder to your project. Without a key the app still runs and just records locally.
-const projectKey = process.env.IDA_PROJECT_KEY;
-const uploader = projectKey
-  ? configure({ projectKey, endpoint: process.env.IDA_ENDPOINT ?? 'http://localhost:8787' })
-  : null;
-if (!uploader) console.log('[quickstart] No IDA_PROJECT_KEY, so nothing is uploaded. See README.md.');
-
-// 2. Record every EventEmitter the app creates. enable() makes the default recorder that catches everything
-//    not tracked by a keyed one; without it, untracked emitters are silently not recorded.
-enable();
+// Setup, copied from the README's "upload to a project" snippet.
+configure({ projectKey: process.env.IDA_PROJECT_KEY, endpoint: process.env.IDA_ENDPOINT ?? 'http://localhost:8787' });
+if (!process.env.NO_ENABLE) enable();
 enableEventEmitterRecording();
 
-// 3. A small order pipeline: placed -> charged -> shipped. Each emit is caused by the handler before it.
-class Orders extends EventEmitter {}
-class Payments extends EventEmitter {}
-class Shipping extends EventEmitter {}
+// An order pipeline: placed -> charge -> ship.
+const orders = new EventEmitter();
+const paymentsBus = new EventEmitter();
+const shipping = new EventEmitter();
+connectRecorder('payments').track(paymentsBus);
 
-const orders = new Orders();
-const payments = new Payments();
-const shipping = new Shipping();
-
-// Give the payments emitter its own recorder; everything else goes to the default one.
-connectRecorder('payments').track(payments);
-
-orders.on('order:placed', (order) => payments.emit('charge', order));
-payments.on('charge', (order) => {
-  if (order.total > 100) return payments.emit('charge:declined', order);
-  payments.emit('charge:ok', order);
-});
-payments.on('charge:ok', (order) => shipping.emit('ship', order));
-payments.on('charge:declined', (order) => console.log(`[quickstart] order ${order.id} declined`));
-shipping.on('ship', (order) => console.log(`[quickstart] order ${order.id} shipped`));
+orders.on('order:placed', (o) => paymentsBus.emit('charge', o));
+paymentsBus.on('charge', (o) => paymentsBus.emit(o.total > 100 ? 'charge:declined' : 'charge:ok', o));
+paymentsBus.on('charge:ok', (o) => shipping.emit('ship', o));
+shipping.on('ship', (o) => console.log(`order ${o.id} shipped`));
 
 for (let id = 1; id <= 6; id++) orders.emit('order:placed', { id, total: id * 30 });
-
-await uploader?.close(); // flush what's recorded before the process exits
-console.log('[quickstart] done');
+console.log('done');

@@ -1,15 +1,18 @@
 {
   "name": "ida-quickstart",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "description": "A tiny app that uses Ida exactly as a new user would: installed from npm, outside the monorepo's workspaces.",
+  "version": "1.0.0",
+  "description": "Ida installed from npm, the way a new user would.",
+  "main": "index.js",
   "scripts": {
-    "start": "node --env-file-if-exists=.env src/index.js"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node src/index.js"
   },
+  "keywords": [],
+  "type": "module",
+  "private": "true",
   "dependencies": {
-    "@ida-dev/adapter-eventemitter": "^0.0.0",
-    "@ida-dev/cloud": "^0.0.0",
-    "@ida-dev/core": "^0.0.0"
+    "@ida-dev/adapter-eventemitter": "^0.1.0",
+    "@ida-dev/cloud": "^0.1.0",
+    "@ida-dev/core": "^0.1.0"
   }
 }
