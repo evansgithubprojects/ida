@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -21,20 +21,42 @@ export function sameHash(a: string, b: string): boolean {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
+/** What a live-stream token grants: one recorder, to one person, in one project. */
+export interface StreamGrant {
+  recorderId: string;
+  projectId: string;
+  userId: string;
+}
+
+export interface VerifiedStreamToken extends StreamGrant {
+  /** Unique per token, so the server can refuse a second use. */
+  nonce: string;
+  /** Epoch ms. */
+  expires: number;
+}
+
 /**
- * Short-lived tokens for the live stream. `EventSource` can't send an Authorization header, so the web app trades
- * the user's session for one of these and puts it in the stream URL.
+ * Short-lived, single-use tokens for the live stream. `EventSource` can't send an Authorization header, so the web app
+ * trades the user's session for one of these and puts it in the stream URL. The token names the person it was made
+ * for, so the server can keep checking that they still have access while the stream is open.
  */
-export function signStreamToken(secret: string, recorderId: string, ttlMs = 60_000, now = Date.now()): string {
-  const body = `${recorderId}.${now + ttlMs}`;
+export function signStreamToken(secret: string, grant: StreamGrant, ttlMs = 30_000, now = Date.now()): string {
+  const body = Buffer.from(JSON.stringify({ r: grant.recorderId, p: grant.projectId, u: grant.userId, n: randomUUID(), e: now + ttlMs })).toString('base64url');
   return `${body}.${createHmac('sha256', secret).update(body).digest('base64url')}`;
 }
 
-/** The recorder id a stream token grants, or null when it is forged or expired. */
-export function verifyStreamToken(secret: string, token: string, now = Date.now()): string | null {
-  const [recorderId, exp, sig] = token.split('.');
-  if (!recorderId || !exp || !sig || Number(exp) < now) return null;
-  const want = createHmac('sha256', secret).update(`${recorderId}.${exp}`).digest();
+/** The grant a stream token carries, or null when it is forged, malformed or expired. Does not know if it was used. */
+export function verifyStreamToken(secret: string, token: string, now = Date.now()): VerifiedStreamToken | null {
+  const [body, sig, extra] = token.split('.');
+  if (!body || !sig || extra !== undefined) return null;
+  const want = createHmac('sha256', secret).update(body).digest();
   const got = Buffer.from(sig, 'base64url');
-  return got.length === want.length && timingSafeEqual(got, want) ? recorderId : null;
+  if (got.length !== want.length || !timingSafeEqual(got, want)) return null;
+  try {
+    const t = JSON.parse(Buffer.from(body, 'base64url').toString()) as { r?: unknown; p?: unknown; u?: unknown; n?: unknown; e?: unknown };
+    if (typeof t.r !== 'string' || typeof t.p !== 'string' || typeof t.u !== 'string' || typeof t.n !== 'string' || typeof t.e !== 'number') return null;
+    return t.e < now ? null : { recorderId: t.r, projectId: t.p, userId: t.u, nonce: t.n, expires: t.e };
+  } catch {
+    return null;
+  }
 }

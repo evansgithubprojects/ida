@@ -5,6 +5,11 @@ export interface User {
   id: string;
   /** From the token, when the sign-in provider shares it. Invites are matched against it. */
   email?: string;
+  /**
+   * Whether the provider says the person controls that address. Supabase marks it once they follow the confirmation
+   * link (or sign in through a provider that verified it). Invites are only matched to an address that is verified.
+   */
+  emailVerified?: boolean;
   name?: string;
   /** The organization named on the sign-up form (Supabase `user_metadata.org_name`), created on first sign-in. */
   orgName?: string;
@@ -25,12 +30,13 @@ export function supabaseVerifier(supabaseUrl: string): VerifyUser {
     try {
       const { payload } = await jwtVerify(token, jwks, { issuer, audience: 'authenticated' });
       if (!payload.sub) return null;
-      const meta = (payload.user_metadata ?? {}) as { full_name?: unknown; name?: unknown; org_name?: unknown };
+      const meta = (payload.user_metadata ?? {}) as { full_name?: unknown; name?: unknown; org_name?: unknown; email_verified?: unknown };
       const name = [meta.full_name, meta.name].find((n): n is string => typeof n === 'string' && n.length > 0);
       const orgName = typeof meta.org_name === 'string' && meta.org_name.trim() ? meta.org_name : undefined;
       return {
         id: payload.sub,
         ...(typeof payload.email === 'string' && { email: payload.email }),
+        emailVerified: meta.email_verified === true || payload.email_verified === true,
         ...(name && { name }),
         ...(orgName && { orgName }),
       };

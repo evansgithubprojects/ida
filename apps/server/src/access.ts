@@ -14,7 +14,7 @@ export const allows = (have: Access | null, need: Access): boolean => !!have && 
 /**
  * Records who is calling. On someone's very first request it also creates the organization they named when signing
  * up, with them as owner. That happens only once: someone who later leaves every org is asked to create or join one
- * instead of getting it back. Cheap on repeat visits: one insert that does nothing and one update.
+ * instead of getting it back. Cheap on repeat visits: one insert that does nothing, and an update only when needed.
  */
 export async function ensureUser(db: Db, user: User): Promise<void> {
   const email = user.email?.toLowerCase() ?? null;
@@ -25,8 +25,10 @@ export async function ensureUser(db: Db, user: User): Promise<void> {
       [user.id, email, user.name ?? null],
     );
     if (!fresh) {
+      // Only when something changed or the last-seen time is stale, so a busy client isn't one write per request.
       await tx.query(
-        'update users set email = coalesce($2, email), name = coalesce($3, name), last_seen_at = now() where id = $1',
+        `update users set email = coalesce($2, email), name = coalesce($3, name), last_seen_at = now()
+         where id = $1 and (last_seen_at < now() - interval '5 minutes' or email is distinct from coalesce($2, email) or name is distinct from coalesce($3, name))`,
         [user.id, email, user.name ?? null],
       );
       return;

@@ -154,6 +154,51 @@ describe('ingest', () => {
   });
 });
 
+describe('recording windows', () => {
+  async function stored() {
+    const { project, key } = await newProject('user-window');
+    const { messages, startedAt } = recorded();
+    const sessionId = randomUUID();
+    await ingest(key, { recorderKey: 'w', sessionId, startedAt, seq: 0, messages });
+    return { sessionId, project };
+  }
+  const get = (sessionId: string, query = '') => app.request(`/v1/sessions/${sessionId}/recording${query}`, { headers: as('user-window') });
+
+  it('returns the whole session by default, without the truncated header', async () => {
+    const { sessionId } = await stored();
+    const res = await get(sessionId);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Ida-Truncated')).toBeNull();
+    expect(((await res.json()) as Recording).occurrences).toHaveLength(2);
+  });
+
+  it('keeps the newest events under a limit and says older ones were left out', async () => {
+    const { sessionId } = await stored();
+    const res = await get(sessionId, '?limit=1');
+    expect(res.headers.get('X-Ida-Truncated')).toBe('true');
+    const rec = (await res.json()) as Recording;
+    expect(rec.occurrences).toHaveLength(1);
+    const all = (await (await get(sessionId)).json()) as Recording;
+    expect(rec.occurrences[0]!.id).toBe(all.occurrences.at(-1)!.id);
+  });
+
+  it('returns only the events inside from..to', async () => {
+    const { sessionId } = await stored();
+    const all = (await (await get(sessionId)).json()) as Recording;
+    const [first, second] = all.occurrences;
+    const between = (await (await get(sessionId, `?from=${first!.ts}&to=${first!.ts}`)).json()) as Recording;
+    expect(between.occurrences.map((o) => o.id)).toEqual([first!.id]);
+    const after = (await (await get(sessionId, `?from=${second!.ts + 1000}`)).json()) as Recording;
+    expect(after.occurrences).toEqual([]);
+  });
+
+  it('rejects windows that make no sense, and still hides other people’s sessions', async () => {
+    const { sessionId } = await stored();
+    for (const q of ['?limit=0', '?limit=50001', '?limit=abc', '?from=x', '?from=5&to=1']) expect((await get(sessionId, q)).status).toBe(400);
+    expect((await app.request(`/v1/sessions/${sessionId}/recording`, { headers: as('user-other') })).status).toBe(404);
+  });
+});
+
 describe('live stream', () => {
   it('sends the latest session, then each new batch', async () => {
     const { project, key } = await newProject();
@@ -189,8 +234,55 @@ describe('live stream', () => {
 
   it('rejects forged and expired tokens', async () => {
     expect((await app.request('/v1/live?token=abc.1.def')).status).toBe(401);
-    const expired = signStreamToken(SECRET, randomUUID(), -1);
+    const grant = { recorderId: randomUUID(), projectId: randomUUID(), userId: 'user-a' };
+    const expired = signStreamToken(SECRET, grant, -1);
     expect((await app.request(`/v1/live?token=${expired}`)).status).toBe(401);
+    const forged = signStreamToken('another-secret', grant);
+    expect((await app.request(`/v1/live?token=${forged}`)).status).toBe(401);
+  });
+
+  it('works once: a copy of the stream URL is refused after the viewer connects', async () => {
+    const { project, key } = await newProject('user-a');
+    // A token is only issued for a recorder that exists, so make it by ingesting.
+    await call('POST', '/v1/ingest', { Authorization: `Bearer ${key}` }, { recorderKey: 'once', sessionId: randomUUID(), startedAt: Date.now(), seq: 0, messages: recorded().messages });
+    const { token } = (await call('POST', `/v1/projects/${project.id}/recorders/once/stream-token`, as('user-a'))).body;
+    const url = `/v1/live?token=${encodeURIComponent(token)}`;
+    const controller = new AbortController();
+    const first = await app.request(url, { signal: controller.signal });
+    expect(first.status).toBe(200);
+    expect((await app.request(url)).status).toBe(401);
+    controller.abort();
+    await first.body?.cancel().catch(() => {});
+  });
+
+  it('is refused for someone who has since lost access', async () => {
+    const { project, key } = await newProject('user-a');
+    await call('POST', '/v1/ingest', { Authorization: `Bearer ${key}` }, { recorderKey: 'gone', sessionId: randomUUID(), startedAt: Date.now(), seq: 0, messages: recorded().messages });
+    const { token } = (await call('POST', `/v1/projects/${project.id}/recorders/gone/stream-token`, as('user-a'))).body;
+    await db.query('delete from projects where id = $1', [project.id]);
+    expect((await app.request(`/v1/live?token=${encodeURIComponent(token)}`)).status).toBe(401);
+  });
+
+  it('ends an open stream when its viewer loses access, and caps streams per person', async () => {
+    const quick = createApp({ db, verifyUser: async (t) => (t.startsWith('user-') ? { id: t } : null), streamSecret: SECRET, streamRecheckMs: 20, maxStreamsPerUser: 1 });
+    // Its own person: `user-a` has made so many orgs in this file that it is at the per-person cap.
+    const { project, key } = await newProject('user-streamer');
+    await call('POST', '/v1/ingest', { Authorization: `Bearer ${key}` }, { recorderKey: 'cut', sessionId: randomUUID(), startedAt: Date.now(), seq: 0, messages: recorded().messages });
+    const mint = async () => ((await (await quick.request(`/v1/projects/${project.id}/recorders/cut/stream-token`, { method: 'POST', headers: as('user-streamer') })).json()) as { token: string }).token;
+    const open = (t: string, signal?: AbortSignal) => quick.request(`/v1/live?token=${encodeURIComponent(t)}`, { signal });
+
+    const res = await open(await mint());
+    expect(res.status).toBe(200);
+    expect((await open(await mint())).status).toBe(429); // a second stream for the same person
+    const reader = res.body!.getReader();
+    await reader.read(); // the snapshot
+    await db.query('delete from projects where id = $1', [project.id]);
+    // Access is gone, so the server ends the stream within a recheck or two.
+    const ended = await Promise.race([
+      (async () => { for (;;) { const { done } = await reader.read(); if (done) return true; } })(),
+      new Promise<boolean>((r) => setTimeout(() => r(false), 3_000)),
+    ]);
+    expect(ended).toBe(true);
   });
 });
 
@@ -209,5 +301,53 @@ describe('unexpected errors', () => {
     } finally {
       logged.mockRestore();
     }
+  });
+});
+
+describe('limits against abuse', () => {
+  const byHeader = (c: { req: { header(n: string): string | undefined } }) => c.req.header('x-test-ip');
+  const make = (extra: Partial<Parameters<typeof createApp>[0]> = {}) =>
+    createApp({ db, verifyUser: async (t) => (t.startsWith('user-') ? { id: t } : null), streamSecret: SECRET, clientIp: byHeader, now: () => 1_000_000, ...extra });
+  const post = (a: ReturnType<typeof createApp>, path: string, headers: Record<string, string>, body?: string) =>
+    a.request(path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
+
+  it('stops answering a client that keeps sending wrong ingest keys, before touching the database', async () => {
+    const a = make({ failuresPerMinute: 3 });
+    const wrong = { Authorization: 'Bearer ida_000000000000_' + 'x'.repeat(32), 'x-test-ip': '203.0.113.9' };
+    const statuses: number[] = [];
+    for (let i = 0; i < 6; i++) statuses.push((await post(a, '/v1/ingest', wrong, '{}')).status);
+    expect(statuses).toEqual([401, 401, 401, 401, 429, 429]);
+    // Another address is unaffected, and honest clients (valid key) never count.
+    expect((await post(a, '/v1/ingest', { ...wrong, 'x-test-ip': '203.0.113.10' }, '{}')).status).toBe(401);
+  });
+
+  it('limits failed sign-ins per address too', async () => {
+    const a = make({ failuresPerMinute: 2 });
+    const get = () => a.request('/v1/projects', { headers: { Authorization: 'Bearer nobody', 'x-test-ip': '198.51.100.7' } });
+    expect([(await get()).status, (await get()).status, (await get()).status, (await get()).status]).toEqual([401, 401, 401, 429]);
+  });
+
+  it('limits how many requests one signed-in person can make a minute', async () => {
+    const a = make({ apiPerMinute: 3 });
+    const get = (u: string) => a.request('/v1/projects', { headers: { ...as(u), 'x-test-ip': '192.0.2.1' } });
+    expect([(await get('user-busy')).status, (await get('user-busy')).status, (await get('user-busy')).status]).toEqual([200, 200, 200]);
+    const refused = await get('user-busy');
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get('Retry-After')).toBe('60');
+    expect((await get('user-calm')).status).toBe(200);
+  });
+
+  it('refuses big request bodies on the user API without reading them', async () => {
+    const res = await post(make(), '/v1/orgs', as('user-big'), JSON.stringify({ name: 'x'.repeat(100_000) }));
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: 'request body too large' });
+  });
+
+  it('caps how many organizations one person can create', async () => {
+    const a = make({ apiPerMinute: 1000 });
+    for (let i = 0; i < 10; i++) expect((await post(a, '/v1/orgs', as('user-many'), JSON.stringify({ name: `Org ${i}` }))).status).toBe(201);
+    const res = await post(a, '/v1/orgs', as('user-many'), JSON.stringify({ name: 'One too many' }));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toContain('at most 10');
   });
 });

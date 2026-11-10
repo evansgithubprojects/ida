@@ -145,7 +145,8 @@ export function inviteRoutes(opts: InviteOptions) {
 
   /** Open, unexpired invitations for the signed-in email, with enough to show who is inviting to what. */
   app.get('/invites', async (c) => {
-    const email = c.get('user').email?.toLowerCase();
+    // Only an address the person has confirmed: otherwise anyone could sign up with someone else's address and see their invites.
+    const email = c.get('user').emailVerified ? c.get('user').email?.toLowerCase() : undefined;
     if (!email) return c.json([]);
     const rows = await db.query<InviteRow & { org_name: string; inviter: string | null }>(
       `select i.*, o.name as org_name, coalesce(u.name, u.email) as inviter
@@ -189,7 +190,7 @@ export function inviteRoutes(opts: InviteOptions) {
     if (tooMany(c.get('user').id)) return c.json({ error: 'too many attempts, try again in a minute' }, 429);
     const i = await find(await c.req.json().catch(() => ({})));
     if (!i) return notFound(c);
-    const mine = !!c.get('user').email && c.get('user').email!.toLowerCase() === i.email;
+    const mine = !!c.get('user').emailVerified && !!c.get('user').email && c.get('user').email!.toLowerCase() === i.email;
     // The invite's address is only shown to the person it was sent to.
     // The org id only goes to people already in the org, so a used link can lead them there.
     const member = !!(await orgRole(db, c.get('user').id, i.org_id));
@@ -204,6 +205,7 @@ export function inviteRoutes(opts: InviteOptions) {
     if (tooMany(user.id)) return c.json({ error: 'too many attempts, try again in a minute' }, 429);
     const i = await find(await c.req.json().catch(() => ({})));
     if (!i) return notFound(c);
+    if (!user.emailVerified) return forbidden(c, 'confirm your email address first: follow the link in the confirmation email, then accept again');
     if (!user.email || user.email.toLowerCase() !== i.email) return forbidden(c, 'this invitation was sent to a different email address');
     const s = state(i);
     if (s !== 'open') return c.json({ error: s === 'accepted' ? 'this invitation was already used' : s === 'revoked' ? 'this invitation was cancelled' : 'this invitation has expired, ask for a new one' }, 410);
