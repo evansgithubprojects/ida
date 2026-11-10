@@ -1,6 +1,6 @@
 {
   "name": "@ida-dev/adapter-eventemitter",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Node EventEmitter adapter for the event chain debugger",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -26,7 +26,7 @@
     "dev": "tsup --watch"
   },
   "dependencies": {
-    "@ida-dev/core": "*"
+    "@ida-dev/core": "^0.1.0"
   },
   "license": "MIT",
   "sideEffects": [

@@ -1,6 +1,6 @@
 {
   "name": "@ida-dev/core",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Event chain recorder: templates, causality, corruption detection, JSON export",
   "type": "module",
   "main": "./dist/index.cjs",
