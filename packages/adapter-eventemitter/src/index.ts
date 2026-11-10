@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { Server as NetServer } from 'node:net';
 import { Stream } from 'node:stream';
-import { dispatchAll, enable, isTracked, recordersFor, type Recorder } from '@eda-debugger/core';
+import { dispatchAll, enable, isTracked, recordersFor, type Recorder } from '@ida/core';
 import { installOriginTracking } from './origin';
 
 /** Call to restore the original `EventEmitter.prototype.emit` and stop recording. */

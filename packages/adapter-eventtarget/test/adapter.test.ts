@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createRecorder } from '@eda-debugger/core';
+import { createRecorder } from '@ida/core';
 import { enableEventTargetRecording } from '../src';
 
 let uninstall: (() => void) | undefined;

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createRecorder, type IngestBatch, type RecorderMessage, type Recording } from '@eda-debugger/core';
+import { createRecorder, type IngestBatch, type RecorderMessage, type Recording } from '@ida/core';
 import { createApp } from '../src/app';
 import { migrate, openPglite, type Db } from '../src/db';
 import { signStreamToken } from '../src/keys';

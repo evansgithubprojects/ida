@@ -1,7 +1,7 @@
 import type { EventEmitter } from 'node:events';
-import { configure } from '@eda-debugger/cloud';
-import { connectRecorder, setDefaultRecorder } from '@eda-debugger/core';
-import { enableEventEmitterRecording } from '@eda-debugger/adapter-eventemitter';
+import { configure } from '@ida/cloud';
+import { connectRecorder, setDefaultRecorder } from '@ida/core';
+import { enableEventEmitterRecording } from '@ida/adapter-eventemitter';
 import { createAttacks } from './attacks';
 import { createAuth } from './auth';
 import { startDashboard } from './dashboard';
@@ -9,17 +9,17 @@ import { createShop } from './shop';
 
 /**
  * The shop, uploaded to a project. Payments get their own recorder; everything else goes to `shop`.
- *   npm run node -w @eda-debugger/demo [-- --outage]   (reads EDA_PROJECT_KEY from apps/demo/.env)
+ *   npm run node -w @ida/demo [-- --outage]   (reads IDA_PROJECT_KEY from apps/demo/.env)
  * The attack simulator is served at http://localhost:5175 (DEMO_PORT): brute force and corrupt-request overload.
  * `--outage` cuts the connection for 8 s out of every 20, to watch the spool and the recovery.
  */
 try { process.loadEnvFile(); } catch { /* no .env */ }
 const waitForKey = (): Promise<never> => {
-  console.log('[demo] No EDA_PROJECT_KEY. Create a project in the web app, make an ingest key, and put it in apps/demo/.env (see .env.example). Waiting...');
+  console.log('[demo] No IDA_PROJECT_KEY. Create a project in the web app, make an ingest key, and put it in apps/demo/.env (see .env.example). Waiting...');
   return new Promise<never>(() => setInterval(() => {}, 1 << 30));
 };
-const projectKey = process.env.EDA_PROJECT_KEY || (await waitForKey());
-const endpoint = process.env.EDA_ENDPOINT ?? 'http://localhost:8787';
+const projectKey = process.env.IDA_PROJECT_KEY || (await waitForKey());
+const endpoint = process.env.IDA_ENDPOINT ?? 'http://localhost:8787';
 const outage = process.argv.includes('--outage');
 
 let down = false;

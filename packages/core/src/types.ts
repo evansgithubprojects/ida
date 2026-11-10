@@ -183,7 +183,7 @@ export interface Gap {
   dropped: number;
 }
 
-/** One upload from `@eda-debugger/cloud` to the server's `POST /v1/ingest`. */
+/** One upload from `@ida/cloud` to the server's `POST /v1/ingest`. */
 export interface IngestBatch {
   /** The `connectRecorder` key. */
   recorderKey: string;

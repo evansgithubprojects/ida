@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path';
 import type { SpoolStore } from './spool';
 
 /** Keeps spooled batches as files in `dir`, so they survive a restart. */
-export function fileStore(dir = '.eda-debugger/spool'): SpoolStore {
+export function fileStore(dir = '.ida/spool'): SpoolStore {
   const root = resolve(dir);
   const file = (id: number) => join(root, `${String(id).padStart(12, '0')}.json`);
   let made: Promise<unknown> | null = null;

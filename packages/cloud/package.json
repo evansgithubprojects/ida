@@ -1,7 +1,7 @@
 {
-  "name": "@eda-debugger/cloud",
+  "name": "@ida/cloud",
   "version": "0.0.0",
-  "description": "Uploads event chain recordings to the eda-debugger server, spooling locally while offline",
+  "description": "Uploads event chain recordings to the Ida server, spooling locally while offline",
   "type": "module",
   "main": "./dist/node.cjs",
   "module": "./dist/browser.js",
@@ -25,7 +25,7 @@
     "dev": "tsup --watch"
   },
   "dependencies": {
-    "@eda-debugger/core": "*"
+    "@ida/core": "*"
   },
   "license": "MIT",
   "devDependencies": {

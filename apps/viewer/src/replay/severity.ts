@@ -1,4 +1,4 @@
-import type { Finding } from '@eda-debugger/core';
+import type { Finding } from '@ida/core';
 
 /** Tunable weights for ranking the notification list. Higher scores sit nearer the top. */
 export const SEVERITY = {

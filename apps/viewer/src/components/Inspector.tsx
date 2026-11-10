@@ -1,4 +1,4 @@
-import type { Finding } from '@eda-debugger/core';
+import type { Finding } from '@ida/core';
 import { memo, useDeferredValue, useMemo, useRef, useState } from 'react';
 import { useModel, useRates } from '../hooks';
 import type { GraphModel } from '../graph/model';

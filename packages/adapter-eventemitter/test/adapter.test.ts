@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import { afterEach, describe, expect, it } from 'vitest';
-import { connectRecorder, createRecorder, enable, setDefaultRecorder } from '@eda-debugger/core';
+import { connectRecorder, createRecorder, enable, setDefaultRecorder } from '@ida/core';
 import { resetRecorders } from '../../core/src/registry';
 import { enableEventEmitterRecording } from '../src';
 

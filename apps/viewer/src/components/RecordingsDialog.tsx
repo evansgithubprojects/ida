@@ -1,4 +1,4 @@
-import type { Recording } from '@eda-debugger/core';
+import type { Recording } from '@ida/core';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { api } from '../cloud/api';

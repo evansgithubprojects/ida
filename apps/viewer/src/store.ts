@@ -1,4 +1,4 @@
-import type { RecorderMessage, Recording } from '@eda-debugger/core';
+import type { RecorderMessage, Recording } from '@ida/core';
 import { create } from 'zustand';
 import type { Level } from './graph/model';
 import { ZOOM_MS } from './graph/zoom';

@@ -201,7 +201,7 @@ function normalizeNotify(n: CorruptionOptions['notify']): FindingNotifier[] {
   return (Array.isArray(n) ? n : n ? [n] : []).map((x) =>
     x === 'console'
       ? (f: Finding) => (f.priority === 'high' ? console.error : console.warn)(
-          `[eda-debugger] ${f.priority === 'high' ? 'HIGH PRIORITY ' : ''}${f.confidence} confidence${f.retroactive ? ' (retroactive)' : ''}: ${f.summary}`,
+          `[ida] ${f.priority === 'high' ? 'HIGH PRIORITY ' : ''}${f.confidence} confidence${f.retroactive ? ' (retroactive)' : ''}: ${f.summary}`,
         )
       : x,
   );
@@ -244,7 +244,7 @@ export function createRecorder(opts: RecorderOptions = {}): Recorder {
     findings.push(finding);
     // External payloads are always surfaced on the console too (as an error) when any notification is on.
     if (finding.priority === 'high' && notifiers.length && !consoleOn) {
-      console.error(`[eda-debugger] HIGH PRIORITY ${finding.summary}`);
+      console.error(`[ida] HIGH PRIORITY ${finding.summary}`);
     }
     for (const n of notifiers) n(finding);
     emit({ type: 'finding', finding });

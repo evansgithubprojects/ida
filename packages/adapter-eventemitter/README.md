@@ -1,16 +1,16 @@
-# @eda-debugger/adapter-eventemitter
+# @ida/adapter-eventemitter
 
 Records every emit on Node `EventEmitter`s (and anything built on them) with its handlers, timings, errors and cause. Part of [Ida](../../README.md).
 
 ```bash
-npm install @eda-debugger/core @eda-debugger/adapter-eventemitter
+npm install @ida/core @ida/adapter-eventemitter
 ```
 
 ## Setup
 
 ```ts
-import { enable } from '@eda-debugger/core';
-import { enableEventEmitterRecording } from '@eda-debugger/adapter-eventemitter';
+import { enable } from '@ida/core';
+import { enableEventEmitterRecording } from '@ida/adapter-eventemitter';
 
 const recorder = enable({ windowMs: 60_000 });
 const uninstall = enableEventEmitterRecording(recorder);
@@ -19,7 +19,7 @@ const uninstall = enableEventEmitterRecording(recorder);
 Or, with no configuration, record on the shared recorder:
 
 ```ts
-import '@eda-debugger/adapter-eventemitter/auto';
+import '@ida/adapter-eventemitter/auto';
 ```
 
 Your listeners behave exactly as before. Call `uninstall()` to stop recording.

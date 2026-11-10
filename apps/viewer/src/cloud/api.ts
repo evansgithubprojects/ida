@@ -1,4 +1,4 @@
-import type { Recording } from '@eda-debugger/core';
+import type { Recording } from '@ida/core';
 import { API_URL, supabase } from './supabase';
 
 export interface Project { id: string; name: string; orgId: string; /** What the signed-in user may do here. Only sent when fetching one project. */ access?: 'viewer' | 'editor' | 'admin'; createdAt: string; recorders?: number; lastSeenAt?: string | null }

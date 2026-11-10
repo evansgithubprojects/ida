@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createRecorder } from '@eda-debugger/core';
+import { createRecorder } from '@ida/core';
 import { inWindow, MAX_WINDOW_EVENTS, runId } from '../src/replay';
 import { extendTrail, focusTargetOf, TRAIL_MAX, useStore, type Selection } from '../src/store';
 

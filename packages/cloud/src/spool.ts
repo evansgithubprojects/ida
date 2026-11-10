@@ -1,8 +1,8 @@
-import type { Gap, IngestBatch } from '@eda-debugger/core';
+import type { Gap, IngestBatch } from '@ida/core';
 
 /** Where spooled batches are kept. Entries are read back in increasing `id` order. */
 export interface SpoolStore {
-  /** Shown to the developer, e.g. a directory or "IndexedDB (eda-debugger-spool)". */
+  /** Shown to the developer, e.g. a directory or "IndexedDB (ida-spool)". */
   readonly where: string;
   /** Every stored id with its size in bytes, in increasing id order. */
   list(): Promise<{ id: number; bytes: number }[]>;

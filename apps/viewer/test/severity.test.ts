@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Finding } from '@eda-debugger/core';
+import type { Finding } from '@ida/core';
 import { compareRank, findingRank, findingScore, throwRank, tierOf } from '../src/replay/severity';
 
 const finding = (over: Partial<Finding> = {}): Finding => ({

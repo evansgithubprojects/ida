@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createRecorder } from '@eda-debugger/core';
+import { createRecorder } from '@ida/core';
 import { buildModel, processNodeId } from '../src/graph/model';
 import { buildIndex, countFired } from '../src/replay';
 

@@ -1,5 +1,5 @@
 {
-  "name": "eda-debugger",
+  "name": "ida",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -8,10 +8,10 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "npm run build:packages && concurrently -k -n core,adapter-eventemitter,adapter-eventtarget,cloud,server,web,demo \"npm run dev -w @eda-debugger/core\" \"npm run dev -w @eda-debugger/adapter-eventemitter\" \"npm run dev -w @eda-debugger/adapter-eventtarget\" \"npm run dev -w @eda-debugger/cloud\" \"npm run dev -w @eda-debugger/server\" \"npm run dev -w @eda-debugger/viewer\" \"npm run dev -w @eda-debugger/demo\"",
-    "build:packages": "npm run build -w @eda-debugger/core && npm run build -w @eda-debugger/adapter-eventemitter -w @eda-debugger/adapter-eventtarget -w @eda-debugger/cloud",
-    "build": "npm run build:packages && npm run build -w @eda-debugger/server && npm run build -w @eda-debugger/viewer",
-    "start": "npm start -w @eda-debugger/server",
+    "dev": "npm run build:packages && concurrently -k -n core,adapter-eventemitter,adapter-eventtarget,cloud,server,web,demo \"npm run dev -w @ida/core\" \"npm run dev -w @ida/adapter-eventemitter\" \"npm run dev -w @ida/adapter-eventtarget\" \"npm run dev -w @ida/cloud\" \"npm run dev -w @ida/server\" \"npm run dev -w @ida/viewer\" \"npm run dev -w @ida/demo\"",
+    "build:packages": "npm run build -w @ida/core && npm run build -w @ida/adapter-eventemitter -w @ida/adapter-eventtarget -w @ida/cloud",
+    "build": "npm run build:packages && npm run build -w @ida/server && npm run build -w @ida/viewer",
+    "start": "npm start -w @ida/server",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/adapter-eventemitter && tsc --noEmit -p packages/adapter-eventtarget && tsc --noEmit -p packages/cloud && tsc --noEmit -p apps/viewer && tsc --noEmit -p apps/demo && tsc --noEmit -p apps/server"
   },

@@ -1,6 +1,6 @@
 # Ida server
 
-Receives uploads from [`@eda-debugger/cloud`](../../packages/cloud/README.md), stores them in Postgres, and serves projects, recordings and live streams to the web app (`apps/viewer`). Users sign in with Supabase Auth; the server checks their tokens against the Supabase project's published signing keys.
+Receives uploads from [`@ida/cloud`](../../packages/cloud/README.md), stores them in Postgres, and serves projects, recordings and live streams to the web app (`apps/viewer`). Users sign in with Supabase Auth; the server checks their tokens against the Supabase project's published signing keys.
 
 ## Run
 
@@ -24,7 +24,7 @@ Migrations in `migrations/` run at startup.
 
 Ingest, authenticated with a project key (`Authorization: Bearer ida_…`):
 
-- `POST /v1/ingest`: one `IngestBatch` (see `@eda-debugger/core`). A repeated `(sessionId, seq)` is acknowledged and not stored again. Limited to 2 MiB per batch and 600 batches per key per minute.
+- `POST /v1/ingest`: one `IngestBatch` (see `@ida/core`). A repeated `(sessionId, seq)` is acknowledged and not stored again. Limited to 2 MiB per batch and 600 batches per key per minute.
 
 Web app, authenticated with the user's Supabase access token:
 

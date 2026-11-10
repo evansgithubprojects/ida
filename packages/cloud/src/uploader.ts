@@ -1,4 +1,4 @@
-import { onRecorder, type IngestBatch, type Recorder, type RecorderMessage } from '@eda-debugger/core';
+import { onRecorder, type IngestBatch, type Recorder, type RecorderMessage } from '@ida/core';
 import { fitMessage, jsonBytes } from './fit';
 import { memoryStore, Spool, type SpoolStore } from './spool';
 
@@ -18,7 +18,7 @@ export interface CloudOptions {
   maxBatchBytes?: number;
   /**
    * Where batches wait while the server can't be reached. `false` keeps nothing: what can't be sent is dropped.
-   * @default files under `.eda-debugger/spool` in Node, IndexedDB in browsers
+   * @default files under `.ida/spool` in Node, IndexedDB in browsers
    */
   spool?: SpoolStore | false;
   /** Most bytes the spool keeps; past that the oldest data is dropped and reported as a gap. @default 50 MiB */
@@ -86,13 +86,13 @@ export function createUploader(opts: CloudOptions, defaultStore: () => SpoolStor
     opts.onStatus?.(s);
     if (opts.quiet) return;
     if (s.state === 'offline') {
-      console.warn(`[eda-debugger] can't reach ${opts.endpoint} (${s.error}). Recording continues: batches are kept in ${s.where} and will be uploaded when the connection is back.`);
+      console.warn(`[ida] can't reach ${opts.endpoint} (${s.error}). Recording continues: batches are kept in ${s.where} and will be uploaded when the connection is back.`);
     } else if (s.state === 'recovered') {
-      console.info(`[eda-debugger] reconnected to ${opts.endpoint}; uploaded ${s.uploaded} batch${s.uploaded === 1 ? '' : 'es'} recorded while offline.`);
+      console.info(`[ida] reconnected to ${opts.endpoint}; uploaded ${s.uploaded} batch${s.uploaded === 1 ? '' : 'es'} recorded while offline.`);
     } else if (s.state === 'rejected' && !rejectedOnce) {
       rejectedOnce = true;
       const hint = s.status === 401 || s.status === 403 ? ' Check the project key.' : '';
-      console.error(`[eda-debugger] ${opts.endpoint} refused an upload (${s.status}: ${s.error}).${hint} Refused data is dropped.`);
+      console.error(`[ida] ${opts.endpoint} refused an upload (${s.status}: ${s.error}).${hint} Refused data is dropped.`);
     }
   };
 

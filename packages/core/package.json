@@ -1,5 +1,5 @@
 {
-  "name": "@eda-debugger/core",
+  "name": "@ida/core",
   "version": "0.0.0",
   "description": "Event chain recorder: templates, causality, corruption detection, JSON export",
   "type": "module",

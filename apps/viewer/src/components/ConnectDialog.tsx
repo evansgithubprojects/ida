@@ -87,7 +87,7 @@ export function ConnectDialog({ projectId, startAt, onClose, onKeyCreated }: {
                   <code className="secret block">{secret}</code>
                   <button onClick={() => void copy()}>{copied ? 'Copied ✓' : 'Copy'}</button>
                 </div>
-                <p className="hint">Shown only once. Copy it now and keep it somewhere safe, for example as <code>EDA_PROJECT_KEY</code>.</p>
+                <p className="hint">Shown only once. Copy it now and keep it somewhere safe, for example as <code>IDA_PROJECT_KEY</code>.</p>
               </>
             )}
             <label className="lang-select">Language

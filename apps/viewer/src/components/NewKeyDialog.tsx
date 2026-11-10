@@ -22,7 +22,7 @@ export function NewKeyDialog({ secret, onClose }: { secret: string; onClose: () 
   return (
     <dialog ref={ref} className="modal" aria-labelledby="new-key-title" onCancel={(e) => e.preventDefault()}>
       <h3 id="new-key-title">Copy your ingest key</h3>
-      <p>This is the only time it is shown. Store it somewhere safe, for example as <code>EDA_PROJECT_KEY</code>.</p>
+      <p>This is the only time it is shown. Store it somewhere safe, for example as <code>IDA_PROJECT_KEY</code>.</p>
       <code className="secret block">{secret}</code>
       <div className="modal-actions">
         <button onClick={() => void copy()}>{copied ? 'Copied ✓' : 'Copy'}</button>

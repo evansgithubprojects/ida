@@ -1,9 +1,9 @@
-# @eda-debugger/cloud
+# @ida/cloud
 
 Uploads [Ida](../../README.md) recorders to a project on the Ida server, so you can browse their recordings and watch them live in the web app. Works in Node and browsers.
 
 ```bash
-npm install @eda-debugger/core @eda-debugger/cloud
+npm install @ida/core @ida/cloud
 ```
 
 ## Setup
@@ -11,10 +11,10 @@ npm install @eda-debugger/core @eda-debugger/cloud
 Create a project in the web app and make an ingest key, then call `configure` once at startup:
 
 ```ts
-import { configure } from '@eda-debugger/cloud';
-import { connectRecorder } from '@eda-debugger/core';
+import { configure } from '@ida/cloud';
+import { connectRecorder } from '@ida/core';
 
-configure({ projectKey: process.env.EDA_PROJECT_KEY!, endpoint: 'https://your-server' });
+configure({ projectKey: process.env.IDA_PROJECT_KEY!, endpoint: 'https://your-server' });
 
 const payments = connectRecorder('payments'); // anywhere in your app
 ```
@@ -28,12 +28,12 @@ Ingest keys can only upload, so a key in a browser bundle can't read anything. R
 Recording carries on. Batches go to a spool, and the console says where:
 
 ```
-[eda-debugger] can't reach https://your-server (fetch failed). Recording continues: batches are kept in /app/.eda-debugger/spool and will be uploaded when the connection is back.
-[eda-debugger] reconnected to https://your-server; uploaded 16 batches recorded while offline.
+[ida] can't reach https://your-server (fetch failed). Recording continues: batches are kept in /app/.ida/spool and will be uploaded when the connection is back.
+[ida] reconnected to https://your-server; uploaded 16 batches recorded while offline.
 ```
 
 - Retries back off from 1 s to 60 s. Batches are delivered in order, and a batch the server already has is not stored twice.
-- The spool is files under `.eda-debugger/spool` in Node and IndexedDB in browsers, so it survives a restart; batches left by an earlier run are uploaded at startup.
+- The spool is files under `.ida/spool` in Node and IndexedDB in browsers, so it survives a restart; batches left by an earlier run are uploaded at startup.
 - Past `spoolMaxBytes` the oldest batches are dropped, and the server is told what was lost. The web app shows those gaps on the timeline, and marks events that arrived late.
 - A batch the server refuses for good (unknown or revoked key, malformed data) is dropped, with one console error.
 

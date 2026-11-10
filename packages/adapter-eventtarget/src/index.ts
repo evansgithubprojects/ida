@@ -1,4 +1,4 @@
-import { dispatchAll, enable, recordersFor, type Recorder } from '@eda-debugger/core';
+import { dispatchAll, enable, recordersFor, type Recorder } from '@ida/core';
 
 /** Call to restore the original `EventTarget` methods and stop recording. */
 export type Uninstall = () => void;

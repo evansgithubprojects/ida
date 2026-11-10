@@ -11,12 +11,12 @@ let current: Uploader | undefined;
 /**
  * Uploads every recorder made with `connectRecorder()` (or `enable()`) to your project, from now on and including
  * what they already hold. Call it once at startup. While the server can't be reached, batches are kept in
- * `.eda-debugger/spool` and uploaded, in order, when it is back; the console says when that happens.
+ * `.ida/spool` and uploaded, in order, when it is back; the console says when that happens.
  * @example
- * configure({ projectKey: process.env.EDA_PROJECT_KEY!, endpoint: 'https://api.example.com' });
+ * configure({ projectKey: process.env.IDA_PROJECT_KEY!, endpoint: 'https://api.example.com' });
  */
 export function configure(opts: CloudOptions): Uploader {
-  if (current) throw new Error('[eda-debugger] configure() was already called; close() the uploader it returned first');
+  if (current) throw new Error('[ida] configure() was already called; close() the uploader it returned first');
   const uploader = createUploader(opts, () => fileStore(), `node ${process.versions.node}`);
   current = uploader;
   // Last batches before the process exits; best effort.

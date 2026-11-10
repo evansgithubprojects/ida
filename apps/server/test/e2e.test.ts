@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { connectRecorder, type Recording } from '@eda-debugger/core';
+import { connectRecorder, type Recording } from '@ida/core';
 import { resetRecorders } from '../../../packages/core/src/registry';
 import { memoryStore } from '../../../packages/cloud/src/spool';
 import { createUploader } from '../../../packages/cloud/src/uploader';

@@ -120,10 +120,10 @@ export function Home() {
             </li>
           ))}
         </ol>
-        <pre className="snippet landing-snippet">{`npm install @eda-debugger/core @eda-debugger/adapter-eventemitter
+        <pre className="snippet landing-snippet">{`npm install @ida/core @ida/adapter-eventemitter
 
-import { enable } from '@eda-debugger/core';
-import { enableEventEmitterRecording } from '@eda-debugger/adapter-eventemitter';
+import { enable } from '@ida/core';
+import { enableEventEmitterRecording } from '@ida/adapter-eventemitter';
 
 enable();
 enableEventEmitterRecording();`}</pre>

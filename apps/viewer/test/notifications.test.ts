@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createRecorder } from '@eda-debugger/core';
+import { createRecorder } from '@ida/core';
 import { buildIndex, notifications, parseThrowId, recipientsOf, throwId } from '../src/replay';
 import { extendTrail } from '../src/store';
 

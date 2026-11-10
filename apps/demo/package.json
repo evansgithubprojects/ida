@@ -1,5 +1,5 @@
 {
-  "name": "@eda-debugger/demo",
+  "name": "@ida/demo",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -8,8 +8,8 @@
     "node": "tsx watch src/node.ts"
   },
   "dependencies": {
-    "@eda-debugger/adapter-eventemitter": "*",
-    "@eda-debugger/cloud": "*",
-    "@eda-debugger/core": "*"
+    "@ida/adapter-eventemitter": "*",
+    "@ida/cloud": "*",
+    "@ida/core": "*"
   }
 }

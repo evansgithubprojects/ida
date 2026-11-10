@@ -1,4 +1,4 @@
-import { RECORDING_VERSION, type Finding, type GraphNode, type Occurrence, type Process, type Recording, type Template } from '@eda-debugger/core';
+import { RECORDING_VERSION, type Finding, type GraphNode, type Occurrence, type Process, type Recording, type Template } from '@ida/core';
 import type { Db } from './db';
 
 /** A stored session as a `Recording` the viewer can open, or null when there is no such session. */

@@ -17,7 +17,7 @@ export const RECORDER_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
  */
 export function connectRecorder(key: string, opts?: Omit<RecorderOptions, 'key'>): Recorder {
   if (!RECORDER_KEY.test(key)) {
-    throw new TypeError(`[eda-debugger] invalid recorder key ${JSON.stringify(key)}: use 1-64 letters, digits, '.', '_', ':' or '-'`);
+    throw new TypeError(`[ida] invalid recorder key ${JSON.stringify(key)}: use 1-64 letters, digits, '.', '_', ':' or '-'`);
   }
   let recorder = byKey.get(key);
   if (!recorder) {

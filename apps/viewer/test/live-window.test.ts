@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createRecorder, type RecorderMessage, type Recording } from '@eda-debugger/core';
+import { createRecorder, type RecorderMessage, type Recording } from '@ida/core';
 import { inWindow, MAX_KEPT_EVENTS, MAX_WINDOW_EVENTS } from '../src/replay';
 import { useStore } from '../src/store';
 

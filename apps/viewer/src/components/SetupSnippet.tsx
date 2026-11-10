@@ -11,24 +11,24 @@ export function SetupSnippet({ language, projectKey }: { language: Language; pro
   const key = projectKey ?? 'ida_…';
   const code = language === 'node'
     ? `# .env
-EDA_PROJECT_KEY=${key}
+IDA_PROJECT_KEY=${key}
 
-npm install @eda-debugger/core @eda-debugger/cloud @eda-debugger/adapter-eventemitter
+npm install @ida/core @ida/cloud @ida/adapter-eventemitter
 
-import { configure } from '@eda-debugger/cloud';
-import { connectRecorder } from '@eda-debugger/core';
-import { enableEventEmitterRecording } from '@eda-debugger/adapter-eventemitter';
+import { configure } from '@ida/cloud';
+import { connectRecorder } from '@ida/core';
+import { enableEventEmitterRecording } from '@ida/adapter-eventemitter';
 
-configure({ projectKey: process.env.EDA_PROJECT_KEY, endpoint: '${API_URL}' });
+configure({ projectKey: process.env.IDA_PROJECT_KEY, endpoint: '${API_URL}' });
 enableEventEmitterRecording();
 
 // anywhere in your app
 connectRecorder('payments').track(paymentsBus);`
-    : `npm install @eda-debugger/core @eda-debugger/cloud @eda-debugger/adapter-eventtarget
+    : `npm install @ida/core @ida/cloud @ida/adapter-eventtarget
 
-import { configure } from '@eda-debugger/cloud';
-import { connectRecorder } from '@eda-debugger/core';
-import { enableEventTargetRecording } from '@eda-debugger/adapter-eventtarget';
+import { configure } from '@ida/cloud';
+import { connectRecorder } from '@ida/core';
+import { enableEventTargetRecording } from '@ida/adapter-eventtarget';
 
 configure({ projectKey: '${key}', endpoint: '${API_URL}' });
 

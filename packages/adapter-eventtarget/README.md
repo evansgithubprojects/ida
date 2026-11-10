@@ -1,16 +1,16 @@
-# @eda-debugger/adapter-eventtarget
+# @ida/adapter-eventtarget
 
 Records DOM `EventTarget` activity, including native events such as clicks and `dispatchEvent`, with handlers, timings, errors and cause. Part of [Ida](../../README.md).
 
 ```bash
-npm install @eda-debugger/core @eda-debugger/adapter-eventtarget
+npm install @ida/core @ida/adapter-eventtarget
 ```
 
 ## Setup
 
 ```ts
-import { enable } from '@eda-debugger/core';
-import { enableEventTargetRecording } from '@eda-debugger/adapter-eventtarget';
+import { enable } from '@ida/core';
+import { enableEventTargetRecording } from '@ida/adapter-eventtarget';
 
 const recorder = enable();
 const uninstall = enableEventTargetRecording(recorder, {

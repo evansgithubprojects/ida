@@ -1,5 +1,5 @@
 {
-  "name": "@eda-debugger/adapter-eventtarget",
+  "name": "@ida/adapter-eventtarget",
   "version": "0.0.0",
   "description": "DOM EventTarget adapter for the event chain debugger",
   "type": "module",
@@ -21,7 +21,7 @@
     "dev": "tsup --watch"
   },
   "dependencies": {
-    "@eda-debugger/core": "*"
+    "@ida/core": "*"
   },
   "license": "MIT"
 }

@@ -1,5 +1,5 @@
 {
-  "name": "@eda-debugger/server",
+  "name": "@ida/server",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,7 +9,7 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
-    "@eda-debugger/core": "*",
+    "@ida/core": "*",
     "@electric-sql/pglite": "^0.5.13",
     "@hono/node-server": "^2.1.5",
     "hono": "^4.13.14",
