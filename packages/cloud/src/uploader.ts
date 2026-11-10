@@ -61,7 +61,47 @@ interface Stream {
 
 const BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 30_000, 60_000];
 
+/** A configuration mistake: the one-line problem comes first so it is what a skimmer reads, then what to do about it. */
+function configError(problem: string, fix: string, caller: Function): TypeError {
+  const err = new TypeError(`[ida] ${problem}\n  ${fix}`);
+  // Start the stack at the user's `configure(...)` call, not inside this package (V8 only; elsewhere it is just longer).
+  (Error as { captureStackTrace?: (e: Error, fn: Function) => void }).captureStackTrace?.(err, caller);
+  return err;
+}
+
+/**
+ * Fails at startup, with what to do, when the project key or endpoint is missing or can't be right. Left unchecked, a
+ * missing key only shows up later as "can't reach <endpoint>" or a refused upload, which points at the wrong thing.
+ * `caller` is the function the stack should start below: `configure`, so the first frame is the user's own call.
+ */
+export function checkOptions(opts: Pick<CloudOptions, 'projectKey' | 'endpoint'>, caller: Function = checkOptions): void {
+  const key = typeof opts.projectKey === 'string' ? opts.projectKey.trim() : '';
+  if (!key) {
+    throw configError(
+      'configure() is missing a projectKey.',
+      "Create a project in the web app, make an ingest key and pass it: configure({ projectKey: process.env.IDA_PROJECT_KEY, endpoint }).",
+      caller,
+    );
+  }
+  // Keys made before the rename start with `eda_` and still work.
+  if (!/^(ida|eda)_/.test(key)) {
+    throw configError(
+      "configure() was given a projectKey that isn't an ingest key.",
+      "Ingest keys start with 'ida_'. Use one made under the project's ingest keys in the web app, not an account, API or Supabase key.",
+      caller,
+    );
+  }
+  if (typeof opts.endpoint !== 'string' || !opts.endpoint.trim()) {
+    throw configError(
+      'configure() is missing an endpoint.',
+      "Pass the URL of your Ida server: configure({ projectKey, endpoint: 'https://api.example.com' }).",
+      caller,
+    );
+  }
+}
+
 export function createUploader(opts: CloudOptions, defaultStore: () => SpoolStore | null, defaultRuntime: string): Uploader {
+  checkOptions(opts, createUploader);
   const doFetch = opts.fetch ?? fetch;
   const url = `${opts.endpoint.replace(/\/$/, '')}/v1/ingest`;
   const flushMs = opts.flushMs ?? 1000;
@@ -130,7 +170,7 @@ export function createUploader(opts: CloudOptions, defaultStore: () => SpoolStor
     // What the recorder already holds goes first, as one snapshot, so events from before `configure` aren't lost.
     const recording = recorder.export();
     const s: Stream = {
-      recorder, sessionId: crypto.randomUUID(), startedAt: recording.startedAt, seq: 0,
+      recorder, sessionId: recorder.sessionId, startedAt: recording.startedAt, seq: 0,
       pending: recording.occurrences.length ? [{ type: 'snapshot', recording }] : [], unsubscribe: () => {},
     };
     s.unsubscribe = recorder.subscribe((m) => {

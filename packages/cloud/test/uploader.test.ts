@@ -270,3 +270,30 @@ describe('spool', () => {
     expect((await again.peek())!.seq).toBe(0);
   });
 });
+
+describe('configuration', () => {
+  const make = (over: Record<string, unknown>) => () =>
+    createUploader({ projectKey: 'ida_abc_secret', endpoint: 'https://api.test', quiet: true, spool: false, ...over } as never, () => null, 'test');
+
+  it('throws at startup when the project key is missing or empty', () => {
+    expect(make({ projectKey: undefined })).toThrow(/missing a projectKey/);
+    expect(make({ projectKey: '' })).toThrow(/missing a projectKey/);
+    expect(make({ projectKey: '   ' })).toThrow(/missing a projectKey/);
+  });
+
+  it("throws when the key isn't an ingest key", () => {
+    expect(make({ projectKey: 'eyJhbGciOiJIUzI1NiJ9.abc' })).toThrow(/isn't an ingest key/);
+  });
+
+  it('throws when the endpoint is missing', () => {
+    expect(make({ endpoint: undefined })).toThrow(/missing an endpoint/);
+    expect(make({ endpoint: '' })).toThrow(/missing an endpoint/);
+  });
+
+  it('accepts current ida_ keys and legacy eda_ keys', async () => {
+    for (const projectKey of ['ida_abc_secret', 'eda_abc_secret']) {
+      const u = make({ projectKey })();
+      await u.close();
+    }
+  });
+});

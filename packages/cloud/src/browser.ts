@@ -1,5 +1,5 @@
 import { defaultBrowserStore } from './store-browser';
-import { createUploader, type CloudOptions, type Uploader } from './uploader';
+import { checkOptions, createUploader, type CloudOptions, type Uploader } from './uploader';
 
 export { indexedDbStore } from './store-browser';
 export { memoryStore, type SpoolStore } from './spool';
@@ -16,6 +16,7 @@ let current: Uploader | undefined;
  */
 export function configure(opts: CloudOptions): Uploader {
   if (current) throw new Error('[ida] configure() was already called; close() the uploader it returned first');
+  checkOptions(opts, configure);
   const uploader = createUploader(opts, defaultBrowserStore, typeof navigator !== 'undefined' ? navigator.userAgent : 'browser');
   current = uploader;
   // A page being hidden may never come back: send what's pending while we still can.

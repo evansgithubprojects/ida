@@ -1,5 +1,5 @@
 import { fileStore } from './store-node';
-import { createUploader, type CloudOptions, type Uploader } from './uploader';
+import { checkOptions, createUploader, type CloudOptions, type Uploader } from './uploader';
 
 export { fileStore } from './store-node';
 export { indexedDbStore } from './store-browser';
@@ -17,6 +17,7 @@ let current: Uploader | undefined;
  */
 export function configure(opts: CloudOptions): Uploader {
   if (current) throw new Error('[ida] configure() was already called; close() the uploader it returned first');
+  checkOptions(opts, configure);
   const uploader = createUploader(opts, () => fileStore(), `node ${process.versions.node}`);
   current = uploader;
   // Last batches before the process exits; best effort.
