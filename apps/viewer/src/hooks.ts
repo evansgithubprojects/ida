@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { buildModel, type GraphModel, type Level } from './graph/model';
-import { activeAt, inWindow, rateSeries, RATE_STEP_MS, recentRates, shownRates, SPIKE_WINDOW_MS, type Active, type HeldSpikes, type Rates } from './replay';
+import { activeAt, inWindow, rateSeries, traceOf, type Trace, RATE_STEP_MS, recentRates, shownRates, SPIKE_WINDOW_MS, type Active, type HeldSpikes, type Rates } from './replay';
 import { FADE_WALL_MS, FLASH_WALL_MS, LIVE_RESYNC_MS, useStore } from './store';
+
+/** The trace being followed, if any (see `traceOf`). */
+export function useTrace(): Trace | null {
+  const index = useStore((s) => s.index);
+  const id = useStore((s) => s.trace?.occurrenceId);
+  return useMemo(() => (index && id ? traceOf(index, id) : null), [index, id]);
+}
 
 /** The graph at `level`, or at the store's current level. A level passed in stays put while a zoom transition plays. */
 export function useModel(levelOverride?: Level): GraphModel | null {

@@ -1,8 +1,7 @@
-import { BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation } from 'react-router';
+import { BrowserRouter, Link, Navigate, NavLink, Outlet, Route, Routes, useLocation } from 'react-router';
 import { RequireAuth, useSession } from './cloud/auth';
 import { supabase } from './cloud/supabase';
 import { Logo } from './components/Logo';
-import { OrgSwitcher } from './components/OrgSwitcher';
 import { PendingInvites } from './components/PendingInvites';
 import { Docs } from './pages/Docs';
 import { Home } from './pages/Home';
@@ -26,6 +25,7 @@ export function App() {
           <Route path="/docs/:integration" element={<Docs />} />
           <Route path="/projects" element={<RequireAuth><ProjectsRedirect /></RequireAuth>} />
           <Route path="/invites/:token" element={<RequireAuth><AcceptInvite /></RequireAuth>} />
+          <Route path="/orgs" element={<RequireAuth><ProjectsRedirect /></RequireAuth>} />
           <Route path="/orgs/new" element={<RequireAuth><NewOrg /></RequireAuth>} />
           <Route path="/orgs/:orgId" element={<RequireAuth><OrgLayout /></RequireAuth>}>
             <Route index element={<OrgProjects />} />
@@ -58,7 +58,8 @@ function Shell() {
     <div className="shell">
       <header className="toolbar">
         <h1><Link to="/" aria-label="Ida home"><Logo /></Link></h1>
-        {supabase && session && <OrgSwitcher />}
+        {supabase && session && <NavLink to="/orgs">Dashboard</NavLink>}
+        <NavLink to="/docs">Docs</NavLink>
         <span className="spacer" />
         {session && (
           <>

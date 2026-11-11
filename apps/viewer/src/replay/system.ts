@@ -30,6 +30,22 @@ export interface SystemView {
   truncated: boolean;
 }
 
+/** One message that crossed between a session and another service; see the server's `PeerLink`. */
+export interface PeerLink {
+  /** This session's side: a publish (in `consumedBy`) or a consume (in `publishedBy`). */
+  occurrenceId: string;
+  /** The other service's recorder key. */
+  service: string;
+  /** The other side's broker process, when it isn't this side's (RabbitMQ: an exchange routing to a queue). */
+  broker?: Pick<Process, 'id' | 'label' | 'kind' | 'broker'>;
+}
+
+/** What `GET /v1/sessions/:id/peers` returns: the other ends of one session's broker messages. */
+export interface SessionPeers {
+  consumedBy: PeerLink[];
+  publishedBy: PeerLink[];
+}
+
 /** A service is everything recorded under one recorder key: each of its sessions is a run or an instance of it. */
 export interface Service {
   key: string;

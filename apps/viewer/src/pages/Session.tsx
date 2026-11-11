@@ -14,6 +14,9 @@ const MAX_TRIES = 6;
 
 const CLOUD: RecordingSource = { kind: 'cloud' };
 
+/** How often a live view asks again where its broker messages went. */
+const PEERS_EVERY_MS = 5000;
+
 /** One recorded session, or (with `live`) the recorder's newest session as it grows. */
 export function Session({ live = false }: { live?: boolean }) {
   const { projectId = '', recorderKey = '', sessionId = '' } = useParams();
@@ -69,6 +72,20 @@ export function Session({ live = false }: { live?: boolean }) {
     }, delay);
     return () => { alive = false; clearTimeout(t); };
   }, [cloud, live, projectId, recorderKey, attempt]);
+
+  // Where this service's Kafka and RabbitMQ messages came from and went to. Live, the other services keep consuming,
+  // so it is fetched again every few seconds.
+  useEffect(() => {
+    if (!cloud) return;
+    let alive = true;
+    const fetch = () => (live ? api.recorderPeers(projectId, recorderKey) : api.sessionPeers(sessionId)).then(
+      (peers) => { if (alive) useStore.getState().setPeers(peers); },
+      () => { /* only extra context: the view works without it */ },
+    );
+    void fetch();
+    const timer = live ? setInterval(fetch, PEERS_EVERY_MS) : undefined;
+    return () => { alive = false; clearInterval(timer); };
+  }, [cloud, live, projectId, recorderKey, sessionId]);
 
   useEffect(() => {
     if (!cloud || !live) return;

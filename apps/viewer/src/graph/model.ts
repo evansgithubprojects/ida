@@ -1,6 +1,6 @@
 import type { Process } from '@ida-dev/core';
-import type { IndexedOccurrence, MapNode, ReplayIndex } from '../replay';
-import { edgeId, eventKey } from '../replay';
+import type { IndexedOccurrence, MapNode, ReplayIndex, Trace } from '../replay';
+import { countsOnCard, edgeId, eventKey, isPeerProcess } from '../replay';
 
 /**
  * services = a system view zoomed all the way out; process = the processes (of one service, when `service` is set);
@@ -25,6 +25,7 @@ export const serviceOfProcess = (index: ReplayIndex | null, processId: string) =
 /** The level a double-click on a card opens: a service's processes, or a process's handlers. */
 export function levelInto(m: ModelNode): Level | null {
   if (m.service) return { kind: 'process', service: m.service };
+  if (isPeerProcess(m.processId)) return null; // another service: nothing of it is recorded here
   if (m.kind === 'process' || m.kind === 'stub') return { kind: 'handlers', processId: m.processId };
   return null;
 }
@@ -88,7 +89,13 @@ export function buildModel(index: ReplayIndex, level: Level, items: IndexedOccur
   const mapNode: MapNode = (id) => {
     const n = index.nodes.get(id);
     if (!n) return null;
-    if (level.kind === 'handlers') return n.processId === level.processId ? n.id : processNodeId(n.processId);
+    if (level.kind === 'handlers') {
+      if (n.processId === level.processId) return n.id;
+      // In a system view, another service's nodes stand for that service, not for each of its processes.
+      const service = sys?.nodeService.get(id);
+      if (service && service !== sys!.processService.get(level.processId)) return serviceNodeId(service);
+      return processNodeId(n.processId);
+    }
     if (!sys) return processNodeId(n.processId);
     // A broker's own node is its process at every level; any other node is its service's, unless that is in scope.
     const service = sys.nodeService.get(id);
@@ -119,7 +126,23 @@ export function buildModel(index: ReplayIndex, level: Level, items: IndexedOccur
         for (const id of [hop.src, hop.dst]) { const b = brokerProcess(id); if (b !== null) touched.add(b); }
       }
     }
+    // A broker-to-broker route (an exchange routing to a queue) carries the message on: follow it both ways, so a
+    // queue fed from an exchange this service publishes to shows where it goes, and vice versa.
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const item of items) {
+        for (const hop of item.hops) {
+          const a = brokerProcess(hop.src);
+          const b = brokerProcess(hop.dst);
+          if (a !== null && b !== null && touched.has(a) !== touched.has(b)) { touched.add(a).add(b); grew = true; }
+        }
+      }
+    }
     relevant = (a, b) => own(a) || own(b) || [a, b].some((id) => { const p = brokerProcess(id); return p !== null && touched.has(p); });
+  } else if (sys && level.kind === 'handlers') {
+    // Inside one process: only what it took part in.
+    const inside = (id: string) => index.nodes.get(id)?.processId === level.processId;
+    relevant = (a, b) => inside(a) || inside(b);
   }
 
   for (const item of items) {
@@ -128,8 +151,8 @@ export function buildModel(index: ReplayIndex, level: Level, items: IndexedOccur
       const src = mapNode(hop.src);
       const dst = mapNode(hop.dst);
       if (!src || !dst) continue;
-      handled.set(dst, (handled.get(dst) ?? 0) + 1);
-      emitted.set(src, (emitted.get(src) ?? 0) + 1);
+      if (countsOnCard(index, hop.dst, dst)) handled.set(dst, (handled.get(dst) ?? 0) + 1);
+      if (countsOnCard(index, hop.src, src)) emitted.set(src, (emitted.get(src) ?? 0) + 1);
       used.add(src).add(dst);
       if (src === dst) continue;
       const id = edgeId(src, dst);
@@ -137,7 +160,7 @@ export function buildModel(index: ReplayIndex, level: Level, items: IndexedOccur
       e.count++;
       e.times.push(item.occ.ts);
       e.names.add(eventKey(item.template));
-      if (item.occ.causality === 'propagated') propagated.add(id);
+      if (item.occ.causality === 'propagated' || [hop.src, hop.dst].some((n) => isPeerProcess(index.nodes.get(n)?.processId ?? ''))) propagated.add(id);
       edges.set(id, e);
     }
   }
@@ -147,9 +170,11 @@ export function buildModel(index: ReplayIndex, level: Level, items: IndexedOccur
 
   const brokerOf = (pid: string) => {
     const p = index.processes.get(pid);
-    return sys && p?.kind && p.kind !== 'emitter' ? p.kind : undefined;
+    return p?.kind && p.kind !== 'emitter' ? p.kind : undefined;
   };
-  const processNode = (pid: string): ModelNode => ({
+  const processNode = (pid: string): ModelNode => isPeerProcess(pid)
+    ? { id: processNodeId(pid), label: index.processLabel.get(pid) ?? pid, kind: 'stub', processId: pid, detail: 'other service' }
+    : ({
     id: processNodeId(pid), label: index.processLabel.get(pid) ?? pid, kind: 'process', processId: pid, detail: detail(processNodeId(pid)),
     ...(brokerOf(pid) && { broker: brokerOf(pid) }),
   });
@@ -185,7 +210,10 @@ export function buildModel(index: ReplayIndex, level: Level, items: IndexedOccur
     for (const id of used) {
       if (id.startsWith('p:') && id !== processNodeId(level.processId)) {
         const pid = id.slice(2);
-        nodes.push({ id, label: index.processLabel.get(pid) ?? pid, kind: 'stub', processId: pid, detail: sys?.processService.get(pid) ? `in ${sys.processService.get(pid)}` : 'other process', ...(brokerOf(pid) && { broker: brokerOf(pid) }) });
+        nodes.push({ id, label: index.processLabel.get(pid) ?? pid, kind: 'stub', processId: pid, detail: sys?.processService.get(pid) ? `in ${sys.processService.get(pid)}` : isPeerProcess(pid) ? 'other service' : 'other process', ...(brokerOf(pid) && { broker: brokerOf(pid) }) });
+      } else if (id.startsWith('s:')) {
+        const key = id.slice(2);
+        nodes.push({ id, label: key, kind: 'stub', processId: '', service: key, detail: 'other service' });
       }
     }
   }
@@ -195,4 +223,20 @@ export function buildModel(index: ReplayIndex, level: Level, items: IndexedOccur
     edges: [...edges.values()].map(({ names, ...e }) => ({ ...e, ...(propagated.has(e.id) && { propagated: true }), events: [...names].sort((a, b) => (index.events.get(a)?.label ?? a).localeCompare(index.events.get(b)?.label ?? b)) })),
     mapNode,
   };
+}
+
+/** The cards and pathways of `model` that a trace went through, at whatever level `model` is drawn. */
+export function tracedParts(model: GraphModel, trace: Trace): { nodes: Set<string>; edges: Set<string> } {
+  const nodes = new Set<string>();
+  const edges = new Set<string>();
+  for (const { item } of trace.steps) {
+    for (const hop of item.hops) {
+      const src = model.mapNode(hop.src);
+      const dst = model.mapNode(hop.dst);
+      if (!src || !dst) continue;
+      nodes.add(src).add(dst);
+      if (src !== dst) edges.add(edgeId(src, dst));
+    }
+  }
+  return { nodes, edges };
 }

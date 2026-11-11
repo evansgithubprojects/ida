@@ -5,11 +5,11 @@ import {
 import '@xyflow/react/dist/style.css';
 import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { accumulate, layoutBounds, layoutSeen, NODE_H, NODE_W, type Positions, type Seen } from '../graph/layout';
-import { levelDepth, levelInto, parentLevel, processNodeId, sameLevel, serviceNodeId, serviceOfProcess, type Level, type ModelEdge, type ModelNode } from '../graph/model';
+import { levelDepth, levelInto, parentLevel, processNodeId, sameLevel, serviceNodeId, serviceOfProcess, tracedParts, type Level, type ModelEdge, type ModelNode } from '../graph/model';
 import {
   centreViewport, fitViewport, MAX_ZOOM, sameViewport, saveViewport, takeSavedViewport, MIN_ZOOM, motion, rectOnScreen, toKeyframes, ZOOM_MS, zoomFrames, type Rect, type Viewport,
 } from '../graph/zoom';
-import { useActive, useModel, useRates } from '../hooks';
+import { useActive, useModel, useRates, useTrace } from '../hooks';
 import { fmtRate, type Active, type ShownRates } from '../replay';
 import { useStore } from '../store';
 import { NodeRef } from './common';
@@ -32,6 +32,8 @@ interface ViewState {
   focusedEdgeId: string | null;
   /** Graph setting: pathways with no suspect payloads show no count and no pulse. */
   hideHealthy: boolean;
+  /** Trace mode: the cards and pathways the traced message went through; everything else fades. */
+  traced: { nodes: Set<string>; edges: Set<string> } | null;
 }
 
 const ViewCtx = createContext<ViewState | null>(null);
@@ -46,14 +48,14 @@ const RING_ID = '__ring';
 const hiddenHandle = { opacity: 0, pointerEvents: 'none' } as const;
 
 const NodeCard = memo(function NodeCard({ id }: NodeProps<RouteNode>) {
-  const { nodes, active, rates, selectedId, focusedId } = useView();
+  const { nodes, active, rates, selectedId, focusedId, traced } = useView();
   const model = nodes.get(id);
   if (!model) return null;
   const rateIn = rates?.in.get(id);
   const rateOut = rates?.out.get(id);
   const flashing = active.flashingNodes.has(id);
   const thrown = active.thrownNodes.get(id) ?? 0;
-  const cls = ['node-card', `kind-${model.kind}`, model.broker && `broker broker-${model.broker}`, flashing && 'flash', thrown > 0 && 'has-thrown', model.idle && 'idle', selectedId === id && 'selected', focusedId === id && 'focused'];
+  const cls = ['node-card', `kind-${model.kind}`, model.broker && `broker broker-${model.broker}`, flashing && 'flash', thrown > 0 && 'has-thrown', model.idle && 'idle', selectedId === id && 'selected', focusedId === id && 'focused', traced && (traced.nodes.has(id) ? 'traced' : 'dimmed')];
   return (
     <div className={cls.filter(Boolean).join(' ')} style={{ width: NODE_W, height: NODE_H }}>
       <Handle type="target" position={Position.Left} isConnectable={false} style={hiddenHandle} />
@@ -124,7 +126,7 @@ function floatingPath(source: InternalNode, target: InternalNode): [string, numb
 const PULSE_LENGTH = 0.2;
 
 const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgeProps<RouteEdge>) {
-  const { edges, active, rates, selectedId, focusedEdgeId, hideHealthy } = useView();
+  const { edges, active, rates, selectedId, focusedEdgeId, hideHealthy, traced } = useView();
   const from = useInternalNode(source);
   const to = useInternalNode(target);
   const edge = edges.get(id);
@@ -138,7 +140,9 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
   const width = 1.5 + Math.min(3, Math.log2(edge.count + 1) * 0.5);
   // Every event still on its way gets its own pulse, so a busy route shows them all instead of restarting one.
   // A selected or focused pathway stays fully drawn so inspecting it still shows something.
-  const quiet = hideHealthy && selectedId !== id && focusedEdgeId !== id;
+  const onTrace = traced?.edges.has(id);
+  const dimmed = !!traced && !onTrace;
+  const quiet = (hideHealthy && selectedId !== id && focusedEdgeId !== id) || dimmed;
   const shown = rates?.edges.get(id);
   const flights = quiet && !litFlagged ? [] : (active.pulses.get(id) ?? []);
   return (
@@ -146,22 +150,25 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
       <BaseEdge
         id={id}
         path={path}
-        className={[focusedEdgeId === id && 'edge-focused', edge.propagated && 'edge-propagated'].filter(Boolean).join(' ') || undefined}
+        className={[focusedEdgeId === id && 'edge-focused', edge.propagated && 'edge-propagated', onTrace && 'edge-traced', dimmed && 'edge-dimmed'].filter(Boolean).join(' ') || undefined}
         style={{
-          stroke: flagged ? 'var(--warn-dim)' : 'var(--edge)', strokeWidth: width, opacity: 0.75,
-          // Dotted: these events reached here in a message from another service (an ida-parent header).
-          strokeDasharray: flagged ? '7 5' : edge.propagated ? '1 5' : undefined,
-          strokeLinecap: edge.propagated && !flagged ? 'round' : undefined,
+          stroke: onTrace ? 'var(--accent)' : flagged ? 'var(--warn-dim)' : 'var(--edge)', strokeWidth: onTrace ? width + 1 : width, opacity: dimmed ? 0.15 : onTrace ? 1 : 0.75,
+          // Dashed: these events reached here in a message from another service (an ida-parent header). Long dashes:
+          // small dots, repainted under every moving pulse, cut a busy graph's frame rate in half.
+          strokeDasharray: flagged ? '7 5' : edge.propagated ? '12 8' : undefined,
         }}
       />
-      {flights.map((progress, i) => (
-        <path
-          key={i}
-          d={path} pathLength={1} fill="none" stroke={pulseColor} strokeWidth={width + 1.5} strokeLinecap="round"
-          strokeDasharray={`${PULSE_LENGTH} 2`} strokeDashoffset={PULSE_LENGTH - progress * (1 + PULSE_LENGTH)}
-          style={{ pointerEvents: 'none', filter: `drop-shadow(0 0 5px ${pulseColor})` }}
-        />
-      ))}
+      {/* The glow is a wider, faint stroke under each pulse. A CSS drop-shadow filter looks the same but makes the
+          browser repaint every pulse off-screen on every frame, which drops a busy graph to a few frames a second. */}
+      {flights.map((progress, i) => {
+        const dash = { pathLength: 1, strokeDasharray: `${PULSE_LENGTH} 2`, strokeDashoffset: PULSE_LENGTH - progress * (1 + PULSE_LENGTH) };
+        return (
+          <g key={i} style={{ pointerEvents: 'none' }}>
+            <path d={path} {...dash} fill="none" stroke={pulseColor} strokeWidth={width + 8} strokeLinecap="round" opacity={0.25} />
+            <path d={path} {...dash} fill="none" stroke={pulseColor} strokeWidth={width + 1.5} strokeLinecap="round" />
+          </g>
+        );
+      })}
       {!(quiet && !flagged) && <EdgeLabelRenderer>
         <div className={`edge-label ${selectedId === id ? 'selected' : ''} ${focusedEdgeId === id ? 'focused' : ''}`} style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}>
           <span className={shown?.spike ? 'spike' : undefined} title={shown?.spike ? `Spike: ${fmtRate(shown.value)}/s, held until the next update` : `${edge.count} in this window`}>{fmtRate(shown?.value ?? 0)}/s</span>
@@ -209,6 +216,8 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
   const focus = useStore((s) => s.focus);
   const setLevel = useStore((s) => s.setLevel);
   const hideHealthy = useStore((s) => s.hideHealthy);
+  const trace = useTrace();
+  const traced = useMemo(() => (model && trace ? tracedParts(model, trace) : null), [model, trace]);
   const { setViewport, getViewport } = useReactFlow<AnyNode, RouteEdge>();
 
   // Re-layout only when the shape of the graph changes, not on every count update.
@@ -309,9 +318,9 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
     () => (model && active ? {
       nodes: new Map(model.nodes.map((n) => [n.id, n])), edges: new Map(model.edges.map((e) => [e.id, e])), active, rates: rates?.shown ?? null,
       selectedId: selection && selection.type !== 'occurrence' && selection.type !== 'event' ? selection.id : null,
-      focusedId, focusedEdgeId: focusedEdge?.id ?? null, hideHealthy,
+      focusedId, focusedEdgeId: focusedEdge?.id ?? null, hideHealthy, traced,
     } : null),
-    [model, active, rates, selection, focusedId, focusedEdge, hideHealthy],
+    [model, active, rates, selection, focusedId, focusedEdge, hideHealthy, traced],
   );
 
   if (!model || !view || !lay) return null;

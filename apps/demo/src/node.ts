@@ -12,6 +12,8 @@ import { createShop } from './shop';
  *   npm run node -w @ida-dev/demo [-- --outage]   (reads IDA_PROJECT_KEY from apps/demo/.env)
  * The attack simulator is served at http://localhost:5175 (DEMO_PORT): brute force and corrupt-request overload.
  * `--outage` cuts the connection for 8 s out of every 20, to watch the spool and the recovery.
+ * `--brokers` (or DEMO_BROKERS=1) also sends orders through Kafka and RabbitMQ to `warehouse` and `shipping`, for the
+ * system view. `npm run dev` starts the brokers and turns it on; alone, start them with `npm run brokers`.
  */
 try { process.loadEnvFile(); } catch { /* no .env */ }
 const waitForKey = (): Promise<never> => {
@@ -65,6 +67,20 @@ const markExternal = (fn: Function) => { shop.markExternal(fn); payments.markExt
 const auth = createAuth(label, markExternal);
 const app = createShop(auth, label, markExternal);
 const attacks = createAttacks(auth);
+
+// The broker leg (Kafka + RabbitMQ, see brokers.ts) is opt-in so the demo runs without Docker.
+if (process.argv.includes('--brokers') || ['1', 'true'].includes(process.env.DEMO_BROKERS ?? '')) {
+  const { startBrokers } = await import('./brokers');
+  const brokers = await startBrokers({
+    payments,
+    warehouse: connectRecorder('warehouse', options),
+    shipping: connectRecorder('shipping', options),
+    paymentsBus: app.payments,
+  });
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.once(signal, () => { void brokers.close().finally(() => process.exit(0)); });
+  }
+}
 
 let rounds = 0;
 startDashboard({ port: Number(process.env.DEMO_PORT) || 5175, attacks, auth, idaUrl: process.env.IDA_URL ?? 'http://localhost:5173', normal: () => ({ rounds }) });

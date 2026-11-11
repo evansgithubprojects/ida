@@ -343,3 +343,27 @@ describe('an occurrence sent again', () => {
     expect(rows[0]!.data).toMatchObject({ durationMs: 80 });
   });
 });
+
+describe('session peers', () => {
+  it("names the other end of each of a session's broker messages, by service", async () => {
+    const { projectId, key } = await newProject();
+    const a = randomUUID(), b = randomUUID();
+    await ingest(key, batch('checkout', a, T0, producer(10)));
+    await ingest(key, batch('payments', b, T0 + 5, consumer(20, { sessionId: a, occurrenceId: 'e1' })));
+    const topic = { id: TOPIC, label: 'orders', kind: 'topic', broker: { type: 'kafka' } };
+
+    const pub = await call('GET', `/v1/sessions/${a}/peers`, as('user-a'));
+    expect(pub).toMatchObject({ status: 200, body: { consumedBy: [{ occurrenceId: 'e1', service: 'payments', broker: topic }], publishedBy: [] } });
+    const sub = await call('GET', `/v1/sessions/${b}/peers`, as('user-a'));
+    expect(sub.body).toEqual({ consumedBy: [], publishedBy: [{ occurrenceId: 'e1', service: 'checkout', broker: topic }] });
+    // A live view asks by recorder: its newest session.
+    expect((await call('GET', `/v1/projects/${projectId}/recorders/payments/peers`, as('user-a'))).body).toEqual(sub.body);
+  });
+
+  it('is a 404 for someone without access', async () => {
+    const { key } = await newProject();
+    const a = randomUUID();
+    await ingest(key, batch('checkout', a, T0, producer(10)));
+    expect((await call('GET', `/v1/sessions/${a}/peers`, as('user-z'))).status).toBe(404);
+  });
+});

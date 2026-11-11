@@ -44,6 +44,12 @@ export async function openPglite(dir?: string): Promise<Db> {
   if (dir && !dir.includes('://')) await mkdir(dir, { recursive: true });
   const db = new PGlite(dir, { parsers: { [types.INT8]: (v: string) => Number(v) } });
   await db.waitReady;
+  // Postgres keeps up to max_wal_size (1 GB) of write-ahead log for reuse: most of a dev database's size on disk.
+  // Takes effect from the next start (PGlite has no reload).
+  if (dir && !dir.includes('://')) {
+    await db.exec(`alter system set max_wal_size = '96MB'`);
+    await db.exec(`alter system set min_wal_size = '32MB'`);
+  }
   return {
     async query(sql, params) {
       return (await db.query(sql, params)).rows as never;

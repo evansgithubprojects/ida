@@ -1,5 +1,5 @@
 import type { Recording } from '@ida-dev/core';
-import type { SystemView } from '../replay/system';
+import type { SessionPeers, SystemView } from '../replay/system';
 import { API_URL, supabase } from './supabase';
 
 export interface Project { id: string; name: string; orgId: string; /** What the signed-in user may do here. Only sent when fetching one project. */ access?: 'viewer' | 'editor' | 'admin'; createdAt: string; recorders?: number; lastSeenAt?: string | null }
@@ -88,6 +88,10 @@ export const api = {
   recorders: (id: string) => request<RecorderSummary[]>('GET', `${p(id)}/recorders`),
   sessions: (id: string, key: string) => request<SessionSummary[]>('GET', `${r(id, key)}/sessions`),
   recording: (sessionId: string) => request<Recording>('GET', `/v1/sessions/${sessionId}/recording`),
+  /** Who consumed what a session published, and who published what it consumed. */
+  sessionPeers: (sessionId: string) => request<SessionPeers>('GET', `/v1/sessions/${sessionId}/peers`),
+  /** The same for a recorder's newest session, which its live view shows. */
+  recorderPeers: (id: string, key: string) => request<SessionPeers>('GET', `${r(id, key)}/peers`),
   /** Every service's events between `from` and `to` (epoch ms, at most 24 h apart), merged and linked. */
   system: (id: string, from: number, to: number) => request<SystemView>('GET', `${p(id)}/system?from=${Math.floor(from)}&to=${Math.ceil(to)}`),
   /** A URL for the recorder's live stream, valid to connect to for a minute. */

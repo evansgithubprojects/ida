@@ -9,6 +9,7 @@ import { allows, ensureUser, projectAccess, visibleProjects, type Access } from 
 import type { User, VerifyUser } from './auth';
 import type { Db } from './db';
 import { ingest, parseBatch, SessionConflict } from './ingest';
+import { sessionPeers } from './peers';
 import { newIngestKey, parseIngestKey, sameHash, signStreamToken, verifyStreamToken } from './keys';
 import { notFound, cleanName, iso, UUID } from './http';
 import { rateLimiter } from './limit';
@@ -417,6 +418,26 @@ export function createApp(opts: AppOptions) {
     if (to - from > SYSTEM_MAX_WINDOW_MS) return c.json({ error: 'the window can be at most 24 hours' }, 400);
     if (!Number.isInteger(limit) || limit < 1 || limit > SYSTEM_MAX_OCCURRENCES) return c.json({ error: `limit must be 1-${SYSTEM_MAX_OCCURRENCES}` }, 400);
     return c.json(await systemView(db, g.id, from, to, limit));
+  });
+
+  // The other ends of a session's Kafka / RabbitMQ messages, so a single service's view can draw them.
+  app.get('/v1/sessions/:sessionId/peers', async (c) => {
+    const id = c.req.param('sessionId');
+    if (!UUID.test(id)) return notFound(c);
+    const [owner] = await db.query<{ project_id: string }>(
+      'select r.project_id from sessions s join recorders r on r.id = s.recorder_id where s.id = $1',
+      [id],
+    );
+    if (!owner || !(await projectAccess(db, c.get('user').id, owner.project_id))) return notFound(c);
+    return c.json(await sessionPeers(db, owner.project_id, id));
+  });
+
+  // The same for a recorder's newest session: what its live view shows.
+  app.get('/v1/projects/:projectId/recorders/:recorderKey/peers', async (c) => {
+    const r = await ownRecorder(c);
+    if (r instanceof Response) return r;
+    const session = await latestSession(db, r.id);
+    return c.json(session ? await sessionPeers(db, c.req.param('projectId'), session) : { consumedBy: [], publishedBy: [] });
   });
 
   app.get('/v1/sessions/:sessionId/recording', async (c) => {

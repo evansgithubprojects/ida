@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { topLevel, type Level } from './graph/model';
 import { ZOOM_MS } from './graph/zoom';
 import { buildIndex, capWindow, keepNewest, parseRunId, parseThrowId, windowAround, type ReplayIndex } from './replay';
-import type { SystemView } from './replay/system';
+import type { SessionPeers, SystemView } from './replay/system';
 
 export const SPEEDS = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4];
 /** Wall-clock lengths of the lit fade and the red flash, scaled to recording time by playback speed. */
@@ -52,6 +52,18 @@ export function focusTargetOf(index: ReplayIndex | null, sel: NonNullable<Select
   }
 }
 
+/** The occurrence a selection is about, when it names one: what trace mode can start from. */
+export function occurrenceOfSelection(index: ReplayIndex | null, sel: Selection): string | null {
+  if (!index || !sel) return null;
+  switch (sel.type) {
+    case 'occurrence': return index.byId.has(sel.id) ? sel.id : null;
+    case 'run': return parseRunId(index, sel.id)?.occurrenceId ?? null;
+    case 'throw': return parseThrowId(index, sel.id)?.occurrenceId ?? null;
+    case 'finding': return index.findingsById.get(sel.id)?.occurrenceId ?? null;
+    default: return null;
+  }
+}
+
 /** Events, errors, payloads and runs mean the same thing at every zoom level, so inspecting one survives a zoom. */
 const levelFree = (t: Selection) => t?.type === 'event' || t?.type === 'throw' || t?.type === 'finding' || t?.type === 'run';
 
@@ -93,6 +105,10 @@ interface State {
   liveShift: Map<string, number>;
   /** Live follows the stream's newest events with no timeline; Replay opens the scrub window. Saved recordings are always Replay. */
   mode: 'live' | 'replay';
+  /** Trace mode: one occurrence whose whole causal tree is highlighted (see `traceOf`). Survives zooms and selections. */
+  trace: { occurrenceId: string } | null;
+  /** A single service's view: the services its broker messages came from and went to (see `buildIndex`). */
+  peers: SessionPeers | null;
 
   setMode(mode: 'live' | 'replay'): void;
   /** `system` is the rest of a system view, when `recording` is one: it opens on the services. */
@@ -115,6 +131,11 @@ interface State {
   selectAt(selection: NonNullable<Selection>, occurrenceId: string): void;
   /** Inspects a handler: zooms into its process if needed, selects it and pans the graph to it. */
   inspectNode(rawNodeId: string): void;
+  /** Traces an occurrence's causal tree across services, and inspects it. */
+  startTrace(occurrenceId: string): void;
+  endTrace(): void;
+  /** Draws the other ends of this service's broker messages; kept until `unload`. */
+  setPeers(peers: SessionPeers | null): void;
   /** `name` is shown as the source instead of the URL. */
   connectLive(url: string, name?: string): void;
   disconnectLive(): void;
@@ -219,7 +240,7 @@ export const useStore = create<State>()((set, get) => {
   function applyRecording(streamed: Recording, live: boolean, name?: string, system?: Omit<SystemView, 'recording'>) {
     // A live stream never ends, so only its newest events are kept. A saved recording is loaded whole.
     const recording = live ? keepNewest(streamed) : streamed;
-    const index = buildIndex(recording, system);
+    const index = buildIndex(recording, system, get().peers);
     const s = get();
     const keepView = live && s.index !== null;
     const mode: 'live' | 'replay' = keepView ? s.mode : live ? 'live' : 'replay';
@@ -241,6 +262,7 @@ export const useStore = create<State>()((set, get) => {
       level: keepView ? s.level : topLevel(index),
       selection: keepView ? s.selection : null,
       trail: keepView ? s.trail : [],
+      trace: keepView ? s.trace : null,
       playing: false,
       following, mode,
       liveShift: following && live && keepView ? shiftsFor(s.index, index, s.t, s.liveShift) : new Map(),
@@ -249,7 +271,7 @@ export const useStore = create<State>()((set, get) => {
 
   return {
     recording: null, index: null, sourceName: '', t: 0, playing: false, speed: 1, window: [0, 0],
-    level: { kind: 'process' }, ...loadSettings(), selection: null, trail: [], focus: null, live: 'off', following: true, mode: 'live', liveShift: new Map(),
+    level: { kind: 'process' }, ...loadSettings(), selection: null, trail: [], focus: null, live: 'off', following: true, mode: 'live', liveShift: new Map(), trace: null, peers: null,
 
     load(recording, name, system) {
       get().disconnectLive();
@@ -323,6 +345,18 @@ export const useStore = create<State>()((set, get) => {
       reveal(selection, { t: ts, playing: false, following: false, mode: 'replay', window: trailing(index, window, ts) });
     },
     inspectNode(nodeId) { reveal({ type: 'node', id: nodeId }); },
+    startTrace(occurrenceId) {
+      if (!get().index?.byId.has(occurrenceId)) return;
+      set({ trace: { occurrenceId } });
+      get().seekToOccurrence(occurrenceId);
+    },
+    endTrace() { set({ trace: null }); },
+    setPeers(peers) {
+      const { recording, index } = get();
+      set({ peers });
+      // Only a single service's view takes peers; a system view already holds every side.
+      if (recording && index && !index.system) set({ index: buildIndex(recording, null, peers) });
+    },
 
     connectLive(url, name) {
       get().disconnectLive();
@@ -375,7 +409,7 @@ export const useStore = create<State>()((set, get) => {
     },
     unload() {
       get().disconnectLive();
-      set({ recording: null, index: null, sourceName: '', selection: null, trail: [], focus: null, playing: false, level: { kind: 'process' } });
+      set({ recording: null, index: null, sourceName: '', selection: null, trail: [], focus: null, playing: false, level: { kind: 'process' }, trace: null, peers: null });
     },
   };
 });

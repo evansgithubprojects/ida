@@ -2,7 +2,7 @@ import type { Finding } from '@ida-dev/core';
 import { memo, useDeferredValue, useMemo, useRef, useState } from 'react';
 import { useModel, useRates } from '../hooks';
 import { levelInto, serviceOfProcess, type GraphModel, type ModelNode } from '../graph/model';
-import { RATE_HISTORY, activityOf, chainOf, errorCode, throwIdFor, countFired, edgeId, eventKey, eventLabel, inWindow, isProblemRun, notifications, parseRunId, parseThrowId, recipientsOf, runById, throwId, type IndexedOccurrence, type Notification, type ReplayIndex, type Run, type Tier } from '../replay';
+import { RATE_HISTORY, activityOf, chainOf, errorCode, throwIdFor, countFired, edgeId, eventKey, eventLabel, inWindow, isProblemRun, notifications, parseRunId, parseThrowId, recipientsOf, runById, serviceOfOccurrence, throwId, type IndexedOccurrence, type Notification, type ReplayIndex, type Run, type Tier } from '../replay';
 import { TRAIL_MAX, useStore, type LiveStatus, type Selection } from '../store';
 import { Badge, CallChain, ErrorId, CaptureBadge, EventLink, EventRef, FindingBadges, FindingChain, FindingSummary, fmtMs, HandlerLink, InspectLink, Json, NodeRef, RateChart, Section, shortValue } from './common';
 
@@ -350,7 +350,7 @@ function CrossService({ index, item }: { index: ReplayIndex; item: IndexedOccurr
   const link = sys.links.get(item.occ.id);
   const serviceOf = (occId: string) => {
     const i = index.byId.get(occId);
-    return i ? sys.nodeService.get(i.occ.sourceNodeId) ?? sys.nodeService.get(i.template.handlerIds[0] ?? '') : undefined;
+    return i ? serviceOfOccurrence(index, i) : undefined;
   };
   return (
     <>
@@ -680,6 +680,8 @@ export function OccurrenceDetail({ index, id }: { index: ReplayIndex; id: string
 /** When and where an event happened, who handled it, and (unless `chain` is false) the events that led to it. */
 function EventFacts({ index, item, chain: showChain = true }: { index: ReplayIndex; item: IndexedOccurrence; chain?: boolean }) {
   const seek = useStore((s) => s.seekToOccurrence);
+  const startTrace = useStore((s) => s.startTrace);
+  const tracing = useStore((s) => s.trace?.occurrenceId === item.occ.id);
   const chain = chainOf(index, item.occ.id);
   const showNode = (nid: string) => <HandlerLink id={nid} />;
   const results = item.occ.handlerResults;
@@ -706,6 +708,11 @@ function EventFacts({ index, item, chain: showChain = true }: { index: ReplayInd
           <MetaFact key={k} name={k} value={v} />
         ))}
       </dl>
+      {!tracing && (
+        <button className="trace-start" onClick={() => startTrace(item.occ.id)} title="Highlight everything that led to this event and everything it caused, across services (T)">
+          Trace this {index.system ? 'message across services' : 'event'}
+        </button>
+      )}
       {showChain && <div className="chain" aria-label="Causal chain">
         {chain.map((c, k) => (
           <span key={c.occ.id}>

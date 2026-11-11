@@ -5,7 +5,7 @@ import { useApi } from '../cloud/useApi';
 
 const NEW = '__new__';
 
-/** Header control for moving between the organizations the user belongs to. */
+/** Org page control for moving between the organizations the user belongs to. */
 export function OrgSwitcher() {
   const { orgId } = useParams();
   const navigate = useNavigate();

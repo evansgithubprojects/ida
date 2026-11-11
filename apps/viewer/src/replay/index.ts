@@ -1,5 +1,5 @@
 import type { Finding, GraphNode, Occurrence, Process, Recording, Template } from '@ida-dev/core';
-import { buildServiceIndex, type ServiceIndex, type SystemView } from './system';
+import { buildServiceIndex, type ServiceIndex, type SessionPeers, type SystemView } from './system';
 import { compareRank, findingRank, throwRank, tierOf, type Rank, type Tier } from './severity';
 export type { Tier } from './severity';
 
@@ -35,6 +35,8 @@ export interface ReplayIndex {
   events: Map<string, EventInfo>;
   items: IndexedOccurrence[];
   byId: Map<string, IndexedOccurrence>;
+  /** Occurrence id -> the occurrences it caused (their `parentId`), oldest first. Crosses services in a system view. */
+  children: Map<string, string[]>;
   nodes: Map<string, GraphNode>;
   /** Handlers (and emitters) that deliver to an external system. */
   externalNodes: Set<string>;
@@ -156,10 +158,18 @@ export function runById(index: ReplayIndex, id: string): Run | null {
 /** A run that threw, or whose payload is suspected corrupt. */
 export const isProblemRun = (index: ReplayIndex, run: Run) => !!run.error || index.findingsByOcc.has(run.item.occ.id);
 
-/** `system` is the rest of a system view, when `recording` is one. */
-export function buildIndex(recording: Recording, system?: Omit<SystemView, 'recording'> | null): ReplayIndex {
+/** A process standing for another service, drawn in a single service's view where its messages went (see `peers`). */
+export const PEER_PREFIX = 'peer:';
+export const isPeerProcess = (processId: string) => processId.startsWith(PEER_PREFIX);
+
+/**
+ * `system` is the rest of a system view, when `recording` is one. `peers` is for a single service's view: the other
+ * services its Kafka and RabbitMQ messages came from and went to, drawn as extra hops through the broker.
+ */
+export function buildIndex(recording: Recording, system?: Omit<SystemView, 'recording'> | null, peers?: SessionPeers | null): ReplayIndex {
   const templates = new Map(recording.templates.map((t) => [t.id, t]));
   const nodes = new Map(recording.nodes.map((n) => [n.id, n]));
+  const processes = new Map(recording.processes.map((p) => [p.id, p]));
   const findingsByOcc = new Map<string, Finding[]>();
   const findingsById = new Map<string, Finding>();
   const findingsBySource = new Map<string, Finding[]>();
@@ -212,12 +222,20 @@ export function buildIndex(recording: Recording, system?: Omit<SystemView, 'reco
     const marked = t.handlerIds.filter((id) => t.external!.includes(nodes.get(id)?.label ?? ''));
     for (const id of marked.length ? marked : [t.emitterId]) externalNodes.add(id);
   }
+  if (peers && !system) addPeerHops(peers, items, nodes, processes);
+  const children = new Map<string, string[]>();
+  for (const { occ } of items) {
+    if (!occ.parentId) continue;
+    const list = children.get(occ.parentId);
+    if (list) list.push(occ.id);
+    else children.set(occ.parentId, [occ.id]);
+  }
   const start = items.length ? (items[0] as IndexedOccurrence).occ.ts : 0;
   const end = items.reduce((m, i) => Math.max(m, i.occ.ts + i.occ.durationMs), start);
   return {
-    recording, events, items, byId: new Map(items.map((i) => [i.occ.id, i])), nodes, externalNodes,
-    processLabel: new Map(recording.processes.map((p) => [p.id, p.label])),
-    processes: new Map(recording.processes.map((p) => [p.id, p])),
+    recording, events, items, byId: new Map(items.map((i) => [i.occ.id, i])), children, nodes, externalNodes,
+    processLabel: new Map([...processes.values()].map((p) => [p.id, p.label])),
+    processes,
     system: system ? buildServiceIndex(system, recording) : null,
     findingsByOcc, findingsById, findingsBySource, propagations, start, end,
     // A system view's times count from its window, which can start long before anything happened: count from the
@@ -226,7 +244,63 @@ export function buildIndex(recording: Recording, system?: Omit<SystemView, 'reco
   };
 }
 
+/**
+ * Adds the far side of each linked broker message to its occurrence's hops: a publish goes on through the broker to
+ * the service that consumed it, and a consume comes from the service that published it. A RabbitMQ message published
+ * to an exchange and consumed from a queue also gets the exchange-to-queue route.
+ */
+function addPeerHops(peers: SessionPeers, items: IndexedOccurrence[], nodes: Map<string, GraphNode>, processes: Map<string, Process>) {
+  const byId = new Map(items.map((i) => [i.occ.id, i]));
+  const service = (key: string) => {
+    const id = `${PEER_PREFIX}${key}`;
+    if (!processes.has(id)) processes.set(id, { id, label: key });
+    if (!nodes.has(id)) nodes.set(id, { id, label: key, kind: 'emitter', processId: id });
+    return id;
+  };
+  /** The far side's broker node, when it isn't the one this side used. */
+  const brokerNode = (b: NonNullable<SessionPeers['consumedBy'][number]['broker']>, here: string) => {
+    if (nodes.get(here)?.processId === b.id) return null;
+    if (!processes.has(b.id)) processes.set(b.id, { id: b.id, label: b.label, kind: b.kind, ...(b.broker && { broker: b.broker }) });
+    const id = `${b.id}/${PEER_PREFIX}emitter`;
+    if (!nodes.has(id)) nodes.set(id, { id, label: b.label, kind: 'emitter', processId: b.id });
+    return id;
+  };
+  const add = (item: IndexedOccurrence, hops: Hop[]) => {
+    for (const h of hops) if (!item.hops.some((x) => x.src === h.src && x.dst === h.dst)) item.hops.push(h);
+  };
+  for (const link of peers.consumedBy) {
+    const item = byId.get(link.occurrenceId);
+    if (!item) continue;
+    const here = item.template.emitterId;
+    const peer = service(link.service);
+    const far = link.broker ? brokerNode(link.broker, here) : null;
+    add(item, far ? [{ src: here, dst: far }, { src: far, dst: peer }] : [{ src: here, dst: peer }]);
+  }
+  for (const link of peers.publishedBy) {
+    const item = byId.get(link.occurrenceId);
+    if (!item) continue;
+    const here = item.template.emitterId;
+    const peer = service(link.service);
+    const far = link.broker ? brokerNode(link.broker, here) : null;
+    add(item, far ? [{ src: peer, dst: far }, { src: far, dst: here }] : [{ src: peer, dst: here }]);
+  }
+}
+
 export const edgeId = (src: string, dst: string) => `${src}>${dst}`;
+
+const BROKER_KINDS = new Set(['topic', 'exchange', 'queue']);
+
+/**
+ * Whether a hop end counts toward the in/out of the card it is drawn on. A broker's card counts messages: those that
+ * reach its topic, exchange or queue, and those it delivers. A consumer's handler is drawn inside the broker (it
+ * consumes there), but what that handler does next is the consumer's, not more traffic through the broker.
+ */
+export function countsOnCard(index: ReplayIndex, rawId: string, mappedId: string): boolean {
+  if (rawId === mappedId) return true;
+  const n = index.nodes.get(rawId);
+  if (!n || mappedId !== `p:${n.processId}` || !BROKER_KINDS.has(index.processes.get(n.processId)?.kind ?? '')) return true;
+  return n.kind === 'emitter';
+}
 
 export interface ActiveOptions {
   /** How long a lit pathway takes to fade, in recording ms. */
@@ -465,6 +539,71 @@ export function chainOf(index: ReplayIndex, occurrenceId: string): IndexedOccurr
   return chain;
 }
 
+/** The service an occurrence ran in, in a system view: its emitting node's, else its first handler's. */
+export function serviceOfOccurrence(index: ReplayIndex, item: IndexedOccurrence): string | undefined {
+  const sys = index.system;
+  if (!sys) return undefined;
+  return sys.nodeService.get(item.occ.sourceNodeId) ?? sys.nodeService.get(item.template.handlerIds[0] ?? '') ?? undefined;
+}
+
+export interface TraceStep {
+  item: IndexedOccurrence;
+  /** Steps from the trace's root: branches of the tree sit deeper. */
+  depth: number;
+  /** In a system view, the service it ran in. */
+  service?: string;
+  /** Set when the event is a message on a topic, exchange or queue. */
+  broker?: { type: 'kafka' | 'rabbitmq'; kind: Process['kind']; name: string };
+  /** For a message consumed from another service: how long after its publish it was handled. */
+  lagMs?: number;
+}
+
+export interface Trace {
+  /** The occurrence the trace was started from. */
+  occurrenceId: string;
+  /** What led to it, everything it caused, and itself, oldest first. */
+  steps: TraceStep[];
+  ids: Set<string>;
+  /** Some of the story is missing: the root's cause is outside the window or was never recorded. */
+  truncated: boolean;
+}
+
+/**
+ * One message's whole causal tree: the chain that led to `occurrenceId` and everything it caused, across every
+ * service and broker in a system view (where consumed messages point at their publish), or inside one recording.
+ */
+export function traceOf(index: ReplayIndex, occurrenceId: string): Trace | null {
+  const start = index.byId.get(occurrenceId);
+  if (!start) return null;
+  const chain = chainOf(index, occurrenceId);
+  const depth = new Map<string, number>(chain.map((c, k) => [c.occ.id, k]));
+  const queue = [occurrenceId];
+  while (queue.length) {
+    const id = queue.shift()!;
+    for (const child of index.children.get(id) ?? []) {
+      if (depth.has(child) || !index.byId.has(child)) continue;
+      depth.set(child, depth.get(id)! + 1);
+      queue.push(child);
+    }
+  }
+  const steps = [...depth.keys()].map((id) => index.byId.get(id)!).sort((a, b) => a.occ.ts - b.occ.ts).map((item): TraceStep => {
+    const step: TraceStep = { item, depth: depth.get(item.occ.id)! };
+    const service = serviceOfOccurrence(index, item);
+    if (service) step.service = service;
+    const proc = index.processes.get(index.nodes.get(item.template.emitterId)?.processId ?? '');
+    if (proc?.broker && (proc.kind === 'topic' || proc.kind === 'exchange' || proc.kind === 'queue')) {
+      step.broker = { type: proc.broker.type, kind: proc.kind, name: proc.label };
+    }
+    const parent = item.occ.causality === 'propagated' && item.occ.parentId ? index.byId.get(item.occ.parentId) : undefined;
+    if (parent) step.lagMs = item.occ.ts - parent.occ.ts;
+    return step;
+  });
+  const root = chain[0]!;
+  const rootLink = index.system?.links.get(root.occ.id);
+  const truncated = (!!root.occ.parentId && !index.byId.has(root.occ.parentId)) || (!!rootLink && rootLink.status !== 'in-view');
+  return { occurrenceId, steps, ids: new Set(depth.keys()), truncated };
+}
+
 export type ChainStep = { kind: 'event'; item: IndexedOccurrence } | { kind: 'handler'; nodeId: string };
 
 /**
@@ -580,7 +719,7 @@ interface RateOptions {
 }
 
 /** Calls `visit` for every hop of every event that plays in `[lo, hi)`, scanning from item `scanFrom`. */
-function eachPlayedHop(index: ReplayIndex, lo: number, hi: number, opts: RateOptions, scanFrom: number, visit: (src: string, dst: string, at: number) => void): void {
+function eachPlayedHop(index: ReplayIndex, lo: number, hi: number, opts: RateOptions, scanFrom: number, visit: (src: string, dst: string, at: number, hop: Hop) => void): void {
   const map = opts.mapNode ?? ((id: string) => id);
   for (let i = scanFrom; i < index.items.length; i++) {
     const { occ, hops } = index.items[i] as IndexedOccurrence;
@@ -590,7 +729,7 @@ function eachPlayedHop(index: ReplayIndex, lo: number, hi: number, opts: RateOpt
     for (const hop of hops) {
       const src = map(hop.src);
       const dst = map(hop.dst);
-      if (src && dst) visit(src, dst, at);
+      if (src && dst) visit(src, dst, at, hop);
     }
   }
 }
@@ -605,10 +744,10 @@ export function rateSeries(index: ReplayIndex, t: number, opts: RateOptions = {}
     if (!row) m.set(k, (row = new Array<number>(RATE_HISTORY).fill(0)));
     row[slot]! += 1;
   };
-  eachPlayedHop(index, lo, hi, opts, 0, (src, dst, at) => {
+  eachPlayedHop(index, lo, hi, opts, 0, (src, dst, at, hop) => {
     const slot = Math.floor((at - lo) / RATE_STEP_MS);
-    add(out.in, dst, slot);
-    add(out.out, src, slot);
+    if (countsOnCard(index, hop.dst, dst)) add(out.in, dst, slot);
+    if (countsOnCard(index, hop.src, src)) add(out.out, src, slot);
     if (src !== dst) add(out.edges, edgeId(src, dst), slot);
   });
   // Counted whole, then turned into per-second rates, so a steady 4/s reads exactly 4.
@@ -638,9 +777,9 @@ export function recentRates(index: ReplayIndex, t: number, opts: RateOptions & {
   const lo = t - SPIKE_WINDOW_MS + NUDGE;
   const out: RecentRates = { edges: new Map(), in: new Map(), out: new Map() };
   const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1000 / SPIKE_WINDOW_MS);
-  eachPlayedHop(index, lo, t + NUDGE, opts, firstAtOrAfter(index.items, lo - (opts.maxShiftMs ?? 0)), (src, dst) => {
-    bump(out.in, dst);
-    bump(out.out, src);
+  eachPlayedHop(index, lo, t + NUDGE, opts, firstAtOrAfter(index.items, lo - (opts.maxShiftMs ?? 0)), (src, dst, _at, hop) => {
+    if (countsOnCard(index, hop.dst, dst)) bump(out.in, dst);
+    if (countsOnCard(index, hop.src, src)) bump(out.out, src);
     if (src !== dst) bump(out.edges, edgeId(src, dst));
   });
   return out;

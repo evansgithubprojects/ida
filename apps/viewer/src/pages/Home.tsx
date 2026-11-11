@@ -137,7 +137,7 @@ export function Home() {
       </section>
 
       <section className="landing-section" id="integrations">
-        <h3>Works with what your events go through</h3>
+        <h3>Works with popular event brokers</h3>
         <p className="muted">In-process emitters, and Kafka and RabbitMQ between services, linked from the service that sent each message to the one that handled it.</p>
         <IntegrationGrid />
       </section>

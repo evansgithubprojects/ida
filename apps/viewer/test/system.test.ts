@@ -109,7 +109,9 @@ describe('system view', () => {
   it('inside a broker: the handlers of every service that consumes from it', () => {
     const m = buildModel(index(), { kind: 'handlers', processId: ORDERS });
     expect(m.nodes.filter((n) => n.kind !== 'stub').map((n) => n.label).sort()).toEqual(['charge', 'orders']);
-    expect(m.nodes.find((n) => n.id === 'p:A/p1')).toMatchObject({ kind: 'stub', detail: 'in checkout' });
+    // The services around it stand as one card each; a service that never touched this broker isn't drawn.
+    expect(m.nodes.filter((n) => n.kind === 'stub').map((n) => `${n.id} ${n.detail}`).sort()).toEqual(['s:checkout other service', 's:payments other service']);
+    expect(m.edges.map((e) => `${e.source} > ${e.target}`).sort()).toEqual([`${ORDERS}/emitter > B/h1`, `B/h1 > s:payments`, `s:checkout > ${ORDERS}/emitter`].sort());
   });
 
   it('zooms in and out along services, processes and handlers', () => {
@@ -168,7 +170,10 @@ describe('system view', () => {
     expect(plain.system).toBeNull();
     expect(topLevel(plain)).toEqual({ kind: 'process' });
     expect(parentLevel(plain, { kind: 'handlers', processId: 'A/p1' })).toEqual({ kind: 'process' });
-    expect(buildModel(plain, { kind: 'process' }).nodes.every((n) => n.kind === 'process' && !n.broker)).toBe(true);
+    // A single recording draws its brokers in their shapes too, so one service's view shows what it talks to.
+    const model = buildModel(plain, { kind: 'process' });
+    expect(model.nodes.every((n) => n.kind === 'process')).toBe(true);
+    expect(model.nodes.filter((n) => n.broker).map((n) => `${n.broker} ${n.label}`).sort()).toEqual(['topic orders', 'topic stock']);
   });
 
   it('the store opens a system view on its services', () => {

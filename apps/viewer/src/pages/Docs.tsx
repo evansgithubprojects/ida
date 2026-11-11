@@ -1,4 +1,4 @@
-import { Link, NavLink, useParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { API_URL } from '../cloud/supabase';
 import { SETUPS, SOURCES, languagesFor, type Source } from '../components/SetupSnippet';
 
@@ -16,16 +16,17 @@ const BROKER_NOTES: Partial<Record<Source, string[]>> = {
   ],
 };
 
-/** Setup for one event source in every language that supports it; `/docs` alone lists the sources. */
+/** Setup for one event source in the language picked (`?lang=`); `/docs` alone lists the sources. */
 export function Docs() {
   const { integration } = useParams();
+  const [params, setParams] = useSearchParams();
   const source = SOURCES.find((s) => s.id === integration);
+  const languages = source ? languagesFor(source.id) : [];
+  // An unknown or unsupported ?lang= falls back to the source's first language.
+  const language = languages.find((l) => l.id === params.get('lang')) ?? languages[0];
 
   return (
     <div className="page docs">
-      <nav className="docs-nav" aria-label="Integrations">
-        {SOURCES.map((s) => <NavLink key={s.id} to={`/docs/${s.id}`}>{s.label}</NavLink>)}
-      </nav>
       {!source ? (
         integration ? (
           <>
@@ -35,7 +36,7 @@ export function Docs() {
         ) : (
           <>
             <h2>Integrations</h2>
-            <p className="muted">Pick what your app's events go through. Each page has the setup for every language that supports it.</p>
+            <p className="muted">Pick what your app's events go through. Each page has the setup for the languages that support it.</p>
             <IntegrationGrid />
           </>
         )
@@ -46,11 +47,26 @@ export function Docs() {
           <p className="muted">
             Make an ingest key in your project first, and set it as <code>IDA_PROJECT_KEY</code>. Uploads go to <code>{API_URL}</code>.
           </p>
-          {languagesFor(source.id).map((l) => {
-            const setup = SETUPS[l.id][source.id]!;
+          {languages.length > 1 && (
+            <div className="tabs" role="tablist" aria-label="Language">
+              {languages.map((l) => (
+                <button
+                  key={l.id}
+                  role="tab"
+                  aria-selected={language?.id === l.id}
+                  className={language?.id === l.id ? 'current' : ''}
+                  onClick={() => setParams({ lang: l.id }, { replace: true })}
+                >
+                  {l.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {language && (() => {
+            const setup = SETUPS[language.id][source.id]!;
             return (
-              <section key={l.id} className="panel-section">
-                <h3>{l.label}{setup.library && <span className="muted"> · {setup.library}</span>}</h3>
+              <section className="panel-section" role={languages.length > 1 ? 'tabpanel' : undefined}>
+                <h3>{language.label}{setup.library && <span className="muted"> · {setup.library}</span>}</h3>
                 <pre className="snippet">{`${setup.install}\n\n${setup.code('ida_…', API_URL)}`}</pre>
                 {setup.example && (
                   <>
@@ -60,7 +76,7 @@ export function Docs() {
                 )}
               </section>
             );
-          })}
+          })()}
           {BROKER_NOTES[source.id] && (
             <section className="panel-section">
               <h3>What is recorded</h3>
