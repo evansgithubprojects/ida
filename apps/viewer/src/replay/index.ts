@@ -540,7 +540,7 @@ const notificationGroup = (n: Notification) => (n.kind === 'throw' ? 1 : n.unatt
 
 /**
  * Throws and findings among `items`: corrupt payloads traced to an error first, then errors, then corrupt payloads
- * with no error thrown. Oldest first within each.
+ * with no error thrown. Within each, those reaching an external system come first, then oldest first.
  */
 export function notifications(index: ReplayIndex, items: IndexedOccurrence[]): Notification[] {
   const out: Notification[] = [];
@@ -555,7 +555,7 @@ export function notifications(index: ReplayIndex, items: IndexedOccurrence[]): N
       out.push({ id: f.id, kind: 'finding', occurrenceId: i.occ.id, ts: f.ts, text: f.summary, external: f.priority === 'high', unattributed: !f.taintSource, finding: f });
     }
   }
-  return out.sort((a, b) => notificationGroup(a) - notificationGroup(b) || a.ts - b.ts);
+  return out.sort((a, b) => notificationGroup(a) - notificationGroup(b) || Number(b.external) - Number(a.external) || a.ts - b.ts);
 }
 
 export interface Recipient {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createRecorder } from '@ida-dev/core';
+import { createRecorder, RECORDING_VERSION, type Finding, type Occurrence } from '@ida-dev/core';
 import { buildIndex, notifications, parseThrowId, recipientsOf, throwId } from '../src/replay';
 import { extendTrail } from '../src/store';
 
@@ -32,6 +32,24 @@ describe('notifications', () => {
     expect(list.at(-1)).toMatchObject({ external: true });
     expect(list.map((n) => n.kind)).toContain('throw');
     expect(list.filter((n) => n.unattributed)).toHaveLength(1);
+  });
+
+  it('puts external ones above the rest of their kind, then oldest first', () => {
+    const finding = (id: string, occurrenceId: string, ts: number, external: boolean): Finding => ({
+      id, kind: 'suspected-corrupt', occurrenceId, ts, confidence: 'medium', basis: 'deep', reasons: [], diff: [], taintSource: null,
+      retroactive: false, summary: id, priority: external ? 'high' : 'normal', externalTargets: external ? ['Bank'] : [],
+    });
+    const occ = (id: string, ts: number): Occurrence => ({
+      id, templateId: 't', parentId: null, sourceNodeId: 'em', ts, durationMs: 1, handlerResults: [], capture: 'template', causality: 'sync',
+    });
+    const i = buildIndex({
+      version: RECORDING_VERSION, startedAt: 0, processes: [{ id: 'p', label: 'Shop' }],
+      nodes: [{ id: 'em', label: 'Shop', kind: 'emitter', processId: 'p' }],
+      templates: [{ id: 't', key: 'k', emitterId: 'em', eventName: 'order', handlerIds: [], payloadShape: '{}', sampleCount: 1 }],
+      occurrences: [occ('e1', 1), occ('e2', 2), occ('e3', 3)],
+      findings: [finding('internal-old', 'e1', 1, false), finding('external', 'e2', 2, true), finding('internal-new', 'e3', 3, false)],
+    });
+    expect(notifications(i, i.items).map((n) => n.id)).toEqual(['external', 'internal-old', 'internal-new']);
   });
 
   it('links findings to the throw that sent them', () => {
