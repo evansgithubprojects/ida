@@ -180,7 +180,7 @@ const NotificationRow = memo(
             {n.kind === 'throw' ? <><Badge tone="error">✕ Error</Badge><ErrorId id={n.id} /></> : <Badge tone="warn">⚠ Corrupt Payload</Badge>}
             {n.external && <Badge tone="external">EXTERNAL</Badge>}
             <span className="row-time muted" title={clockTime(index.recording.startedAt + n.ts)}>
-              {fmtMs(n.ts - start)}<span className="row-time-hint">{index.system ? 'since first recorder init' : 'since init'}</span>
+              {fmtMs(n.ts - start)}<span className="row-time-hint">since init</span>
             </span>
           </span>
           <span className="row-text">{n.finding ? <FindingSummary index={index} finding={n.finding} /> : n.text}</span>
