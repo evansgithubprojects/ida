@@ -95,6 +95,8 @@ interface State {
   hideHealthy: boolean;
   /** Whether the inspector panel is shown. Persists across reloads. */
   inspectorOpen: boolean;
+  /** Which kinds of notification the lists show: errors (`throw`) and corrupt payloads (`finding`). Persists across reloads. */
+  notificationKinds: NotificationKinds;
   selection: Selection;
   /** Everything inspected at this zoom level, oldest first; `selection` is always its last entry. */
   trail: NonNullable<Selection>[];
@@ -125,6 +127,7 @@ interface State {
   setWindow(window: [number, number], keep?: 'start' | 'end'): void;
   setLevel(level: Level): void;
   setHideHealthy(hide: boolean): void;
+  setNotificationKind(kind: keyof NotificationKinds, shown: boolean): void;
   setInspectorOpen(open: boolean): void;
   /** `fromGraph` marks a click on the graph itself: everything drawn there sits directly under the level, so it starts a new trail. */
   select(selection: Selection, opts?: { fromGraph?: boolean }): void;
@@ -205,14 +208,21 @@ export function mergeRecording(base: Recording, part: Recording): Recording {
 
 const SETTINGS_KEY = 'ida_graph_settings';
 
-interface Settings { hideHealthy: boolean; inspectorOpen: boolean }
+export interface NotificationKinds { throw: boolean; finding: boolean }
+
+interface Settings { hideHealthy: boolean; inspectorOpen: boolean; notificationKinds: NotificationKinds }
 
 function loadSettings(): Settings {
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') as Partial<Settings>;
-    return { hideHealthy: saved.hideHealthy === true, inspectorOpen: saved.inspectorOpen !== false };
+    const kinds = saved.notificationKinds;
+    return {
+      hideHealthy: saved.hideHealthy === true,
+      inspectorOpen: saved.inspectorOpen !== false,
+      notificationKinds: { throw: kinds?.throw !== false, finding: kinds?.finding !== false },
+    };
   } catch {
-    return { hideHealthy: false, inspectorOpen: true };
+    return { hideHealthy: false, inspectorOpen: true, notificationKinds: { throw: true, finding: true } };
   }
 }
 
@@ -387,6 +397,11 @@ export const useStore = create<State>()((set, get) => {
       set({ window: [a, b], t: Math.min(Math.max(t, a), b), following: false, mode: 'replay' });
     },
     setLevel(level) { set({ level: normalizeLevel(get().index, level), selection: null, trail: [] }); },
+    setNotificationKind(kind, shown) {
+      const notificationKinds = { ...get().notificationKinds, [kind]: shown };
+      set({ notificationKinds });
+      saveSettings({ notificationKinds });
+    },
     setHideHealthy(hideHealthy) {
       set({ hideHealthy });
       saveSettings({ hideHealthy });

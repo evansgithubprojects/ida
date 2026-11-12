@@ -123,13 +123,33 @@ function LiveDot({ status }: { status: Exclude<LiveStatus, 'off'> }) {
   );
 }
 
-/** Throws and suspected corrupt payloads in the order given; clicking one inspects it. */
-function NotificationList({ index, title, list, empty }: { index: ReplayIndex; title: string; list: Notification[]; empty: string }) {
+/**
+ * Throws and suspected corrupt payloads in the order given, filtered by the kinds checked above the list (shared by
+ * every list, and remembered); clicking one inspects it.
+ */
+function NotificationList({ index, title, list: all, empty }: { index: ReplayIndex; title: string; list: Notification[]; empty: string }) {
+  const kinds = useStore((s) => s.notificationKinds);
+  const setKind = useStore((s) => s.setNotificationKind);
+  const list = useMemo(() => all.filter((n) => kinds[n.kind]), [all, kinds]);
   const { cap, setMore } = useRowCap();
   const rows = useDeferredValue(list.slice(0, cap));
+  const count = (kind: Notification['kind']) => all.filter((n) => n.kind === kind).length;
   return (
-    <Section title={title} aside={list.length}>
-      {list.length === 0 && <p className="hint">{empty}</p>}
+    <Section title={title} aside={list.length === all.length ? all.length : `${list.length} of ${all.length}`}>
+      {all.length > 0 && (
+        <div className="notification-filter" role="group" aria-label="Show">
+          <label className="checkbox">
+            <input type="checkbox" checked={kinds.finding} onChange={(e) => setKind('finding', e.target.checked)} />
+            Corrupt payloads ({count('finding')})
+          </label>
+          <label className="checkbox">
+            <input type="checkbox" checked={kinds.throw} onChange={(e) => setKind('throw', e.target.checked)} />
+            Errors ({count('throw')})
+          </label>
+        </div>
+      )}
+      {all.length === 0 && <p className="hint">{empty}</p>}
+      {all.length > 0 && list.length === 0 && <p className="hint">Nothing here matches the filter.</p>}
       <ul className="list">
         {rows.map((n) => <NotificationRow key={`${n.kind}:${n.id}`} index={index} start={index.origin} n={n} />)}
       </ul>

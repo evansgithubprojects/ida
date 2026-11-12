@@ -226,6 +226,24 @@ describe('graph settings', () => {
   });
 });
 
+describe('notification filter', () => {
+  it('shows both kinds by default, and saves each one on its own', () => {
+    const saved = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => saved.get(k) ?? null, setItem: (k: string, v: string) => void saved.set(k, v) });
+    try {
+      expect(useStore.getState().notificationKinds).toEqual({ throw: true, finding: true });
+      useStore.getState().setNotificationKind('finding', false);
+      useStore.getState().setNotificationKind('throw', false);
+      useStore.getState().setNotificationKind('throw', true);
+      expect(useStore.getState().notificationKinds).toEqual({ throw: true, finding: false });
+      expect(JSON.parse(saved.get('ida_graph_settings')!).notificationKinds).toEqual({ throw: true, finding: false });
+    } finally {
+      vi.unstubAllGlobals();
+      useStore.getState().setNotificationKind('finding', true);
+    }
+  });
+});
+
 describe('inspector setting', () => {
   it('is open by default and flips', () => {
     expect(useStore.getState().inspectorOpen).toBe(true);
@@ -249,7 +267,7 @@ describe('inspector setting', () => {
     try {
       useStore.getState().setHideHealthy(true);
       useStore.getState().setInspectorOpen(false);
-      expect(JSON.parse(saved.get('ida_graph_settings')!)).toEqual({ hideHealthy: true, inspectorOpen: false });
+      expect(JSON.parse(saved.get('ida_graph_settings')!)).toEqual({ hideHealthy: true, inspectorOpen: false, notificationKinds: { throw: true, finding: true } });
     } finally {
       vi.unstubAllGlobals();
       useStore.getState().setHideHealthy(false);
