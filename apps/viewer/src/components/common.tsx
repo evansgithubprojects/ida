@@ -126,12 +126,12 @@ export function HandlerLink({ id, label, during }: { id: string; label?: string;
   const scope = useStore((s) => outOfScopeProcess(s, id));
   const thrown = useStore((s) => (during && s.index ? throwIdFor(s.index, during, id) : null));
   const inspectNode = useStore((s) => s.inspectNode);
-  const selectAt = useStore((s) => s.selectAt);
+  const startTrace = useStore((s) => s.startTrace);
   const full = scope && scope !== name ? `${scope} › ${name}` : name;
   return (
     <InspectLink
       label={thrown ? `error ${errorCode(thrown)} in ${full}` : full}
-      onOpen={() => (thrown && during ? selectAt({ type: 'throw', id: thrown }, during) : inspectNode(id))}
+      onOpen={() => (thrown && during ? startTrace({ type: 'throw', id: thrown, occurrenceId: during }) : inspectNode(id))}
     >
       <NodeRef id={id} label={name} />
     </InspectLink>

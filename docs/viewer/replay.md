@@ -11,7 +11,7 @@ A live recording has two modes, chosen at the bottom left:
 - **● Live** follows the stream. The graph shows the newest events as they arrive, and the readout says how many are shown and whether the stream is `live`, connecting, or in error.
 - **Replay** stops following and opens the timeline, so you can go back over what has arrived. New events keep arriving in the background.
 
-Selecting an event anywhere (in the inspector, a trace, a notification) switches to Replay and moves the playhead to it. Click **● Live** to follow the stream again.
+Selecting an event anywhere in the inspector switches to Replay and moves the playhead to it. Click **● Live** to follow the stream again. Clicking a notification or an error opens its [trace](traces-and-system.md#traces) instead, which takes the timeline's place until you close it.
 
 Past runs and files only have Replay.
 
@@ -29,7 +29,6 @@ The track shows the whole recording:
 | Thicker orange ticks | A suspected corrupt payload reaching an external system. |
 | Dashed ticks along the top | Events uploaded late, from an app's offline spool. |
 | Faint yellow stretch | A gap: events lost because an app's offline spool was full. |
-| Accent ticks | Steps of the message you're [tracing](traces-and-system.md). |
 
 Hover a tick or stretch to see what it is.
 
@@ -62,7 +61,9 @@ The live project view starts with the last 5 minutes and keeps what arrives afte
 | --- | --- |
 | Space | Play or pause (in Replay). |
 | I | Show or hide the inspector. |
-| T | Trace the selected event. |
+| T | [Trace](traces-and-system.md#traces) what led to the selected event. |
+| ← / → | Previous or next step, while tracing. |
+| Space | Play or pause the trace's steps, while tracing. |
 | Esc | End the trace. |
 | ← / → | Move the playhead in a handler's activity track, when it has focus. |
 

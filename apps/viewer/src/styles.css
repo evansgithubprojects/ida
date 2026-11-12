@@ -624,18 +624,17 @@ a.feature.integration h4 { color: var(--text); }
   .doc-body td code { white-space: normal; }
 }
 
-/* Trace mode: one message's causal tree lit, the rest of the graph faded. */
+/* Trace mode: a slideshow through what led to an error. The path so far is lit, what is still ahead faint, the rest faded. */
 .node-card.dimmed { opacity: .25; }
 .node-card.traced { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 12px var(--accent-soft); }
-.tick-trace { stroke: var(--accent); stroke-width: 2; }
+.node-card.traced-ahead { opacity: .6; border-color: var(--accent); border-style: dashed; }
 .trace-start { margin-top: 8px; font-size: 12px; }
-.trace-bar {
-  position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 5; max-height: 40%;
-  display: flex; flex-direction: column; gap: 4px; padding: 8px 10px;
-  background: var(--panel); border: 1px solid var(--accent); border-radius: 8px; box-shadow: 0 6px 24px rgb(0 0 0 / .4);
-}
-.trace-head { display: flex; align-items: baseline; gap: 8px; }
-.trace-head .spacer { flex: 1; }
+.trace-show { border-top: 1px solid var(--accent); }
+.trace-show .controls { margin-bottom: 4px; }
+.trace-subtitle { margin: 0 0 8px; font-size: 16px; line-height: 1.4; color: var(--text); min-height: 1.4em; }
+.trace-subtitle.role-throw { color: var(--error); }
+.trace-subtitle.role-target { font-weight: 600; }
+.trace-show .warn { color: var(--warn); }
 .trace-close { background: none; border: 0; color: var(--muted); padding: 0 4px; }
 .trace-close:hover { color: var(--text); box-shadow: none; }
 .trace-note { font-size: 12px; }
@@ -646,7 +645,10 @@ a.feature.integration h4 { color: var(--text); }
   display: flex; align-items: baseline; gap: 6px; white-space: nowrap; font-size: 12px;
   background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px;
 }
-.trace-steps li.current .trace-step { border-color: var(--link); }
+.trace-steps li.seen .trace-step { opacity: .8; }
+.trace-steps li:not(.seen, .current) .trace-step { opacity: .55; }
+.trace-steps li.current .trace-step { border-color: var(--link); box-shadow: 0 0 0 1px var(--link); }
+.trace-steps li.has-warn .trace-step { border-color: var(--warn); }
 .trace-steps li.origin .trace-step { border-color: var(--accent); }
 .trace-steps li.has-error .trace-step { border-color: var(--error); }
 .trace-service { font-weight: 700; color: var(--text); }

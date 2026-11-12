@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildModel, type GraphModel, type Level } from './graph/model';
-import { activeAt, inWindow, rateSeries, traceOf, type Trace, RATE_STEP_MS, recentRates, shownRates, SPIKE_WINDOW_MS, type Active, type HeldSpikes, type Rates } from './replay';
+import type { IndexedOccurrence } from './replay';
+import type { TracePath } from './replay/trace';
+import { activeAt, inWindow, rateSeries, RATE_STEP_MS, recentRates, shownRates, SPIKE_WINDOW_MS, type Active, type HeldSpikes, type Rates } from './replay';
 import { FADE_WALL_MS, FLASH_WALL_MS, LIVE_RESYNC_MS, useStore } from './store';
 
-/** The trace being followed, if any (see `traceOf`). */
-export function useTrace(): Trace | null {
-  const index = useStore((s) => s.index);
-  const id = useStore((s) => s.trace?.occurrenceId);
-  return useMemo(() => (index && id ? traceOf(index, id) : null), [index, id]);
+/** The trace slideshow's path, if one is open (see `tracePath`). */
+export function useTrace(): TracePath | null {
+  return useStore((s) => s.trace?.path ?? null);
 }
 
 /** The graph at `level`, or at the store's current level. A level passed in stays put while a zoom transition plays. */
@@ -19,13 +19,59 @@ export function useModel(levelOverride?: Level): GraphModel | null {
   // What is being inspected or linked to stays drawn, whatever the window holds.
   const focused = useStore((s) => s.focus?.nodeId);
   const selected = useStore((s) => (s.selection?.type === 'node' ? s.selection.id : undefined));
-  return useMemo(
-    () => (index ? buildModel(index, level, inWindow(index, window), [focused, selected].filter((id): id is string => !!id)) : null),
-    [index, level, window, focused, selected],
-  );
+  const trace = useTrace();
+  return useMemo(() => {
+    if (!index) return null;
+    const pinned = [focused, selected].filter((id): id is string => !!id);
+    let items = inWindow(index, window);
+    // A trace draws its whole path, even the steps outside the window.
+    if (trace) {
+      const have = new Set(items.map((i) => i.occ.id));
+      const extra = trace.slides.map((s) => s.item).filter((i) => !have.has(i.occ.id));
+      if (extra.length) items = [...items, ...extra].sort((a, b) => a.occ.ts - b.occ.ts);
+      for (const s of trace.slides) for (const h of s.item.hops) pinned.push(h.src, h.dst);
+    }
+    return buildModel(index, level, items, pinned);
+  }, [index, level, window, focused, selected, trace]);
+}
+
+/** How long one pulse takes to cross a pathway in trace mode, and the pause before the next one. */
+const TRACE_PULSE_MS = 900;
+const TRACE_REST_MS = 500;
+
+/**
+ * Trace mode: only the slide shown is drawn, its pathways pulsing over and over; no other traffic. Ignores the playhead
+ * and the live stream.
+ */
+function useTraceActive(model: GraphModel | null): Active | null {
+  const index = useStore((s) => s.index);
+  const item: IndexedOccurrence | undefined = useStore((s) => s.trace?.path.slides[s.trace.at]?.item);
+  const [phase, setPhase] = useState(0);
+  useEffect(() => {
+    if (!item) return;
+    const start = performance.now();
+    let raf = requestAnimationFrame(function frame(now) {
+      setPhase(Math.min((now - start) % (TRACE_PULSE_MS + TRACE_REST_MS), TRACE_PULSE_MS - 1));
+      raf = requestAnimationFrame(frame);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [item]);
+  return useMemo(() => {
+    if (!index || !model || !item) return null;
+    // Just this one occurrence, read on its own clock: a snapshot taken before a live rebuild still draws right.
+    const one = { ...index, items: [item] };
+    return activeAt(one, item.occ.ts + phase, { fadeMs: TRACE_PULSE_MS, flashMs: TRACE_PULSE_MS, mapNode: model.mapNode });
+  }, [index, model, item, phase]);
 }
 
 export function useActive(model: GraphModel | null): Active | null {
+  const tracing = useStore((s) => s.trace !== null);
+  const traced = useTraceActive(tracing ? model : null);
+  const playing = usePlayActive(tracing ? null : model);
+  return tracing ? traced : playing;
+}
+
+function usePlayActive(model: GraphModel | null): Active | null {
   const index = useStore((s) => s.index);
   const t = useStore((s) => s.t);
   const picked = useStore((s) => s.speed);

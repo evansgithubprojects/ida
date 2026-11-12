@@ -145,10 +145,10 @@ function NotificationList({ index, title, list, empty }: { index: ReplayIndex; t
  */
 const NotificationRow = memo(
   function NotificationRow({ index, start, n }: { index: ReplayIndex; start: number; n: Notification }) {
-    const selectAt = useStore((s) => s.selectAt);
+    const startTrace = useStore((s) => s.startTrace);
     return (
       <li>
-        <button className={`row ${n.external ? 'row-high' : ''}`} onClick={() => selectAt({ type: n.kind, id: n.id }, n.occurrenceId)}>
+        <button className={`row ${n.external ? 'row-high' : ''}`} onClick={() => startTrace({ type: n.kind, id: n.id, occurrenceId: n.occurrenceId })} title="Step through what led to this">
           <span className="row-head">
             {n.kind === 'throw' ? <><Badge tone="error">✕ Error</Badge><ErrorId id={n.id} /></> : <Badge tone="warn">⚠ Corrupt Payload</Badge>}
             <TierBadge tier={n.tier} />
@@ -681,7 +681,7 @@ export function OccurrenceDetail({ index, id }: { index: ReplayIndex; id: string
 function EventFacts({ index, item, chain: showChain = true }: { index: ReplayIndex; item: IndexedOccurrence; chain?: boolean }) {
   const seek = useStore((s) => s.seekToOccurrence);
   const startTrace = useStore((s) => s.startTrace);
-  const tracing = useStore((s) => s.trace?.occurrenceId === item.occ.id);
+  const tracing = useStore((s) => s.trace !== null);
   const chain = chainOf(index, item.occ.id);
   const showNode = (nid: string) => <HandlerLink id={nid} />;
   const results = item.occ.handlerResults;
@@ -709,8 +709,8 @@ function EventFacts({ index, item, chain: showChain = true }: { index: ReplayInd
         ))}
       </dl>
       {!tracing && (
-        <button className="trace-start" onClick={() => startTrace(item.occ.id)} title="Highlight everything that led to this event and everything it caused, across services (T)">
-          Trace this {index.system ? 'message across services' : 'event'}
+        <button className="trace-start" onClick={() => startTrace({ type: 'occurrence', id: item.occ.id, occurrenceId: item.occ.id })} title="Step through what led to this event, across services (T)">
+          Trace what led here
         </button>
       )}
       {showChain && <div className="chain" aria-label="Causal chain">
@@ -792,7 +792,7 @@ function Recipients({ index, findings }: { index: ReplayIndex; findings: Finding
 /** A handler failure and everything it is suspected of corrupting. */
 function ErrorDetail({ index, id }: { index: ReplayIndex; id: string }) {
   const seek = useStore((s) => s.seekToOccurrence);
-  const selectAt = useStore((s) => s.selectAt);
+  const startTrace = useStore((s) => s.startTrace);
   const src = parseThrowId(index, id);
   const item = src && index.byId.get(src.occurrenceId);
   if (!src || !item) return <p className="hint">That error is no longer in the recording.</p>;
@@ -834,7 +834,7 @@ function ErrorDetail({ index, id }: { index: ReplayIndex; id: string }) {
           <ul className="list">
             {tainted.map((f) => (
               <li key={f.id}>
-                <button className={`row ${f.priority === 'high' ? 'row-high' : ''}`} onClick={() => selectAt({ type: 'finding', id: f.id }, f.occurrenceId)}>
+                <button className={`row ${f.priority === 'high' ? 'row-high' : ''}`} onClick={() => startTrace({ type: 'finding', id: f.id, occurrenceId: f.occurrenceId })}>
                   <span className="row-head">
                     <Badge tone="warn">⚠ Corrupt Payload</Badge>
                     {f.priority === 'high' && <Badge tone="external">EXTERNAL</Badge>}
@@ -863,7 +863,7 @@ function FindingSelection({ index, id }: { index: ReplayIndex; id: string }) {
  * where it went.
  */
 function CorruptPayloadDetail({ index, occurrenceId }: { index: ReplayIndex; occurrenceId: string }) {
-  const selectAt = useStore((s) => s.selectAt);
+  const startTrace = useStore((s) => s.startTrace);
   const item = index.byId.get(occurrenceId);
   const findings = index.findingsByOcc.get(occurrenceId) ?? [];
   if (!item || findings.length === 0) return <p className="hint">That payload is no longer in the recording.</p>;
@@ -879,7 +879,7 @@ function CorruptPayloadDetail({ index, occurrenceId }: { index: ReplayIndex; occ
             const sourceItem = index.byId.get(source.occurrenceId);
             const message = sourceItem?.throws.find((t) => t.handlerId === source.handlerId)?.message;
             return sourceItem ? (
-              <button key={id} className="link source-error" onClick={() => selectAt({ type: 'throw', id }, source.occurrenceId)}>
+              <button key={id} className="link source-error" onClick={() => startTrace({ type: 'throw', id, occurrenceId: source.occurrenceId })}>
                 <ErrorId id={id} /> <NodeRef id={source.handlerId} /> {message ? `threw: ${message}` : 'reported an error'} →
               </button>
             ) : (

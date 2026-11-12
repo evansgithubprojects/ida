@@ -24,20 +24,28 @@ A message whose header names a publish Ida has no record of (the sender doesn't 
 
 ## Traces
 
-A **trace** lights up one message's whole story: everything that led to it, back to the root, and everything it caused, across services and brokers. The rest of the graph fades.
+A **trace** is a slideshow of what caused something: the path of events from the root to it, across services and brokers, one step at a time.
 
-To start one, select any event or occurrence and press **T**, or click **Trace** in the inspector.
+Clicking a **notification** (an error or a suspected corrupt payload) opens its trace. So does any link to an error, or selecting an event and pressing **T** (or **Trace what led here** in the inspector).
 
-The trace bar lists every step, oldest first:
+- An **error**'s trace runs from the root event to the handler that threw.
+- A **suspected corrupt payload**'s trace runs through the error it's traced to, then on to the payload itself. Events emitted after the failure on the way are marked as possibly carrying the bad state.
+- An **event**'s trace runs from the root to that event.
 
-- each step's **service** (shown when it changes), and, for broker hops, the **topic, exchange or queue** and how long the message waited there;
-- the event and the handler that handled it;
-- its time from the start of the trace;
-- a red ✕ and message on steps whose handler threw. The bar's header names the service with the **first error**, usually the place to start reading.
+The trace replaces the timeline at the bottom of the screen. It opens on the first step (where the chain started) and ends on the error, payload or event. Each step shows:
 
-Click a step to jump to it: the playhead moves there and the graph zooms as needed. The trace's steps are also marked on the timeline, so you can scrub between them. Press **Esc** or click **✕** to end the trace.
+- a **subtitle** saying why the step matters: where the chain started, which handler emitted the next event, the broker a message went through and how long it waited there, which handler threw and with what message;
+- the graph zoomed into the handlers of the process the step happens in (the throwing handler's on an error step), whatever level you were at;
+- the step's pathway pulsing on the graph. Steps already shown stay lit, steps still ahead are faint, and everything else fades;
+- the step in the inspector.
 
-If some steps fall outside the time in view, or weren't recorded, the bar says so.
+Below the subtitle, a strip lists every step, oldest first, with each step's service (shown when it changes), broker, event and handler. Errors are marked with a red ✕ and the corrupt payload with ⚠. Click a step to jump to it.
+
+Step with **‹ Prev** / **Next ›** or **←** / **→**. **▶ Play** steps forward on its own (**Space**). Press **Esc** or click **✕** to end the trace.
+
+While a trace is open the graph shows no other traffic, and a live view stops updating. New events wait and are added when the trace ends, and the view goes back to following the stream.
+
+If the path's start falls outside the time in view, or wasn't recorded, the first step says so.
 
 ## Next steps
 

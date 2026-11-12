@@ -33,8 +33,11 @@ interface ViewState {
   focusedEdgeId: string | null;
   /** Graph setting: pathways with no suspect payloads show no count and no pulse. */
   hideHealthy: boolean;
-  /** Trace mode: the cards and pathways the traced message went through; everything else fades. */
-  traced: { nodes: Set<string>; edges: Set<string> } | null;
+  /**
+   * Trace mode: the cards and pathways the slideshow has reached (up to the slide shown) and those still ahead;
+   * everything else fades.
+   */
+  traced: { nodes: Set<string>; edges: Set<string>; aheadNodes: Set<string>; aheadEdges: Set<string> } | null;
 }
 
 const ViewCtx = createContext<ViewState | null>(null);
@@ -56,7 +59,7 @@ const NodeCard = memo(function NodeCard({ id }: NodeProps<RouteNode>) {
   const rateOut = rates?.out.get(id);
   const flashing = active.flashingNodes.has(id);
   const thrown = active.thrownNodes.get(id) ?? 0;
-  const cls = ['node-card', `kind-${model.kind}`, model.broker && `broker broker-${model.broker}`, model.inBroker && 'in-broker', flashing && 'flash', thrown > 0 && 'has-thrown', model.idle && 'idle', selectedId === id && 'selected', focusedId === id && 'focused', traced && (traced.nodes.has(id) ? 'traced' : 'dimmed')];
+  const cls = ['node-card', `kind-${model.kind}`, model.broker && `broker broker-${model.broker}`, model.inBroker && 'in-broker', flashing && 'flash', thrown > 0 && 'has-thrown', model.idle && 'idle', selectedId === id && 'selected', focusedId === id && 'focused', traced && (traced.nodes.has(id) ? 'traced' : traced.aheadNodes.has(id) ? 'traced-ahead' : 'dimmed')];
   return (
     <div className={cls.filter(Boolean).join(' ')} style={{ width: NODE_W, height: NODE_H }}>
       <Handle type="target" position={Position.Left} isConnectable={false} style={hiddenHandle} />
@@ -158,7 +161,8 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
   // Every event still on its way gets its own pulse, so a busy route shows them all instead of restarting one.
   // A selected or focused pathway stays fully drawn so inspecting it still shows something.
   const onTrace = traced?.edges.has(id);
-  const dimmed = !!traced && !onTrace;
+  const ahead = !onTrace && !!traced?.aheadEdges.has(id);
+  const dimmed = !!traced && !onTrace && !ahead;
   const quiet = (hideHealthy && selectedId !== id && focusedEdgeId !== id) || dimmed;
   const shown = rates?.edges.get(id);
   const flights = quiet && !litFlagged ? [] : (active.pulses.get(id) ?? []);
@@ -169,7 +173,7 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
         path={path}
         className={[focusedEdgeId === id && 'edge-focused', edge.propagated && 'edge-propagated', onTrace && 'edge-traced', dimmed && 'edge-dimmed'].filter(Boolean).join(' ') || undefined}
         style={{
-          stroke: onTrace ? 'var(--accent)' : flagged ? 'var(--warn-dim)' : 'var(--edge)', strokeWidth: onTrace ? width + 1 : width, opacity: dimmed ? 0.15 : onTrace ? 1 : 0.75,
+          stroke: onTrace || ahead ? 'var(--accent)' : flagged ? 'var(--warn-dim)' : 'var(--edge)', strokeWidth: onTrace ? width + 1 : width, opacity: dimmed ? 0.15 : ahead ? 0.4 : onTrace ? 1 : 0.75,
           // Dashed: these events reached here in a message from another service (an ida-parent header). Long dashes:
           // small dots, repainted under every moving pulse, cut a busy graph's frame rate in half.
           strokeDasharray: flagged ? '7 5' : edge.propagated ? '12 8' : undefined,
@@ -241,7 +245,14 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
   const setLevel = useStore((s) => s.setLevel);
   const hideHealthy = useStore((s) => s.hideHealthy);
   const trace = useTrace();
-  const traced = useMemo(() => (model && trace ? tracedParts(model, trace) : null), [model, trace]);
+  const at = useStore((s) => s.trace?.at ?? 0);
+  const traced = useMemo(() => {
+    if (!model || !trace) return null;
+    const items = trace.slides.map((s) => s.item);
+    const done = tracedParts(model, items.slice(0, at + 1));
+    const ahead = tracedParts(model, items.slice(at + 1));
+    return { ...done, aheadNodes: ahead.nodes, aheadEdges: ahead.edges };
+  }, [model, trace, at]);
   const { setViewport, getViewport } = useReactFlow<AnyNode, RouteEdge>();
 
   // Re-layout only when the shape of the graph changes, not on every count update.

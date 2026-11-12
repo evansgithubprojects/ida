@@ -1,5 +1,5 @@
 import type { Process } from '@ida-dev/core';
-import type { IndexedOccurrence, MapNode, ReplayIndex, Trace } from '../replay';
+import type { IndexedOccurrence, MapNode, ReplayIndex } from '../replay';
 import { countsOnCard, edgeId, eventKey } from '../replay';
 
 /**
@@ -264,11 +264,11 @@ export function buildModel(index: ReplayIndex, level: Level, items: IndexedOccur
   };
 }
 
-/** The cards and pathways of `model` that a trace went through, at whatever level `model` is drawn. */
-export function tracedParts(model: GraphModel, trace: Trace): { nodes: Set<string>; edges: Set<string> } {
+/** The cards and pathways of `model` that `items` (steps of a trace) went through, at whatever level `model` is drawn. */
+export function tracedParts(model: GraphModel, items: IndexedOccurrence[]): { nodes: Set<string>; edges: Set<string> } {
   const nodes = new Set<string>();
   const edges = new Set<string>();
-  for (const { item } of trace.steps) {
+  for (const item of items) {
     for (const hop of item.hops) {
       const src = model.mapNode(hop.src);
       const dst = model.mapNode(hop.dst);

@@ -28,7 +28,7 @@ The panel on the right shows whatever you select. Show or hide it with the tab o
 With nothing selected:
 
 - **Recording**: how many events are in the [replay window](replay.md#the-replay-window), out of the total, and, for live views, a dot showing whether the stream is connected.
-- **Notifications**: every error and suspected corrupt payload in the window, ranked **critical**, **high**, **medium** or **low** (from confidence and whether an external system was reached). Click one to go to it.
+- **Notifications**: every error and suspected corrupt payload in the window, ranked **critical**, **high**, **medium** or **low** (from confidence and whether an external system was reached). Click one to open its [trace](traces-and-system.md#traces): a step-by-step walk through what led to it.
 
 ### An emitter or handler
 
@@ -66,12 +66,12 @@ Click a single run, payload or step to see one occurrence of an event:
 - **Causality**: `sync`, `inferred (after an await or a timer)`, or `from another service, in a message header`. See [Events and causality](../concepts/events-and-causality.md).
 - Broker facts for Kafka and RabbitMQ messages: topic, partition, offset, consumer group, exchange, routing key, queue, delivery tag. With a message from another service, **Published by** or **Consumed by** names the other side, and the time between them.
 - **Causal chain**: the events that led here, back to the root. Click any to go there.
-- **Trace**: light up this message's whole tree (see [Traces](traces-and-system.md#traces)).
+- **Trace what led here**: step through the path that caused this event (see [Traces](traces-and-system.md#traces)).
 - **Payload**: the values if the event was deep-logged (**full capture**), or its shape if not (**template-only**). For a suspected corrupt payload, a **Field / Before / Now** table shows what changed.
 
 ### An error
 
-Click a red ✕ or an error notification:
+Click a red ✕ or an error notification to open its [trace](traces-and-system.md#traces). The inspector shows:
 
 - **Error**, and the event its handler was handling (**While handling**).
 - **Corrupted payloads sent** after it, and how many reached external systems.

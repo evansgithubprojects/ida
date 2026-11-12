@@ -1,8 +1,9 @@
 import type { RecorderMessage, Recording } from '@ida-dev/core';
 import { create } from 'zustand';
-import { normalizeLevel, topLevel, type Level } from './graph/model';
+import { normalizeLevel, sameLevel, topLevel, type Level } from './graph/model';
 import { ZOOM_MS } from './graph/zoom';
 import { buildIndex, capWindow, keepNewest, parseRunId, parseThrowId, windowAround, type ReplayIndex } from './replay';
+import { tracePath, type TracePath, type TraceSlide, type TraceTarget } from './replay/trace';
 import type { SystemLink, SystemService, SystemView } from './replay/system';
 
 export const SPEEDS = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4];
@@ -105,8 +106,12 @@ interface State {
   liveShift: Map<string, number>;
   /** Live follows the stream's newest events with no timeline; Replay opens the scrub window. Saved recordings are always Replay. */
   mode: 'live' | 'replay';
-  /** Trace mode: one occurrence whose whole causal tree is highlighted (see `traceOf`). Survives zooms and selections. */
-  trace: { occurrenceId: string } | null;
+  /**
+   * Trace mode: a slideshow through what caused an error, a corrupt payload or an event (see `tracePath`). `at` is the
+   * slide shown; `auto` steps forward on its own. While it is open the graph shows only that slide, and a live stream's
+   * batches wait until it ends. Survives zooms and selections.
+   */
+  trace: { path: TracePath; at: number; auto: boolean; prevMode: 'live' | 'replay' } | null;
 
   setMode(mode: 'live' | 'replay'): void;
   /** `system` is the rest of a system view, when `recording` is one: it opens on the services. */
@@ -129,14 +134,26 @@ interface State {
   selectAt(selection: NonNullable<Selection>, occurrenceId: string): void;
   /** Inspects a handler: zooms into its process if needed, selects it and pans the graph to it. */
   inspectNode(rawNodeId: string): void;
-  /** Traces an occurrence's causal tree across services, and inspects it. */
-  startTrace(occurrenceId: string): void;
+  /** Opens the trace slideshow on what led to `target`, at its first slide (the root). */
+  startTrace(target: TraceTarget): void;
+  /** Shows slide `k` of the trace (clamped) and inspects it. */
+  traceStep(k: number): void;
+  setTraceAuto(auto: boolean): void;
+  /** Closes the trace: a live stream goes back to following, with the batches that arrived meanwhile. */
   endTrace(): void;
   /** `name` is shown as the source instead of the URL. */
   connectLive(url: string, name?: string): void;
   disconnectLive(): void;
   /** Disconnects and forgets the current recording, so a page that loads another doesn't show this one meanwhile. */
   unload(): void;
+}
+
+/** What the inspector shows for slide `k`: the error or payload the trace is about, a throw, or the event. */
+function slideSelection(path: TracePath, k: number): NonNullable<Selection> {
+  const slide: TraceSlide = path.slides[k]!;
+  if (k === path.slides.length - 1 && path.target.type !== 'occurrence') return { type: path.target.type, id: path.target.id };
+  if (slide.thrownBy) return { type: 'throw', id: slide.thrownBy.id };
+  return { type: 'occurrence', id: slide.item.occ.id };
 }
 
 const sameSelection = (a: NonNullable<Selection>, b: NonNullable<Selection>) => a.type === b.type && a.id === b.id;
@@ -217,14 +234,23 @@ export const useStore = create<State>()((set, get) => {
   const trailing = (index: ReplayIndex | null, window: [number, number], t: number): [number, number] =>
     !index || (t >= window[0] && t <= window[1]) ? window : windowAround(index, t);
 
-  /** Selects `selection` and shows it on the graph, first changing zoom level if it isn't drawn at the current one. */
-  const reveal = (selection: NonNullable<Selection>, extra: Partial<State> = {}) => {
+  /**
+   * Selects `selection` and shows it on the graph, first changing zoom level if it isn't drawn at the current one.
+   * `scope` is the level to show it at, whatever the current one.
+   */
+  const reveal = (selection: NonNullable<Selection>, extra: Partial<State> = {}, scope?: Level) => {
     const { index, level, trail } = get();
     const target = focusTargetOf(index, selection);
-    const to = scopeFor(index, level, selection, target);
+    const to = scope ? (sameLevel(scope, level) ? null : scope) : scopeFor(index, level, selection, target);
     // Node, edge and occurrence selections belong to the level being left.
     set({ ...extra, selection, trail: extendTrail(to ? trail.filter(levelFree) : trail, selection), ...(to && { level: to }) });
     if (target) setFocus(target, to ? ZOOM_MS : 0);
+  };
+
+  /** Inspects slide `k` of a trace, zoomed into the handlers of the process it happens in. */
+  const showSlide = (path: TracePath, k: number) => {
+    const processId = path.slides[k]?.processId;
+    reveal(slideSelection(path, k), {}, processId ? normalizeLevel(get().index, { kind: 'handlers', processId }) : undefined);
   };
 
   let pending: Recording | null = null;
@@ -236,6 +262,11 @@ export const useStore = create<State>()((set, get) => {
   const flush = () => {
     flushTimer = null;
     if (!pending) return;
+    // A trace freezes the view; what arrives meanwhile waits (bounded like a live recording) until it ends.
+    if (get().trace) {
+      pending = keepNewest(pending);
+      return;
+    }
     const rec = pending;
     pending = null;
     const sys = pendingSystem ?? currentSystem;
@@ -380,12 +411,41 @@ export const useStore = create<State>()((set, get) => {
       reveal(selection, { t: ts, playing: false, following: false, mode: 'replay', window: trailing(index, window, ts) });
     },
     inspectNode(nodeId) { reveal({ type: 'node', id: nodeId }); },
-    startTrace(occurrenceId) {
-      if (!get().index?.byId.has(occurrenceId)) return;
-      set({ trace: { occurrenceId } });
-      get().seekToOccurrence(occurrenceId);
+    startTrace(target) {
+      const { index, mode, trace } = get();
+      const path = index && tracePath(index, target);
+      if (!path) return;
+      const at = 0;
+      set({ trace: { path, at, auto: false, prevMode: trace?.prevMode ?? mode }, playing: false, following: false, liveShift: new Map() });
+      showSlide(path, at);
+      if (!get().inspectorOpen) get().setInspectorOpen(true);
     },
-    endTrace() { set({ trace: null }); },
+    traceStep(k) {
+      const trace = get().trace;
+      if (!trace) return;
+      const at = Math.min(Math.max(Math.round(k), 0), trace.path.slides.length - 1);
+      // Stepping by hand stops the autoplay; reaching the end stops it too.
+      set({ trace: { ...trace, at, auto: trace.auto && at < trace.path.slides.length - 1 } });
+      showSlide(trace.path, at);
+    },
+    setTraceAuto(auto) {
+      const trace = get().trace;
+      if (!trace) return;
+      // Playing from the last slide starts over.
+      if (auto && trace.at === trace.path.slides.length - 1) {
+        set({ trace: { ...trace, at: 0, auto } });
+        showSlide(trace.path, 0);
+      } else set({ trace: { ...trace, auto } });
+    },
+    endTrace() {
+      const trace = get().trace;
+      if (!trace) return;
+      set({ trace: null });
+      if (get().live !== 'off') {
+        flush();
+        get().setMode('live');
+      } else set({ mode: trace.prevMode });
+    },
     connectLive(url, name) {
       get().disconnectLive();
       set({ live: 'connecting' });

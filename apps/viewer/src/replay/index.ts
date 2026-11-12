@@ -500,64 +500,6 @@ export function serviceOfOccurrence(index: ReplayIndex, item: IndexedOccurrence)
   return sys.nodeService.get(item.occ.sourceNodeId) ?? sys.nodeService.get(item.template.handlerIds[0] ?? '') ?? undefined;
 }
 
-export interface TraceStep {
-  item: IndexedOccurrence;
-  /** Steps from the trace's root: branches of the tree sit deeper. */
-  depth: number;
-  /** In a system view, the service it ran in. */
-  service?: string;
-  /** Set when the event is a message on a topic, exchange or queue. */
-  broker?: { type: 'kafka' | 'rabbitmq'; kind: Process['kind']; name: string };
-  /** For a message consumed from another service: how long after its publish it was handled. */
-  lagMs?: number;
-}
-
-export interface Trace {
-  /** The occurrence the trace was started from. */
-  occurrenceId: string;
-  /** What led to it, everything it caused, and itself, oldest first. */
-  steps: TraceStep[];
-  ids: Set<string>;
-  /** Some of the story is missing: the root's cause is outside the window or was never recorded. */
-  truncated: boolean;
-}
-
-/**
- * One message's whole causal tree: the chain that led to `occurrenceId` and everything it caused, across every
- * service and broker in a system view (where consumed messages point at their publish), or inside one recording.
- */
-export function traceOf(index: ReplayIndex, occurrenceId: string): Trace | null {
-  const start = index.byId.get(occurrenceId);
-  if (!start) return null;
-  const chain = chainOf(index, occurrenceId);
-  const depth = new Map<string, number>(chain.map((c, k) => [c.occ.id, k]));
-  const queue = [occurrenceId];
-  while (queue.length) {
-    const id = queue.shift()!;
-    for (const child of index.children.get(id) ?? []) {
-      if (depth.has(child) || !index.byId.has(child)) continue;
-      depth.set(child, depth.get(id)! + 1);
-      queue.push(child);
-    }
-  }
-  const steps = [...depth.keys()].map((id) => index.byId.get(id)!).sort((a, b) => a.occ.ts - b.occ.ts).map((item): TraceStep => {
-    const step: TraceStep = { item, depth: depth.get(item.occ.id)! };
-    const service = serviceOfOccurrence(index, item);
-    if (service) step.service = service;
-    const proc = index.processes.get(index.nodes.get(item.template.emitterId)?.processId ?? '');
-    if (proc?.broker && (proc.kind === 'topic' || proc.kind === 'exchange' || proc.kind === 'queue')) {
-      step.broker = { type: proc.broker.type, kind: proc.kind, name: proc.label };
-    }
-    const parent = item.occ.causality === 'propagated' && item.occ.parentId ? index.byId.get(item.occ.parentId) : undefined;
-    if (parent) step.lagMs = item.occ.ts - parent.occ.ts;
-    return step;
-  });
-  const root = chain[0]!;
-  const rootLink = index.system?.links.get(root.occ.id);
-  const truncated = (!!root.occ.parentId && !index.byId.has(root.occ.parentId)) || (!!rootLink && rootLink.status !== 'in-view');
-  return { occurrenceId, steps, ids: new Set(depth.keys()), truncated };
-}
-
 export type ChainStep = { kind: 'event'; item: IndexedOccurrence } | { kind: 'handler'; nodeId: string };
 
 /**
