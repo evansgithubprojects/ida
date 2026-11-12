@@ -72,7 +72,7 @@ Emitting an `error` event with an `Error` payload counts as a failure too.
 
 ## Ordering and clocks
 
-Timestamps within one recording come from a monotonic clock (`performance.now()` in JavaScript), so ordering inside a run is exact even if the system clock changes. When several services upload to one project, the server estimates each one's clock offset and puts every service on the server's clock, so messages from machines whose clocks disagree still play back in order. When a consume still appears before its publish, the viewer shows a *clock skew* badge.
+Timestamps within one recording come from a monotonic clock (`performance.now()` in JavaScript), so ordering inside a run is exact even if the system clock changes. When several services upload to one project, the server estimates each one's clock offset and puts every service on the server's clock, so messages from machines whose clocks disagree still play back in order. When a consume still appears before its publish, the server moves the consuming service later until it doesn't and keeps that correction, so every view agrees.
 
 ## Next steps
 

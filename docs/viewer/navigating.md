@@ -39,7 +39,7 @@ Click a card:
 - **Rate**: events per second over time.
 - **Receiving** / **Sending**: the events coming in and going out, with counts.
 - For a handler, the **Activity** section lists its runs in the window, with an activity track you can click to move the playhead. Only runs that threw or carried a suspected corrupt payload are listed at first; tick **Show clean runs** to see all of them.
-- A service's card also shows its **Runs** (restarts or instances in the window), **Runtime** (SDK and runtime version), and any **Clock** correction applied to it.
+- A service's card also shows its **Runs** (restarts or instances in the window), and **Runtime** (SDK and runtime version).
 - Handlers and emitters [marked external](../guides/corruption.md#declaring-external-systems) carry a red **EXTERNAL** badge.
 
 ### A pathway

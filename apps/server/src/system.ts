@@ -14,8 +14,8 @@ export interface SystemService {
   /** Ids (in the merged recording) of the processes this session used, broker processes included. */
   processIds: string[];
   /**
-   * How far this session's events were moved later in this view, so that each message it consumed comes after the
-   * publish it came from. Set only when they were moved. See `systemView`.
+   * How far this session's events were moved later, so that each message it consumed comes after the publish it came
+   * from. Stored with the session, so it is the same in every view. Set only when they were moved. See `settleClocks`.
    */
   clockShiftMs?: number;
 }
@@ -33,7 +33,8 @@ export interface SystemLink {
   status: 'in-view' | 'outside-window' | 'missing';
   /**
    * Set when the message was consumed before it was published, by the services' clocks, by more than both clocks'
-   * measured error: they disagree by at least this many ms. (The view moves the consumer's events after it anyway.)
+   * measured error: they disagree by at least this many ms. (The consumer's events are moved after it anyway, as far as
+   * the links allow; see `settleClocks`.)
    */
   skewMs?: number;
 }
@@ -52,14 +53,12 @@ export interface SystemView {
 
 /**
  * Limits `systemView` to one stored batch, for the project's live stream: these occurrences and findings of one
- * session, on the clock (`from`, `shifts`) of the snapshot the stream already sent.
+ * session, on the clock (`from`) of the snapshot the stream already sent.
  */
 export interface BatchScope {
   sessionId: string;
   occurrenceIds: string[];
   findingIds: string[];
-  /** Each session's `clockShiftMs` in that snapshot. */
-  shifts: Map<string, number>;
 }
 
 const BROKER_KINDS = new Set(['topic', 'exchange', 'queue']);
@@ -102,8 +101,8 @@ export async function systemView(
   const bySession = <T>(table: string) =>
     db.query<{ session_id: string; data: T }>(`select session_id, data from ${table} where session_id = any($1::uuid[]) order by session_id, id`, [sessionIds]);
   const [sessions, processRows, nodeRows, templateRows, findingRows, linkRows, gapRows] = await Promise.all([
-    db.query<{ id: string; started_at: number; runtime: string; sdk: SystemService['sdk']; key: string; clock_offset: number; clock_error: number | null }>(
-      `select s.id, s.started_at, s.runtime, s.sdk, r.key, s.clock_offset::float8 as clock_offset, s.clock_error::float8 as clock_error
+    db.query<{ id: string; started_at: number; runtime: string; sdk: SystemService['sdk']; key: string; clock_offset: number; clock_shift: number; clock_error: number | null }>(
+      `select s.id, s.started_at, s.runtime, s.sdk, r.key, s.clock_offset::float8 as clock_offset, s.clock_shift::float8 as clock_shift, s.clock_error::float8 as clock_error
        from sessions s join recorders r on r.id = s.recorder_id
        where s.id = any($1::uuid[]) order by s.started_at, s.id`,
       [sessionIds],
@@ -113,10 +112,11 @@ export async function systemView(
     bySession<Template>('session_templates'),
     bySession<Finding>('findings'),
     // The parent only counts when it is in this project: a header can name any session id.
-    db.query<{ child_session: string; child_id: string; parent_session: string; parent_id: string; parent_wall: number | null }>(
-      `select l.child_session, l.child_id, l.parent_session, l.parent_id, p.wall_ts as parent_wall
+    db.query<{ child_session: string; child_id: string; parent_session: string; parent_id: string; parent_wall: number | null; parent_shift: number | null }>(
+      `select l.child_session, l.child_id, l.parent_session, l.parent_id, p.wall_ts as parent_wall, ps.clock_shift::float8 as parent_shift
        from occurrence_links l
        left join occurrences p on p.session_id = l.parent_session and p.id = l.parent_id and p.project_id = l.project_id
+       left join sessions ps on ps.id = p.session_id
        where l.project_id = $1 and l.child_session = any($2::uuid[])`,
       [projectId, sessionIds],
     ),
@@ -127,10 +127,9 @@ export async function systemView(
   ]);
 
   const wallOf = new Map(rows.map((r) => [`${r.session_id}/${r.data.id}`, r.wall_ts]));
-  // A batch keeps the shifts the stream's snapshot drew each session with, so its events line up with what is shown.
-  const later = only ? new Map(sessions.map((x) => [x.id, only.shifts.get(x.id) ?? 0])) : causalShifts(sessions, linkRows, wallOf);
-  /** Where a session's clock starts on the window's: its start, corrected by its clock offset (see ingest). */
-  const startOf = new Map(sessions.map((s) => [s.id, Number(s.started_at) + s.clock_offset + (later.get(s.id) ?? 0) - from]));
+  const shiftOf = new Map(sessions.map((s) => [s.id, s.clock_shift]));
+  /** Where a session's clock starts on the window's: its start, corrected by its clock offset and shift (see ingest). */
+  const startOf = new Map(sessions.map((s) => [s.id, Number(s.started_at) + s.clock_offset + s.clock_shift - from]));
   /** A session-clock timestamp, moved onto the window's clock. */
   const shift = (sid: string, ts: number) => ts + startOf.get(sid)!;
   const ns = (sid: string, id: string) => `${sid}/${id}`;
@@ -178,10 +177,12 @@ export async function systemView(
     // In a batch, a parent the stream has already sent (anything since `from`) is in view on the other end.
     const shown = inView.has(parent) || (!!only && l.parent_wall !== null && l.parent_wall >= from);
     const status = shown ? 'in-view' : l.parent_wall !== null ? 'outside-window' : 'missing';
-    const childWall = wallOf.get(child)!;
+    // Skew is how far the clocks disagreed, so it is measured before either session's shift.
+    const childWall = wallOf.get(child)! - (shiftOf.get(l.child_session) ?? 0);
+    const parentWall = l.parent_wall === null ? null : l.parent_wall - (l.parent_shift ?? 0);
     // An inversion within both clocks' measured error is that error, not disagreement.
     const tolerance = (errorOf.get(l.child_session) ?? 0) + (errorOf.get(l.parent_session) ?? 0);
-    const skew = l.parent_wall !== null && l.parent_wall - childWall > tolerance ? l.parent_wall - childWall : 0;
+    const skew = parentWall !== null && parentWall - childWall > tolerance ? parentWall - childWall : 0;
     links.push({
       occurrenceId: child, parent: { sessionId: l.parent_session, occurrenceId: l.parent_id }, status,
       ...(skew > 0 && { skewMs: skew }),
@@ -198,7 +199,7 @@ export async function systemView(
       templateId: ns(sid, o.templateId),
       parentId: remote ? remote.parent : o.parentId === null ? null : ns(sid, o.parentId),
       sourceNodeId: mapNode(sid, o.sourceNodeId),
-      ts: wall_ts - from + (later.get(sid) ?? 0),
+      ts: wall_ts - from,
       handlerResults: o.handlerResults.map((h) => ({
         ...h,
         handlerId: mapNode(sid, h.handlerId),
@@ -237,42 +238,11 @@ export async function systemView(
     services: sessions.map((s) => ({
       sessionId: s.id, recorderKey: s.key, runtime: s.runtime, sdk: s.sdk ?? null, startedAt: s.started_at,
       processIds: [...(usedBy.get(s.id) ?? [])],
-      ...(later.get(s.id) && { clockShiftMs: later.get(s.id) }),
+      ...(s.clock_shift > 0 && { clockShiftMs: s.clock_shift }),
     })),
     links,
     from,
     to,
     truncated,
   };
-}
-
-/**
- * How much later each session's events have to be drawn so that every message in view is consumed after it was
- * published. Clock estimates carry an error (see ingest), and a consume can land a few ms before its publish within
- * it, which a replay would show as an effect before its cause. Moving a whole session keeps the order of its own
- * events; a session is only ever moved later, by the least that satisfies every link into it. Moves carry along
- * chains (A to B to C), and a few passes settle them; messages going both ways between two sessions can't all be
- * satisfied, so the passes are capped.
- */
-export function causalShifts(
-  sessions: { id: string }[],
-  links: { child_session: string; child_id: string; parent_session: string; parent_id: string }[],
-  wallOf: Map<string, number>,
-): Map<string, number> {
-  const later = new Map<string, number>();
-  const pairs = links
-    .map((l) => ({ child: l.child_session, parent: l.parent_session, childWall: wallOf.get(`${l.child_session}/${l.child_id}`), parentWall: wallOf.get(`${l.parent_session}/${l.parent_id}`) }))
-    .filter((p): p is { child: string; parent: string; childWall: number; parentWall: number } => p.childWall !== undefined && p.parentWall !== undefined && p.child !== p.parent);
-  for (let pass = 0; pass <= sessions.length; pass++) {
-    let moved = false;
-    for (const p of pairs) {
-      const gap = p.parentWall + (later.get(p.parent) ?? 0) - (p.childWall + (later.get(p.child) ?? 0));
-      if (gap > 0) {
-        later.set(p.child, (later.get(p.child) ?? 0) + gap);
-        moved = true;
-      }
-    }
-    if (!moved) break;
-  }
-  return later;
 }

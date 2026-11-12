@@ -127,10 +127,10 @@ export function createApp(opts: AppOptions) {
       const batch = parseBatch(await c.req.json().catch(() => null));
       if (typeof batch === 'string') return c.json({ error: batch }, 400);
       try {
-        const { recorderId, stored } = await ingest(db, key.project_id, batch, receivedAt);
+        const { recorderId, stored, moved } = await ingest(db, key.project_id, batch, receivedAt);
         void db.query('update project_keys set last_used_at = now() where id = $1', [key.id]);
         await db.query('insert into key_recorders (key_id, recorder_id) values ($1, $2) on conflict do nothing', [key.id, recorderId]);
-        if (stored) hub.publish(recorderId, { sessionId: batch.sessionId, messages: batch.messages }, key.project_id);
+        if (stored) hub.publish(recorderId, { sessionId: batch.sessionId, messages: batch.messages, ...(moved && { moved }) }, key.project_id);
         return c.json({ ok: true, duplicate: !stored, receivedAt, repliedAt: now() });
       } catch (err) {
         if (err instanceof SessionConflict) return c.json({ error: err.message }, 409);
@@ -200,26 +200,27 @@ export function createApp(opts: AppOptions) {
       } else {
         // The whole project: a system view of the last `span` ms, then each batch merged onto that view's clock.
         let from = 0;
-        let shifts = new Map<string, number>();
+        let placed = new Set<string>();
         const snapshot = async () => {
           const to = now();
           from = to - span;
           const view = await systemView(db, projectId, from, to, SYSTEM_MAX_OCCURRENCES);
-          shifts = new Map(view.services.map((x) => [x.sessionId, x.clockShiftMs ?? 0]));
+          placed = new Set(view.services.map((x) => x.sessionId));
           await write({ type: 'system-snapshot', view });
         };
         chain = snapshot();
         stop = hub.watchProject(projectId, (b) => {
           chain = chain.then(async () => {
-            // A session the snapshot hasn't placed yet (a new run, or one quiet until now): start over with it in.
-            if (!shifts.has(b.sessionId)) return snapshot();
+            // A session the snapshot hasn't placed yet (a new run, or one quiet until now), or stored times that moved
+            // (a clock estimate or shift; see settleClocks): start over, so everything is drawn where it now is.
+            if (b.moved || !placed.has(b.sessionId)) return snapshot();
             const occurrenceIds = b.messages.flatMap((m) => (m.type === 'occurrence' ? [m.occurrence.id] : []));
             const findingIds = b.messages.flatMap((m) => (m.type === 'finding' ? [m.finding.id] : []));
-            const { recording, services, links } = await systemView(db, projectId, from, now(), SYSTEM_MAX_OCCURRENCES, { sessionId: b.sessionId, occurrenceIds, findingIds, shifts });
+            const { recording, services, links } = await systemView(db, projectId, from, now(), SYSTEM_MAX_OCCURRENCES, { sessionId: b.sessionId, occurrenceIds, findingIds });
             await write({ type: 'system-batch', recording, services, links });
           });
         });
-        // Clock shifts between services settle as more messages link them; a fresh snapshot now and then redraws them.
+        // A fresh snapshot now and then, in case anything moved that a batch didn't announce.
         resync = setInterval(() => { chain = chain.then(snapshot); }, opts.systemResyncMs ?? 60_000);
       }
       const ping = setInterval(() => { chain = chain.then(() => stream.writeSSE({ event: 'ping', data: '' })); }, 25_000);

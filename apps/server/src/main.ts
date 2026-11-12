@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server';
 import type { Context } from 'hono';
 import { createApp } from './app';
+import { settleAllProjects } from './clock';
 import { resendMailer } from './mail';
 import { supabaseVerifier } from './auth';
 import { connectPostgres, migrate, openPglite } from './db';
@@ -27,6 +28,8 @@ if (!env.STREAM_SECRET && env.NODE_ENV === 'production') throw new Error('STREAM
 const db = env.DATABASE_URL ? await connectPostgres(env.DATABASE_URL) : await openPglite(env.PGLITE_DIR ?? '.data/pglite');
 const applied = await migrate(db);
 if (applied.length) console.log(`[server] applied migrations: ${applied.join(', ')}`);
+// Clock shifts are stored from 008 on; settle what was stored before it once, so old recordings line up too.
+if (applied.includes('008_clock_shift.sql')) console.log(`[server] settled the clocks of ${await settleAllProjects(db)} sessions`);
 
 const retentionHours = Number(env.DEV_RETENTION_HOURS ?? 24);
 if (!(retentionHours >= 0)) throw new Error('DEV_RETENTION_HOURS must be a number of hours, or 0 to keep everything');

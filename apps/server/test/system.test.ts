@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { GraphNode, IngestBatch, Occurrence, Process, RecorderMessage, Template } from '@ida-dev/core';
 import { createApp } from '../src/app';
+import { settleAllProjects } from '../src/clock';
 import { migrate, openPglite, type Db } from '../src/db';
 import type { SystemView } from '../src/system';
 
@@ -182,6 +183,78 @@ describe('system view', () => {
     const ts = (sid: string, id: string) => view.recording.occurrences.find((o) => o.id === `${sid}/${id}`)!.ts;
     // Each moves by the least that puts it after its cause.
     expect([ts(a, 'e1'), ts(b, 'e1'), ts(b, 'e2'), ts(c, 'e1')]).toEqual([500, 500, 510, 510]);
+  });
+
+  it('stores the move, so every window draws the session at the same time', async () => {
+    const { projectId, key } = await newProject();
+    const a = randomUUID(), b = randomUUID();
+    await ingest(key, batch('checkout', a, T0 + 1_000, producer(10)));
+    const after = consumer(450).map((m) => (m.type === 'occurrence' ? { ...m, occurrence: { ...m.occurrence, id: 'e2' } } : m));
+    await ingest(key, batch('payments', b, T0, [...consumer(400, { sessionId: a, occurrenceId: 'e1' }), ...after]));
+    expect(await db.query('select clock_shift from sessions where id = $1', [b])).toEqual([{ clock_shift: 610 }]);
+    // A window with neither end of the link that proved the move: payments' later event is still moved.
+    const late = (await system(projectId, T0 + 1_020, T0 + 1_100)).body as SystemView;
+    expect(late.recording.occurrences.map((o) => [o.id, o.ts])).toEqual([[`${b}/e2`, 40]]);
+    expect(late.recording.occurrences[0]!.handlerResults[0]!.ts).toBe(40);
+    expect(late.services).toMatchObject([{ sessionId: b, clockShiftMs: 610 }]);
+    // Its uncorrected time is no longer where it is stored.
+    expect((await system(projectId, T0 + 300, T0 + 500)).body.recording.occurrences).toEqual([]);
+  });
+
+  it('moves the consumer when the publish arrives after it', async () => {
+    const { projectId, key } = await newProject();
+    const a = randomUUID(), b = randomUUID();
+    await ingest(key, batch('payments', b, T0, consumer(400, { sessionId: a, occurrenceId: 'e1' })));
+    await ingest(key, batch('checkout', a, T0 + 1_000, producer(10)));
+    const view = (await system(projectId, T0, T0 + 60_000)).body as SystemView;
+    expect(view.recording.occurrences.find((o) => o.id === `${b}/e1`)!.ts).toBe(1_010);
+    expect(view.services.find((s) => s.sessionId === b)).toMatchObject({ clockShiftMs: 610 });
+  });
+
+  it('doesn’t let two services that message each other push each other later', async () => {
+    const { key } = await newProject();
+    const a = randomUUID(), b = randomUUID();
+    const named = (m: RecorderMessage[], id: string, tpl: string) =>
+      m.map((x) => (x.type === 'occurrence' ? { ...x, occurrence: { ...x.occurrence, id, templateId: tpl }, template: { ...x.template, id: tpl } } : x));
+    const shifts = async () => Object.fromEntries((await db.query<{ id: string; clock_shift: number }>(
+      'select id, clock_shift from sessions where id = any($1::uuid[])', [[a, b]])).map((r) => [r.id, r.clock_shift]));
+    // a consumes b's e2 10 ms after b sent it; then b consumes a's e1 50 ms early by its clock. b can move 10 ms.
+    await ingest(key, batch('payments', b, T0, named(producer(60), 'e2', 'tp')));
+    await ingest(key, batch('checkout', a, T0, [...named(consumer(70, { sessionId: b, occurrenceId: 'e2' }), 'e2', 'tc'), ...named(producer(100), 'e1', 'tp')]));
+    await ingest(key, batch('payments', b, T0, named(consumer(50, { sessionId: a, occurrenceId: 'e1' }), 'e1', 'tc'), 1));
+    expect(await shifts()).toEqual({ [a]: 0, [b]: 10 });
+    // Another early consume changes nothing: b can't move without breaking a's.
+    await ingest(key, batch('checkout', a, T0, named(producer(300), 'e3', 'tp'), 1));
+    await ingest(key, batch('payments', b, T0, named(consumer(240, { sessionId: a, occurrenceId: 'e3' }), 'e3', 'tc'), 2));
+    expect(await shifts()).toEqual({ [a]: 0, [b]: 10 });
+  });
+
+  it('settles the move again when a better clock estimate arrives', async () => {
+    const { key } = await newProject();
+    const a = randomUUID(), b = randomUUID();
+    await ingest(key, batch('checkout', a, T0 + 1_000, producer(10)));
+    await ingest(key, batch('payments', b, T0, consumer(400, { sessionId: a, occurrenceId: 'e1' })));
+    // The estimate fixes 300 ms of the 610; the move covers the rest, not 610 on top.
+    await ingest(key, { ...batch('payments', b, T0, [], 1), clock: { offsetMs: 300, errorMs: 5 } });
+    expect(await db.query('select clock_offset, clock_shift from sessions where id = $1', [b])).toEqual([{ clock_offset: 300, clock_shift: 310 }]);
+    expect(await db.query('select wall_ts from occurrences where session_id = $1', [b])).toEqual([{ wall_ts: T0 + 1_010 }]);
+    // One that fixes all of it needs no move.
+    await ingest(key, { ...batch('payments', b, T0, [], 2), clock: { offsetMs: 700, errorMs: 2 } });
+    expect(await db.query('select clock_shift from sessions where id = $1', [b])).toEqual([{ clock_shift: 0 }]);
+    expect(await db.query('select wall_ts from occurrences where session_id = $1', [b])).toEqual([{ wall_ts: T0 + 1_100 }]);
+  });
+
+  it('settles what was stored before moves were', async () => {
+    const { projectId, key } = await newProject();
+    const a = randomUUID(), b = randomUUID();
+    await ingest(key, batch('checkout', a, T0 + 1_000, producer(10)));
+    await ingest(key, batch('payments', b, T0, consumer(400, { sessionId: a, occurrenceId: 'e1' })));
+    // As it was stored before migration 008.
+    await db.query('update sessions set clock_shift = 0 where id = $1', [b]);
+    await db.query('update occurrences set wall_ts = $2 where session_id = $1', [b, T0 + 400]);
+    expect(await settleAllProjects(db)).toBeGreaterThanOrEqual(1);
+    const view = (await system(projectId, T0, T0 + 60_000)).body as SystemView;
+    expect(view.recording.occurrences.find((o) => o.id === `${b}/e1`)!.ts).toBe(1_010);
   });
 
   it('stores one link when a batch is replayed', async () => {
@@ -403,6 +476,27 @@ describe('project live stream', () => {
 
     const whole = (await req('GET', `/v1/projects/${projectId}/system?from=${NOW - SPAN}&to=${NOW}`, as('user-a'))).body as SystemView;
     expect(rec.occurrences[0]).toEqual(whole.recording.occurrences.find((o) => o.id === `${b}/e2`));
+    await stream.close();
+  });
+
+  it('sends a fresh snapshot when a batch moves a session’s clock', async () => {
+    const { fixed, req, ingest: send } = fixedApp();
+    const { projectId, key } = await newProject();
+    const a = randomUUID(), b = randomUUID();
+    await send(key, batch('checkout', a, T0, producer(10)));
+    await send(key, batch('payments', b, T0, consumer(20)));
+    const { token } = (await req('POST', `/v1/projects/${projectId}/stream-token`, as('user-a'))).body;
+    const stream = await open(fixed, token);
+    expect(await stream.next()).toMatchObject({ type: 'system-snapshot' });
+
+    // A consume 5 ms before its publish: payments moves, so everything it already sent is redrawn.
+    const early = consumer(5, { sessionId: a, occurrenceId: 'e1' }).map((m) => (m.type === 'occurrence' ? { ...m, occurrence: { ...m.occurrence, id: 'e2' } } : m));
+    await send(key, batch('payments', b, T0, early, 1));
+    const next = await stream.next();
+    expect(next).toMatchObject({ type: 'system-snapshot' });
+    const view = next.view as SystemView;
+    expect(view.services.find((s) => s.sessionId === b)).toMatchObject({ clockShiftMs: 5 });
+    expect(view.recording.occurrences.find((o) => o.id === `${b}/e1`)!.ts).toBe(T0 + 25 - (NOW - SPAN));
     await stream.close();
   });
 

@@ -365,9 +365,6 @@ function CrossService({ index, item }: { index: ReplayIndex; item: IndexedOccurr
             ) : link.status === 'outside-window'
               ? <span className="muted">a service, before this window</span>
               : <span className="muted">a service Ida doesn't record (or another project)</span>}
-            {link.skewMs !== undefined && (
-              <div><Badge tone="warn" title="Consumed before it was published, by the services' clocks: they disagree by at least this much. Times are shown as recorded.">clock skew ≥ {fmtMs(link.skewMs)}</Badge></div>
-            )}
           </dd>
         </>
       )}
@@ -406,14 +403,6 @@ function SystemFacts({ index, m }: { index: ReplayIndex; m: ModelNode }) {
       <>
         <dt>Runs</dt><dd>{service.sessions.length} in this window{service.sessions.length > 1 && <span className="muted"> (restarts or instances)</span>}</dd>
         <dt>Runtime</dt><dd>{runtimes.map((r) => <div key={r}>{r || <span className="muted">unknown</span>}</div>)}</dd>
-        {service.sessions.some((s) => s.clockShiftMs) && (
-          <>
-            <dt>Clock</dt>
-            <dd title="Its clock put a consume before the publish it came from, so its events are drawn that much later. The order within the service is unchanged.">
-              drawn {fmtMs(Math.max(...service.sessions.map((s) => s.clockShiftMs ?? 0)))} later, to keep each message after its publish
-            </dd>
-          </>
-        )}
       </>
     );
   }

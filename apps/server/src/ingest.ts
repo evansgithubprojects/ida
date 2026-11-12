@@ -1,4 +1,5 @@
 import type { IngestBatch, Occurrence, RecorderMessage } from '@ida-dev/core';
+import { settleClocks } from './clock';
 import type { Db } from './db';
 
 const KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
@@ -61,6 +62,8 @@ export interface Ingested {
   recorderId: string;
   /** False when this `seq` was already stored: nothing was written again. */
   stored: boolean;
+  /** Some session's stored times moved (a better clock estimate, or a clock shift), so views drawn earlier are off. */
+  moved: boolean;
 }
 
 /** Stores one batch for `projectId`. Safe to repeat: a `(sessionId, seq)` already seen changes nothing. */
@@ -72,34 +75,46 @@ export async function ingest(db: Db, projectId: string, batch: IngestBatch, rece
       [projectId, batch.recorderKey],
     );
     const recorderId = rec!.id;
-    const [session] = await tx.query<{ recorder_id: string; started_at: number; clock_offset: number; clock_error: number | null; clock_age_ms: number | null }>(
+    const [session] = await tx.query<{ recorder_id: string; started_at: number; clock_offset: number; clock_shift: number; clock_error: number | null; clock_age_ms: number | null }>(
       `insert into sessions (id, recorder_id, started_at, runtime, sdk) values ($1, $2, $3, $4, $5)
        on conflict (id) do update set last_seen_at = now()
-       returning recorder_id, started_at, clock_offset, clock_error, (extract(epoch from now() - clock_at) * 1000)::float8 as clock_age_ms`,
+       returning recorder_id, started_at, clock_offset, clock_shift, clock_error, (extract(epoch from now() - clock_at) * 1000)::float8 as clock_age_ms`,
       [batch.sessionId, recorderId, batch.startedAt, batch.runtime ?? '', batch.sdk ? JSON.stringify(batch.sdk) : null],
     );
     // A session id is chosen by the SDK, so make sure nobody can write into another recorder's (or project's) session.
     if (session!.recorder_id !== recorderId) throw new SessionConflict('sessionId belongs to another recorder');
 
     // Put the session on our clock. A better estimate moves everything the session already stored by the same amount,
-    // so its own events never change order.
+    // so its own events never change order. The clock shift was measured against the old estimate, so it starts over
+    // and is settled again from the session's links (see `settleClocks`).
     let offset = session!.clock_offset;
+    let shift = session!.clock_shift;
+    let reset = false;
     const est = clockEstimate(batch, receivedAt);
     if (est) {
       const err = session!.clock_error;
       const better = err === null || est.errorMs < err;
       const drifted = err !== null && (session!.clock_age_ms ?? 0) > CLOCK_STALE_MS && Math.abs(est.offsetMs - offset) > est.errorMs + err;
       if (better || drifted) {
-        await tx.query('update sessions set clock_offset = $2, clock_error = $3, clock_at = now() where id = $1', [batch.sessionId, est.offsetMs, est.errorMs]);
-        if (est.offsetMs !== offset) {
-          await tx.query('update occurrences set wall_ts = wall_ts + $2 where session_id = $1', [batch.sessionId, est.offsetMs - offset]);
+        await tx.query('update sessions set clock_offset = $2, clock_error = $3, clock_shift = 0, clock_at = now() where id = $1', [batch.sessionId, est.offsetMs, est.errorMs]);
+        const by = est.offsetMs - offset - shift;
+        if (by !== 0) {
+          const [u] = await tx.query<{ n: number }>(
+            'with u as (update occurrences set wall_ts = wall_ts + $2 where session_id = $1 returning 1) select count(*)::int as n from u',
+            [batch.sessionId, by],
+          );
+          reset = u!.n > 0;
         }
         offset = est.offsetMs;
+        shift = 0;
       }
     }
 
     const fresh = await tx.query('insert into ingest_batches (session_id, seq) values ($1, $2) on conflict do nothing returning seq', [batch.sessionId, batch.seq]);
-    if (!fresh.length) return { recorderId, stored: false };
+    if (!fresh.length) {
+      if (reset) await settleClocks(tx, projectId, { sessions: [batch.sessionId] });
+      return { recorderId, stored: false, moved: reset };
+    }
 
     const processes = [], nodes = [], templates = [], occurrences: Occurrence[] = [], findings = [];
     for (const m of batch.messages) {
@@ -143,7 +158,7 @@ export async function ingest(db: Db, projectId: string, batch: IngestBatch, rece
         `insert into occurrences (session_id, id, ts, data, late, project_id, wall_ts)
          select $1, x->>'id', (x->>'ts')::float8, x, $3, $4, $5::float8 + $6::float8 + (x->>'ts')::float8 from jsonb_array_elements($2::jsonb) as t(x)
          on conflict (session_id, id) do update set data = excluded.data`,
-        [sid, JSON.stringify(latest), !!batch.spooled, projectId, session!.started_at, offset],
+        [sid, JSON.stringify(latest), !!batch.spooled, projectId, session!.started_at, offset + shift],
       );
       const links = latest.flatMap((o) => {
         const p = remoteParentOf(o);
@@ -161,6 +176,8 @@ export async function ingest(db: Db, projectId: string, batch: IngestBatch, rece
     if (batch.gap) {
       await tx.query('insert into session_gaps (session_id, from_ts, to_ts, dropped) values ($1, $2, $3, $4)', [sid, batch.gap.fromTs, batch.gap.toTs, batch.gap.dropped]);
     }
-    return { recorderId, stored: true };
+    const ids = occurrences.map((o) => o.id);
+    const settled = await settleClocks(tx, projectId, { batch: { sessionId: sid, ids }, ...(reset && { sessions: [sid] }) });
+    return { recorderId, stored: true, moved: reset || settled.size > 0 };
   });
 }

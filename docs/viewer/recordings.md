@@ -60,7 +60,6 @@ The viewer explains anything unusual about what it shows in a banner under the h
 | --- | --- |
 | *N events were lost while an app was offline and its spool was full* | Some events never arrived; the lost stretches are marked on the timeline. |
 | *N consumed messages name publishers Ida has no record of* | A service consumed messages from a service that doesn't record with Ida (or recorded outside the time in view). |
-| *N messages were consumed before they were published, by the services' clocks* | Two services' clocks disagree. Inspect a message to see by how much. |
 
 ## Waiting for events
 

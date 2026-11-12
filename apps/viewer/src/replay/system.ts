@@ -8,8 +8,6 @@ export interface SystemService {
   sdk: { language: 'js' | 'python'; version: string } | null;
   startedAt: number;
   processIds: string[];
-  /** How much later this session's events are drawn so that what it consumed comes after its publish. */
-  clockShiftMs?: number;
 }
 
 /** A consume occurrence and the publish it came from; see the server's `SystemLink`. */
@@ -17,7 +15,6 @@ export interface SystemLink {
   occurrenceId: string;
   parent: { sessionId: string; occurrenceId: string };
   status: 'in-view' | 'outside-window' | 'missing';
-  skewMs?: number;
 }
 
 /** What `GET /v1/projects/:id/system` returns. */

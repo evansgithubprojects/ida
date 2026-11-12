@@ -158,7 +158,6 @@ export function ProjectView() {
   const view = index?.system;
   const links = view ? [...view.links.values()] : [];
   const missing = links.filter((l) => l.status === 'missing').length;
-  const skewed = links.filter((l) => l.skewMs !== undefined).length;
   const gaps = index?.recording.gaps?.reduce((n, g) => n + g.dropped, 0) ?? 0;
 
   return (
@@ -187,10 +186,9 @@ export function ProjectView() {
           {gaps} events were lost while an app was offline and its spool was full. They are marked on the timeline.
         </div>
       )}
-      {(missing > 0 || skewed > 0) && (
+      {missing > 0 && (
         <div className="banner banner-warn" role="status">
-          {missing > 0 && `${missing} consumed message${missing === 1 ? ' names a publisher' : 's name publishers'} Ida has no record of: the service that sent ${missing === 1 ? 'it' : 'them'} isn't recorded. `}
-          {skewed > 0 && `${skewed} message${skewed === 1 ? ' was' : 's were'} consumed before ${skewed === 1 ? 'it was' : 'they were'} published, by the services' clocks; inspect one to see by how much.`}
+          {missing} consumed message{missing === 1 ? ' names a publisher' : 's name publishers'} Ida has no record of: the service that sent {missing === 1 ? 'it' : 'them'} isn't recorded.
         </div>
       )}
       <Replay

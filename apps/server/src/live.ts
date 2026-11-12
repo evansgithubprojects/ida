@@ -4,6 +4,8 @@ import type { RecorderMessage } from '@ida-dev/core';
 export interface LiveBatch {
   sessionId: string;
   messages: RecorderMessage[];
+  /** Storing it moved some session's times (a clock estimate or shift), so a view drawn before it is off. */
+  moved?: boolean;
 }
 
 /**

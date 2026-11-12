@@ -82,10 +82,6 @@ The live stream couldn't open. Check that you're signed in and still have access
 
 Both services must record with Ida, upload to the **same project**, and use an adapter on both ends (so the `ida-parent` header is written and read). A banner counts consumed messages whose publisher Ida has no record of. For Kafka across several clusters, use the same `cluster` name for a cluster in every service.
 
-### "consumed before it was published"
-
-The two services' clocks disagree by more than the server could correct. The viewer shifts the consuming service later to keep cause before effect and shows a **clock skew** badge. Keeping your machines' clocks synced (NTP) avoids it.
-
 ### Handlers are called anonymous#3
 
 Name your functions, or use `labelHandler`. See [Naming](guides/naming.md).

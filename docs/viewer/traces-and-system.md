@@ -12,11 +12,11 @@ The live project view opens on every service at once:
 
 Double-click a service to zoom into its processes, and a process to zoom into its handlers. Inside a service, the processes it exchanges events with elsewhere appear as small cards at the edge, marked with the service they're *in* (or *other process*), so you can still see where its messages come from and go.
 
-Select a service's card to see its **Runs** in view, the **Runtime** and SDK version each ran on, and any **Clock** correction (below).
+Select a service's card to see its **Runs** in view, and the **Runtime** and SDK version each ran on.
 
 ### Clocks
 
-Each service timestamps its own events. The server estimates each service's clock offset when it uploads and puts all services on one clock, so messages play back in order. If a message still appears consumed before it was published, the viewer moves the consuming service's events later by the smallest amount that fixes it (the order within the service doesn't change), shows the correction on the service's card, and marks the message with a **clock skew** badge.
+Each service timestamps its own events. The server estimates each service's clock offset when it uploads and puts all services on one clock, so messages play back in order. If a message still appears consumed before it was published, the server moves the consuming service's events later by the smallest amount that fixes it (the order within the service doesn't change). The correction is stored with the service's run, so it is the same in every time window and in the live view. Two services that message each other in both directions can't always both be fixed; a service is only moved as far as the messages it sends back allow.
 
 ### Missing publishers
 
