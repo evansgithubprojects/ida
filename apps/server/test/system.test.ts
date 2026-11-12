@@ -82,7 +82,7 @@ describe('system view', () => {
     expect(status).toBe(200);
     const view = body as SystemView;
     expect(view.truncated).toBe(false);
-    expect(view.services.map((s) => [s.recorderKey, s.sdk?.language])).toEqual([['checkout', 'js'], ['payments', 'python']]);
+    expect(view.services.map((s) => [s.recorderKey, s.sdk?.language, s.startTs])).toEqual([['checkout', 'js', 0], ['payments', 'python', 5]]);
 
     // The topic, and its emitter node, are shared; everything else is per service.
     expect(view.recording.processes.filter((p) => p.id === TOPIC)).toHaveLength(1);

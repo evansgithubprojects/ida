@@ -51,7 +51,8 @@ export interface ReplayIndex {
   start: number;
   end: number;
   /**
-   * What displayed times count from. Recorder timestamps are relative to the recorder's start, so this is a fixed 0.
+   * What displayed times count from ("init"). Recorder timestamps are relative to the recorder's start, so this is a
+   * fixed 0. In a system view it is when the first recorder in view started.
    * It must not follow `start`: a live view drops its oldest event every flush, which moves `start`, and every
    * time on screen would then change and re-render with it. `start` is for geometry and windowing only.
    */
@@ -160,6 +161,26 @@ export const isProblemRun = (index: ReplayIndex, run: Run) => !!run.error || ind
  * `system` is the rest of a system view, when `recording` is one. `origin` keeps a live system view's times counting
  * from where they did (see `ReplayIndex.origin`).
  */
+/**
+ * A length of time for people to read: "4.20ms", "312ms", "12.34s", then minutes and hours once it gets that long
+ * ("2m 03s", "1h 02m 03s"), so a time counted from a long-running app's init stays readable.
+ */
+export function fmtMs(ms: number): string {
+  // Thresholds on the rounded value, so 999.6 ms reads "1.00s", not "1000ms", and 59.999 s reads "1m 00s".
+  if (Math.round(ms) < 1000) return `${ms.toFixed(ms < 10 ? 2 : 0)}ms`;
+  if (Math.round(ms / 10) < 6000) return `${(ms / 1000).toFixed(2)}s`;
+  const total = Math.round(ms / 1000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+  return h ? `${h}h ${pad(m)}m ${pad(s)}s` : `${m}m ${pad(s)}s`;
+}
+
+/** When the first recorder in a system view started, on the view's clock; undefined when the server doesn't say. */
+function firstInit(system: Omit<SystemView, 'recording'>): number | undefined {
+  const starts = system.services.map((s) => s.startTs).filter((t): t is number => typeof t === 'number');
+  return starts.length ? Math.min(...starts) : undefined;
+}
+
 export function buildIndex(recording: Recording, system?: Omit<SystemView, 'recording'> | null, origin?: number): ReplayIndex {
   const templates = new Map(recording.templates.map((t) => [t.id, t]));
   const nodes = new Map(recording.nodes.map((n) => [n.id, n]));
@@ -231,10 +252,10 @@ export function buildIndex(recording: Recording, system?: Omit<SystemView, 'reco
     processes,
     system: system ? buildServiceIndex(system, recording) : null,
     findingsByOcc, findingsById, findingsBySource, propagations, start, end,
-    // A system view's times count from its window, which can start long before anything happened: count from the
-    // first event instead. A live one drops its oldest events as new ones come, so it passes in the origin it opened
-    // with: times shown stay put, and lists keyed on it don't redraw on every batch.
-    origin: system ? origin ?? start : 0,
+    // A system view's times count from when the first of its recorders started (its init), else its first event. A
+    // live one drops its oldest events as new ones come, so it passes in the origin it opened with: times shown stay
+    // put, and lists keyed on it don't redraw on every batch.
+    origin: system ? origin ?? firstInit(system) ?? start : 0,
   };
 }
 

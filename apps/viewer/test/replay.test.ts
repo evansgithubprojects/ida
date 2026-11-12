@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createRecorder, type Recording } from '@ida-dev/core';
-import { activeAt, activityOf, buildIndex, callChain, chainOf, edgeId, isProblemRun, parseRunId, runById, runId, throwId, throwIdFor, errorCode, capWindow, inWindow, keepNewest, MAX_WINDOW_EVENTS, mergeTicks, notifications, rateSeries, fmtRate, RATE_STEP_MS, RATE_HISTORY, recentRates, shownRates, MAX_PULSES, SPIKE_MIN, SPIKE_RATIO, type HeldSpikes, type RateSeries, type RecentRates } from '../src/replay';
+import { activeAt, activityOf, buildIndex, callChain, chainOf, edgeId, isProblemRun, parseRunId, runById, runId, throwId, throwIdFor, errorCode, capWindow, inWindow, keepNewest, MAX_WINDOW_EVENTS, mergeTicks, notifications, rateSeries, fmtMs, fmtRate, RATE_STEP_MS, RATE_HISTORY, recentRates, shownRates, MAX_PULSES, SPIKE_MIN, SPIKE_RATIO, type HeldSpikes, type RateSeries, type RecentRates } from '../src/replay';
 
 function recordShop(): Recording {
   let t = 0;
@@ -80,6 +80,14 @@ describe('activeAt', () => {
     const procB = toProcess(charge);
     expect(a.litEdges.get(edgeId(procA, procB))).toBeDefined();
     expect([...a.litEdges.keys()].every((k) => { const [s, d] = k.split('>'); return s !== d; })).toBe(true);
+  });
+});
+
+describe('fmtMs', () => {
+  it('reads as ms, then seconds, then minutes and hours', () => {
+    expect([4.2, 312, 999.6, 12_340, 59_994].map(fmtMs)).toEqual(['4.20ms', '312ms', '1.00s', '12.34s', '59.99s']);
+    expect(fmtMs(59_999)).toBe('1m 00s');
+    expect([60_000, 123_456, 3_723_000, 36_000_000].map(fmtMs)).toEqual(['1m 00s', '2m 03s', '1h 02m 03s', '10h 00m 00s']);
   });
 });
 

@@ -7,6 +7,8 @@ export interface SystemService {
   runtime: string;
   sdk: { language: 'js' | 'python'; version: string } | null;
   startedAt: number;
+  /** Where this run started on the view's clock (ms after `recording.startedAt`, clock-corrected). Older servers leave it out. */
+  startTs?: number;
   processIds: string[];
 }
 

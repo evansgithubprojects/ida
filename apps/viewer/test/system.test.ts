@@ -181,8 +181,14 @@ describe('system view', () => {
     expect(m.edges.map((e) => `${e.source} > ${e.target}`)).toEqual(expect.arrayContaining([
       `s:payments > p:${EXCHANGE}`, `p:${EXCHANGE} > p:${QUEUE}`, `p:${QUEUE} > s:notifier`,
     ]));
-    // Times count from the first event, not from the window's start.
+    // With no recorder start from the server, times count from the first event, not from the window's start.
     expect(i.origin).toBe(i.start);
+  });
+
+  it('counts times from when the first recorder in view started', () => {
+    const { recording, ...rest } = systemView();
+    const services = rest.services.map((s, k) => ({ ...s, startTs: [7, 3, 9][k] ?? 12 }));
+    expect(buildIndex(recording, { ...rest, services }).origin).toBe(3);
   });
 
   it('leaves an ordinary recording as it was', () => {

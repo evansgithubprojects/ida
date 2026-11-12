@@ -28,7 +28,7 @@ The panel on the right shows whatever you select. Show or hide it with the tab o
 With nothing selected:
 
 - **Recording**: how many events are in the [replay window](replay.md#the-replay-window), out of the total, and, for live views, a dot showing whether the stream is connected.
-- **Notifications**: every error and suspected corrupt payload in the window. Corrupt payloads traced to an error come first, then errors, then corrupt payloads with no error behind them. Within each, those that reached an external system come first, then oldest first. Checkboxes above the list show or hide **Corrupt payloads** and **Errors**; the choice applies to every notification list and is remembered. Click one to open its [trace](traces-and-system.md#traces): a step-by-step walk through what led to it.
+- **Notifications**: every error and suspected corrupt payload in the window. Corrupt payloads traced to an error come first, then errors, then corrupt payloads with no error behind them. Within each, those that reached an external system come first, then oldest first. Checkboxes above the list show or hide **Corrupt payloads** and **Errors**; the choice applies to every notification list and is remembered. Each notification's time is counted **since init**; hover it for the clock time it happened (see [Clocks](traces-and-system.md#clocks) for what init is when several services record). Click one to open its [trace](traces-and-system.md#traces): a step-by-step walk through what led to it.
 
 ### An emitter or handler
 

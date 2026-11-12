@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { callChain, errorCode, eventKey, fmtRate, RATE_STEP_MS, recipientsOf, throwId, throwIdFor, type ReplayIndex } from '../replay';
 import { useStore } from '../store';
 
-export const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${ms.toFixed(ms < 10 ? 2 : 0)}ms`);
+export { fmtMs } from '../replay';
 
 export function Badge({ tone, children, title }: { tone: 'full' | 'template' | 'error' | 'warn' | 'external' | 'muted'; children: ReactNode; title?: string }) {
   return <span className={`badge badge-${tone}`} title={title}>{children}</span>;

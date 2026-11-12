@@ -1,5 +1,5 @@
 import type { Process } from '@ida-dev/core';
-import { chainOf, eventLabel, parseThrowId, recipientsOf, serviceOfOccurrence, type Hop, type IndexedOccurrence, type ReplayIndex } from './index';
+import { chainOf, eventLabel, fmtMs as fmt, parseThrowId, recipientsOf, serviceOfOccurrence, type Hop, type IndexedOccurrence, type ReplayIndex } from './index';
 
 /** What a trace was started from: an error, a suspected corrupt payload, or any one event. */
 export interface TraceTarget {
@@ -54,7 +54,6 @@ export interface TracePath {
   truncated: boolean;
 }
 
-const fmt = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${ms.toFixed(ms < 10 ? 2 : 0)}ms`);
 
 /**
  * The events that caused `target`, root first. An error or event follows its chain of parents. A corrupt payload

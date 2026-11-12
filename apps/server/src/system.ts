@@ -9,8 +9,10 @@ export interface SystemService {
   recorderKey: string;
   runtime: string;
   sdk: { language: 'js' | 'python'; version: string } | null;
-  /** Epoch ms. */
+  /** Epoch ms, by the service's own clock. */
   startedAt: number;
+  /** Where this run started on the view's clock: ms after `recording.startedAt`, with its clock correction. */
+  startTs: number;
   /** Ids (in the merged recording) of the processes this session used, broker processes included. */
   processIds: string[];
   /**
@@ -236,7 +238,7 @@ export async function systemView(
       ...(gaps.length && { gaps }),
     },
     services: sessions.map((s) => ({
-      sessionId: s.id, recorderKey: s.key, runtime: s.runtime, sdk: s.sdk ?? null, startedAt: s.started_at,
+      sessionId: s.id, recorderKey: s.key, runtime: s.runtime, sdk: s.sdk ?? null, startedAt: s.started_at, startTs: startOf.get(s.id)!,
       processIds: [...(usedBy.get(s.id) ?? [])],
       ...(s.clock_shift > 0 && { clockShiftMs: s.clock_shift }),
     })),

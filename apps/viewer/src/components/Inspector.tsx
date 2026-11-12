@@ -158,6 +158,13 @@ function NotificationList({ index, title, list: all, empty }: { index: ReplayInd
   );
 }
 
+/** An epoch time as the local clock reads it, to the millisecond: "14:02:31.120". */
+const clockTime = (epochMs: number) => {
+  const d = new Date(epochMs);
+  const pad = (n: number, w = 2) => String(n).padStart(w, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+};
+
 /**
  * One notification. A live view rebuilds the index several times a second and the list can hold hundreds of
  * rows, so a row only re-renders when its own notification changes (or the recording's start moves, which
@@ -172,7 +179,9 @@ const NotificationRow = memo(
           <span className="row-head">
             {n.kind === 'throw' ? <><Badge tone="error">✕ Error</Badge><ErrorId id={n.id} /></> : <Badge tone="warn">⚠ Corrupt Payload</Badge>}
             {n.external && <Badge tone="external">EXTERNAL</Badge>}
-            <span className="row-time muted" title="Time since the recording started">{fmtMs(n.ts - start)}<span className="row-time-hint">since init</span></span>
+            <span className="row-time muted" title={clockTime(index.recording.startedAt + n.ts)}>
+              {fmtMs(n.ts - start)}<span className="row-time-hint">{index.system ? 'since first recorder init' : 'since init'}</span>
+            </span>
           </span>
           <span className="row-text">{n.finding ? <FindingSummary index={index} finding={n.finding} /> : n.text}</span>
         </button>

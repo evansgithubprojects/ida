@@ -16,7 +16,9 @@ Select a service's card to see its **Runs** in view, and the **Runtime** and SDK
 
 ### Clocks
 
-Each service timestamps its own events. The server estimates each service's clock offset when it uploads and puts all services on one clock, so messages play back in order. If a message still appears consumed before it was published, the server moves the consuming service's events later by the smallest amount that fixes it (the order within the service doesn't change). The correction is stored with the service's run, so it is the same in every time window and in the live view. Two services that message each other in both directions can't always both be fixed; a service is only moved as far as the messages it sends back allow.
+Each service timestamps its own events. The server estimates each service's clock offset when it uploads and puts all services on one clock, so messages play back in order. If a message still appears consumed before it was published, the server moves the consuming service's events later by the smallest amount that fixes it (the order within the service doesn't change). The correction is stored with the service's run, so it is the same in every time window and in the live view.
+
+Times in the viewer count from **init**. In a single recording, init is when its recorder started. When several services record, Ida takes init to be when the **first recorder in your system** began (the earliest-starting service in view, on the server's corrected clock), so every service's times count from the same moment; notifications say **since first recorder init**. Hover a notification's time to see the clock time instead. Two services that message each other in both directions can't always both be fixed; a service is only moved as far as the messages it sends back allow.
 
 ### Missing publishers
 
