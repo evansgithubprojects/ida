@@ -69,12 +69,18 @@ export default defineConfig(Object.entries(packages).map(([name, entries]): Opti
   const dir = `packages/${name}`;
   const dts = declarations(name, entries);
   let first = true;
+  // tsup leaves out what the package.json next to the config lists, and this config sits at the root: name each
+  // package's own dependencies, or they get bundled in. An adapter with its own copy of @ida-dev/core has its own
+  // recorder registry, so it never sees the app's recorders and records nothing.
+  const pkg = JSON.parse(readFileSync(`${dir}/package.json`, 'utf8')) as Record<string, Record<string, string> | undefined>;
+  const external = [...new Set(['dependencies', 'peerDependencies', 'optionalDependencies'].flatMap((k) => Object.keys(pkg[k] ?? {})))];
   return {
     name,
     entry: entries.map((e) => `${dir}/src/${e}`),
     outDir: `${dir}/dist`,
     tsconfig: `${dir}/tsconfig.json`,
     format: ['esm', 'cjs'],
+    external,
     // No `clean`: the declarations from `build:packages` stay in dist/. `prune` removes stale files instead.
     // Rebuild a package only when its own sources change (the default watches the whole repo).
     watch: [`${dir}/src`],

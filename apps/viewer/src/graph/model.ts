@@ -55,6 +55,8 @@ export interface ModelNode {
   idle?: boolean;
   /** Set for a topic, exchange or queue: drawn in that shape. */
   broker?: Process['kind'];
+  /** Which broker it belongs to (Kafka, RabbitMQ), for its logo. */
+  brokerType?: NonNullable<Process['broker']>['type'];
   /** For a `service` node, or a stub that stands for one: its recorder key. */
   service?: string;
 }
@@ -171,9 +173,15 @@ export function buildModel(index: ReplayIndex, level: Level, items: IndexedOccur
     const p = index.processes.get(pid);
     return p?.kind && p.kind !== 'emitter' ? p.kind : undefined;
   };
+  /** A broker process's kind and broker, spread into its node. */
+  const brokerFields = (pid: string) => {
+    const kind = brokerOf(pid);
+    const type = index.processes.get(pid)?.broker?.type;
+    return kind ? { broker: kind, ...(type && { brokerType: type }) } : {};
+  };
   const processNode = (pid: string): ModelNode => ({
     id: processNodeId(pid), label: index.processLabel.get(pid) ?? pid, kind: 'process', processId: pid, detail: detail(processNodeId(pid)),
-    ...(brokerOf(pid) && { broker: brokerOf(pid) }),
+    ...brokerFields(pid),
   });
 
   if (level.kind === 'services' && sys) {
@@ -207,7 +215,7 @@ export function buildModel(index: ReplayIndex, level: Level, items: IndexedOccur
     for (const id of used) {
       if (id.startsWith('p:') && id !== processNodeId(level.processId)) {
         const pid = id.slice(2);
-        nodes.push({ id, label: index.processLabel.get(pid) ?? pid, kind: 'stub', processId: pid, detail: sys?.processService.get(pid) ? `in ${sys.processService.get(pid)}` : 'other process', ...(brokerOf(pid) && { broker: brokerOf(pid) }) });
+        nodes.push({ id, label: index.processLabel.get(pid) ?? pid, kind: 'stub', processId: pid, detail: sys?.processService.get(pid) ? `in ${sys.processService.get(pid)}` : 'other process', ...brokerFields(pid) });
       } else if (id.startsWith('s:')) {
         const key = id.slice(2);
         nodes.push({ id, label: key, kind: 'stub', processId: '', service: key, detail: 'other service' });

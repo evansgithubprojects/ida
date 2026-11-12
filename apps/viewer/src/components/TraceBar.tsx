@@ -2,9 +2,9 @@ import { useEffect } from 'react';
 import { useTrace } from '../hooks';
 import { eventLabel } from '../replay';
 import { useStore } from '../store';
+import { BROKER_NAMES } from './BrokerLogo';
 import { EventRef, fmtMs } from './common';
 
-const BROKER_NAMES = { kafka: 'Kafka', rabbitmq: 'RabbitMQ' } as const;
 
 /**
  * Trace mode: every step of one message's causal tree, oldest first, across services and brokers. Clicking a step
