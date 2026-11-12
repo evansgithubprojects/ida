@@ -47,3 +47,21 @@ function RabbitMark() {
     </svg>
   );
 }
+
+/**
+ * The label on a recorder's card (a service, or a stub standing for one), drawn like a broker's: a record mark and the
+ * word "recorder". The tooltip names the recorder key.
+ */
+export function RecorderBadge({ recorderKey }: { recorderKey: string }) {
+  return (
+    <span className="broker-badge recorder-badge" title={`Recorder "${recorderKey}"`}>
+      <span className="broker-logo recorder-logo" role="img" aria-label="Recorder">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <circle cx="12" cy="12" r="4" fill="currentColor" stroke="none" />
+        </svg>
+      </span>
+      <span className="broker-kind">recorder</span>
+    </span>
+  );
+}

@@ -5,7 +5,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { accumulate, layoutBounds, layoutSeen, NODE_H, NODE_W, type Positions, type Seen } from '../graph/layout';
-import { BrokerLogo } from './BrokerLogo';
+import { BrokerLogo, RecorderBadge } from './BrokerLogo';
 import { isBroker, levelDepth, levelInto, parentLevel, processNodeId, sameLevel, serviceNodeId, serviceOfProcess, tracedParts, type Level, type ModelEdge, type ModelNode } from '../graph/model';
 import {
   centreViewport, fitViewport, MAX_ZOOM, sameViewport, saveViewport, takeSavedViewport, MIN_ZOOM, motion, rectOnScreen, toKeyframes, ZOOM_MS, zoomFrames, type Rect, type Viewport,
@@ -61,10 +61,11 @@ const NodeCard = memo(function NodeCard({ id }: NodeProps<RouteNode>) {
   const thrown = active.thrownNodes.get(id) ?? 0;
   const cls = ['node-card', `kind-${model.kind}`, model.broker && `broker broker-${model.broker}`, model.inBroker && 'in-broker', flashing && 'flash', thrown > 0 && 'has-thrown', model.idle && 'idle', selectedId === id && 'selected', focusedId === id && 'focused', traced && (traced.nodes.has(id) ? 'traced' : 'traced-ahead')];
   return (
-    <div className={cls.filter(Boolean).join(' ')} style={{ width: NODE_W, height: NODE_H }}>
+    <div className={cls.filter(Boolean).join(' ')} style={{ width: NODE_W, minHeight: NODE_H }}>
       <Handle type="target" position={Position.Left} isConnectable={false} style={hiddenHandle} />
       <div className="node-title" title={model.label}>
         {model.broker && <BrokerLogo type={model.brokerType} kind={model.broker} />}
+        {model.service && <RecorderBadge recorderKey={model.service} />}
         {model.kind === 'process' || model.kind === 'stub' || model.kind === 'service' ? model.label : <NodeRef id={model.id} label={model.label} qualify={false} />}
       </div>
       <div className={`node-detail ${!traced && (rateIn?.spike || rateOut?.spike) ? 'spike' : ''}`} title={!traced && (rateIn?.spike || rateOut?.spike) ? 'Spike, held until the next update' : undefined}>
@@ -374,7 +375,7 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
     // Trace mode hides every card the trace doesn't reach; the rest keep their places, so stepping doesn't move them.
     const offTrace = (id: string) => !!traced && !traced.nodes.has(id) && !traced.aheadNodes.has(id);
     for (const m of model.nodes) {
-      list.push({ id: m.id, type: 'route', position: lay.positions.get(m.id) ?? { x: 0, y: 0 }, data: {}, width: NODE_W, height: NODE_H, hidden: offTrace(m.id) });
+      list.push({ id: m.id, type: 'route', position: lay.positions.get(m.id) ?? { x: 0, y: 0 }, data: {}, width: NODE_W, hidden: offTrace(m.id) });
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
