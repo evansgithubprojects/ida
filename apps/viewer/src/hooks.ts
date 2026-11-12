@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildModel, type GraphModel, type Level } from './graph/model';
-import type { IndexedOccurrence } from './replay';
-import type { TracePath } from './replay/trace';
+import type { TracePath, TraceSlide } from './replay/trace';
 import { activeAt, inWindow, rateSeries, RATE_STEP_MS, recentRates, shownRates, SPIKE_WINDOW_MS, type Active, type HeldSpikes, type Rates } from './replay';
 import { FADE_WALL_MS, FLASH_WALL_MS, LIVE_RESYNC_MS, useStore } from './store';
 
@@ -29,7 +28,7 @@ export function useModel(levelOverride?: Level): GraphModel | null {
       const have = new Set(items.map((i) => i.occ.id));
       const extra = trace.slides.map((s) => s.item).filter((i) => !have.has(i.occ.id));
       if (extra.length) items = [...items, ...extra].sort((a, b) => a.occ.ts - b.occ.ts);
-      for (const s of trace.slides) for (const h of s.item.hops) pinned.push(h.src, h.dst);
+      for (const s of trace.slides) for (const h of s.hops) pinned.push(h.src, h.dst);
     }
     return buildModel(index, level, items, pinned);
   }, [index, level, window, focused, selected, trace]);
@@ -45,7 +44,8 @@ const TRACE_REST_MS = 500;
  */
 function useTraceActive(model: GraphModel | null): Active | null {
   const index = useStore((s) => s.index);
-  const item: IndexedOccurrence | undefined = useStore((s) => s.trace?.path.slides[s.trace.at]?.item);
+  const slide: TraceSlide | undefined = useStore((s) => s.trace?.path.slides[s.trace.at]);
+  const item = slide?.item;
   const [phase, setPhase] = useState(0);
   useEffect(() => {
     if (!item) return;
@@ -58,10 +58,11 @@ function useTraceActive(model: GraphModel | null): Active | null {
   }, [item]);
   return useMemo(() => {
     if (!index || !model || !item) return null;
-    // Just this one occurrence, read on its own clock: a snapshot taken before a live rebuild still draws right.
-    const one = { ...index, items: [item] };
+    // Just this one occurrence, read on its own clock: a snapshot taken before a live rebuild still draws right. Only
+    // along the slide's pathways, not to the event's other handlers.
+    const one = { ...index, items: [{ ...item, hops: slide!.hops }] };
     return activeAt(one, item.occ.ts + phase, { fadeMs: TRACE_PULSE_MS, flashMs: TRACE_PULSE_MS, mapNode: model.mapNode });
-  }, [index, model, item, phase]);
+  }, [index, model, item, slide, phase]);
 }
 
 export function useActive(model: GraphModel | null): Active | null {

@@ -265,7 +265,7 @@ export function buildModel(index: ReplayIndex, level: Level, items: IndexedOccur
 }
 
 /** The cards and pathways of `model` that `items` (steps of a trace) went through, at whatever level `model` is drawn. */
-export function tracedParts(model: GraphModel, items: IndexedOccurrence[]): { nodes: Set<string>; edges: Set<string> } {
+export function tracedParts(model: GraphModel, items: Pick<IndexedOccurrence, 'hops'>[]): { nodes: Set<string>; edges: Set<string> } {
   const nodes = new Set<string>();
   const edges = new Set<string>();
   for (const item of items) {

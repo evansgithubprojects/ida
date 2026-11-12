@@ -63,7 +63,7 @@ export function TraceSlideshow({ exit }: { /** Shown at the right end of the con
       {truncated && at === 0 && <div className="muted trace-note">Earlier steps are outside this window or weren't recorded.</div>}
       <ol className="trace-steps">
         {slides.map((s, k) => {
-          const handler = s.thrownBy ? index.nodes.get(s.thrownBy.handlerId)?.label : index.nodes.get(s.item.template.handlerIds[0] ?? '')?.label;
+          const handler = index.nodes.get(s.thrownBy?.handlerId ?? s.hops.find((h) => s.item.template.handlerIds.includes(h.dst))?.dst ?? '')?.label;
           const prevService = k > 0 ? slides[k - 1]!.service : undefined;
           const cls = [s.thrownBy && 'has-error', k === at && 'current', k < at && 'seen', k === last && 'origin', target.type === 'finding' && k === last && 'has-warn'];
           return (

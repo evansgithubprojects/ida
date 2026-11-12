@@ -154,6 +154,34 @@ describe('tracePath', () => {
     expect(path.truncated).toBe(true);
   });
 
+  it('draws each step only to the handlers the trace goes on through', () => {
+    // `order` reaches pack and notify; pack emits `packed`, which reaches ship (which throws) and log.
+    const occ = (id: string, templateId: string, sourceNodeId: string, ts: number, extra: Partial<Occurrence> = {}): Occurrence => ({
+      id, templateId, sourceNodeId, ts, parentId: null, durationMs: 1, causality: 'sync', capture: 'template', handlerResults: [], ...extra,
+    });
+    const recording: Recording = {
+      version: RECORDING_VERSION, startedAt: 0,
+      processes: [{ id: 'p', label: 'Shop' }],
+      nodes: [
+        { id: 'em', label: 'Shop', kind: 'emitter', processId: 'p' },
+        ...['pack', 'notify', 'ship', 'log'].map((id) => ({ id, label: id, kind: 'handler' as const, processId: 'p' })),
+      ],
+      templates: [
+        { id: 't1', key: 'k1', emitterId: 'em', eventName: 'order', handlerIds: ['pack', 'notify'], payloadShape: '{}', sampleCount: 1 },
+        { id: 't2', key: 'k2', emitterId: 'em', eventName: 'packed', handlerIds: ['ship', 'log'], payloadShape: '{}', sampleCount: 1 },
+      ],
+      occurrences: [
+        occ('e1', 't1', 'em', 1),
+        occ('e2', 't2', 'pack', 2, { parentId: 'e1', handlerResults: [{ handlerId: 'ship', ts: 2, durationMs: 1, error: { name: 'Error', message: 'no stock' } }] }),
+      ],
+    };
+    const i = buildIndex(recording);
+    const dsts = (t: TraceTarget) => tracePath(i, t)!.slides.map((s) => s.hops.map((h) => h.dst));
+    expect(dsts({ type: 'throw', id: 'e2|ship', occurrenceId: 'e2' })).toEqual([['pack'], ['ship']]);
+    // The event you traced is shown reaching everything it reached (unless it threw: then just the handler that did).
+    expect(dsts({ type: 'occurrence', id: 'e1', occurrenceId: 'e1' })).toEqual([['pack', 'notify']]);
+  });
+
   it('is null for an occurrence that is not in the recording', () => {
     expect(tracePath(index(), { type: 'occurrence', id: 'nope', occurrenceId: 'nope' })).toBeNull();
   });
@@ -163,7 +191,7 @@ describe('tracedParts', () => {
   const traced = (level: Level) => {
     const i = index();
     const model = buildModel(i, level);
-    return tracedParts(model, tracePath(i, { type: 'occurrence', id: 'D/e1', occurrenceId: 'D/e1' })!.slides.map((s) => s.item));
+    return tracedParts(model, tracePath(i, { type: 'occurrence', id: 'D/e1', occurrenceId: 'D/e1' })!.slides);
   };
 
   it('lights the path between services at the top level, and nothing unrelated', () => {

@@ -1,5 +1,5 @@
 import type { Process } from '@ida-dev/core';
-import { chainOf, eventLabel, parseThrowId, recipientsOf, serviceOfOccurrence, type IndexedOccurrence, type ReplayIndex } from './index';
+import { chainOf, eventLabel, parseThrowId, recipientsOf, serviceOfOccurrence, type Hop, type IndexedOccurrence, type ReplayIndex } from './index';
 
 /** What a trace was started from: an error, a suspected corrupt payload, or any one event. */
 export interface TraceTarget {
@@ -23,6 +23,12 @@ export type SlideRole = 'root' | 'step' | 'hop' | 'throw' | 'tainted' | 'target'
 export interface TraceSlide {
   item: IndexedOccurrence;
   role: SlideRole;
+  /**
+   * The pathways this step is drawn with: the event's routes to the handlers the trace goes on through (the one that
+   * emitted a later step, the one that threw), not to every handler it reached. The target event keeps all of its
+   * routes, unless it ends on a throw.
+   */
+  hops: Hop[];
   /** In a system view, the service it ran in. */
   service?: string;
   /** Set when the event is a message on a topic, exchange or queue. */
@@ -70,7 +76,7 @@ export function tracePath(index: ReplayIndex, target: TraceTarget): TracePath | 
   const sourceAt = source ? path.findIndex((i) => i.occ.id === source.occurrenceId) : -1;
 
   const slides = path.map((item, k): TraceSlide => {
-    const slide: Omit<TraceSlide, 'subtitle'> = { item, role: 'step' };
+    const slide: Omit<TraceSlide, 'subtitle'> = { item, role: 'step', hops: item.hops };
     const service = serviceOfOccurrence(index, item);
     if (service) slide.service = service;
     const proc = index.processes.get(index.nodes.get(item.template.emitterId)?.processId ?? '');
@@ -87,6 +93,14 @@ export function tracePath(index: ReplayIndex, target: TraceTarget): TracePath | 
       : last && target.type === 'finding' ? undefined
       : pick();
     if (thrown) slide.thrownBy = { id: thrown.id, handlerId: thrown.handlerId, message: thrown.message };
+    if (!last || thrown) {
+      const keep = new Set<string>();
+      if (thrown) keep.add(thrown.handlerId);
+      if (k === sourceAt) keep.add(source!.handlerId);
+      // A later step this event caused was emitted by the handler that was running: the trace goes on through it.
+      for (const later of path.slice(k + 1)) if (later.occ.parentId === item.occ.id) keep.add(later.occ.sourceNodeId);
+      slide.hops = relevantHops(item, keep);
+    }
     const processId = index.nodes.get(thrown?.handlerId ?? item.occ.sourceNodeId)?.processId;
     if (processId) slide.processId = processId;
     const prev = path[k - 1];
@@ -106,6 +120,16 @@ export function tracePath(index: ReplayIndex, target: TraceTarget): TracePath | 
   const out: TracePath = { target, slides, truncated };
   slides.forEach((s, k) => (s.subtitle = subtitleOf(index, out, k)));
   return out;
+}
+
+/**
+ * `item`'s routes to the handlers in `keep`, plus its routes to anything that isn't one of its handlers (a publish to a
+ * broker, a message routed from an exchange to a queue, an event nobody listens to). Every route if that leaves none.
+ */
+function relevantHops(item: IndexedOccurrence, keep: Set<string>): Hop[] {
+  const handlers = new Set(item.template.handlerIds);
+  const hops = item.hops.filter((h) => !handlers.has(h.dst) || keep.has(h.dst));
+  return hops.length ? hops : item.hops;
 }
 
 /** Why slide `k` matters, filled in from a template for its role. */

@@ -625,7 +625,6 @@ a.feature.integration h4 { color: var(--text); }
 }
 
 /* Trace mode: a slideshow through what led to an error. The path so far is lit, what is still ahead faint, the rest faded. */
-.node-card.dimmed { opacity: .25; }
 .node-card.traced { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 12px var(--accent-soft); }
 .node-card.traced-ahead { opacity: .6; border-color: var(--accent); border-style: dashed; }
 .trace-start { margin-top: 8px; font-size: 12px; }

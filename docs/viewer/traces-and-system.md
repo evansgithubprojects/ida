@@ -36,7 +36,7 @@ The trace replaces the timeline at the bottom of the screen. It opens on the fir
 
 - a **subtitle** saying why the step matters: where the chain started, which handler emitted the next event, the broker a message went through and how long it waited there, which handler threw and with what message;
 - the graph zoomed into the handlers of the process the step happens in (the throwing handler's on an error step), whatever level you were at;
-- the step's pathway pulsing on the graph. Steps already shown stay lit, steps still ahead are faint, and everything else fades;
+- the step's pathway pulsing on the graph: only to the handler the trace goes on through (the one that emitted the next step, or the one that threw), not to every handler the event reached. The event you traced shows all of its handlers. Steps already shown stay lit, steps still ahead are faint, and every card and pathway the trace doesn't reach is hidden (the rest keep their places). The camera zooms to fit the trace, and goes back where it was when the trace ends. Event rates (n/s) are hidden while a trace is open; a pathway that carried a suspected corrupt payload keeps its ⚠ mark;
 - the step in the inspector.
 
 Below the subtitle, a strip lists every step, oldest first, with each step's service (shown when it changes), broker, event and handler. Errors are marked with a red ✕ and the corrupt payload with ⚠. Click a step to jump to it.

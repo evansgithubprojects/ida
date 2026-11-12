@@ -35,7 +35,7 @@ interface ViewState {
   hideHealthy: boolean;
   /**
    * Trace mode: the cards and pathways the slideshow has reached (up to the slide shown) and those still ahead;
-   * everything else fades.
+   * everything else is hidden.
    */
   traced: { nodes: Set<string>; edges: Set<string>; aheadNodes: Set<string>; aheadEdges: Set<string> } | null;
 }
@@ -59,7 +59,7 @@ const NodeCard = memo(function NodeCard({ id }: NodeProps<RouteNode>) {
   const rateOut = rates?.out.get(id);
   const flashing = active.flashingNodes.has(id);
   const thrown = active.thrownNodes.get(id) ?? 0;
-  const cls = ['node-card', `kind-${model.kind}`, model.broker && `broker broker-${model.broker}`, model.inBroker && 'in-broker', flashing && 'flash', thrown > 0 && 'has-thrown', model.idle && 'idle', selectedId === id && 'selected', focusedId === id && 'focused', traced && (traced.nodes.has(id) ? 'traced' : traced.aheadNodes.has(id) ? 'traced-ahead' : 'dimmed')];
+  const cls = ['node-card', `kind-${model.kind}`, model.broker && `broker broker-${model.broker}`, model.inBroker && 'in-broker', flashing && 'flash', thrown > 0 && 'has-thrown', model.idle && 'idle', selectedId === id && 'selected', focusedId === id && 'focused', traced && (traced.nodes.has(id) ? 'traced' : 'traced-ahead')];
   return (
     <div className={cls.filter(Boolean).join(' ')} style={{ width: NODE_W, height: NODE_H }}>
       <Handle type="target" position={Position.Left} isConnectable={false} style={hiddenHandle} />
@@ -67,8 +67,9 @@ const NodeCard = memo(function NodeCard({ id }: NodeProps<RouteNode>) {
         {model.broker && <BrokerLogo type={model.brokerType} kind={model.broker} />}
         {model.kind === 'process' || model.kind === 'stub' || model.kind === 'service' ? model.label : <NodeRef id={model.id} label={model.label} qualify={false} />}
       </div>
-      <div className={`node-detail ${rateIn?.spike || rateOut?.spike ? 'spike' : ''}`} title={rateIn?.spike || rateOut?.spike ? 'Spike, held until the next update' : undefined}>
-        {model.kind === 'stub' ? model.detail : `${fmtRate(rateIn?.value ?? 0)}/s in · ${fmtRate(rateOut?.value ?? 0)}/s out`}
+      <div className={`node-detail ${!traced && (rateIn?.spike || rateOut?.spike) ? 'spike' : ''}`} title={!traced && (rateIn?.spike || rateOut?.spike) ? 'Spike, held until the next update' : undefined}>
+        {/* Rates say nothing about one trace, so trace mode leaves them out. */}
+        {model.kind === 'stub' ? model.detail : traced ? null : `${fmtRate(rateIn?.value ?? 0)}/s in · ${fmtRate(rateOut?.value ?? 0)}/s out`}
       </div>
       {thrown > 0 && <span className="corner corner-error" title={`${thrown} throw(s) so far`}>✕ {thrown}</span>}
       <Handle type="source" position={Position.Right} isConnectable={false} style={hiddenHandle} />
@@ -162,8 +163,8 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
   // A selected or focused pathway stays fully drawn so inspecting it still shows something.
   const onTrace = traced?.edges.has(id);
   const ahead = !onTrace && !!traced?.aheadEdges.has(id);
-  const dimmed = !!traced && !onTrace && !ahead;
-  const quiet = (hideHealthy && selectedId !== id && focusedEdgeId !== id) || dimmed;
+  // Off-trace pathways are hidden altogether (see the edge list), so a trace has none to quiet.
+  const quiet = hideHealthy && selectedId !== id && focusedEdgeId !== id && !traced;
   const shown = rates?.edges.get(id);
   const flights = quiet && !litFlagged ? [] : (active.pulses.get(id) ?? []);
   return (
@@ -171,9 +172,9 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
       <BaseEdge
         id={id}
         path={path}
-        className={[focusedEdgeId === id && 'edge-focused', edge.propagated && 'edge-propagated', onTrace && 'edge-traced', dimmed && 'edge-dimmed'].filter(Boolean).join(' ') || undefined}
+        className={[focusedEdgeId === id && 'edge-focused', edge.propagated && 'edge-propagated', onTrace && 'edge-traced'].filter(Boolean).join(' ') || undefined}
         style={{
-          stroke: onTrace || ahead ? 'var(--accent)' : flagged ? 'var(--warn-dim)' : 'var(--edge)', strokeWidth: onTrace ? width + 1 : width, opacity: dimmed ? 0.15 : ahead ? 0.4 : onTrace ? 1 : 0.75,
+          stroke: onTrace || ahead ? 'var(--accent)' : flagged ? 'var(--warn-dim)' : 'var(--edge)', strokeWidth: onTrace ? width + 1 : width, opacity: ahead ? 0.4 : onTrace ? 1 : 0.75,
           // Dashed: these events reached here in a message from another service (an ida-parent header). Long dashes:
           // small dots, repainted under every moving pulse, cut a busy graph's frame rate in half.
           strokeDasharray: flagged ? '7 5' : edge.propagated ? '12 8' : undefined,
@@ -190,9 +191,10 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
           </g>
         );
       })}
-      {!(quiet && !flagged) && <EdgeLabelRenderer>
+      {/* In trace mode a pathway's label is only its corrupt-payload mark: rates say nothing about one trace. */}
+      {!(quiet && !flagged) && (!traced || flagged) && <EdgeLabelRenderer>
         <div className={`edge-label ${selectedId === id ? 'selected' : ''} ${focusedEdgeId === id ? 'focused' : ''}`} style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}>
-          <span className={shown?.spike ? 'spike' : undefined} title={shown?.spike ? `Spike: ${fmtRate(shown.value)}/s, held until the next update` : `${edge.count} in this window`}>{fmtRate(shown?.value ?? 0)}/s</span>
+          {!traced && <span className={shown?.spike ? 'spike' : undefined} title={shown?.spike ? `Spike: ${fmtRate(shown.value)}/s, held until the next update` : `${edge.count} in this window`}>{fmtRate(shown?.value ?? 0)}/s</span>}
           {flagged && <span className="mark mark-warn" title={`Suspected corrupt payloads on this route${flagged.high ? ', some reaching an external system' : ''}`}>⚠{flagged.count}</span>}
         </div>
       </EdgeLabelRenderer>}
@@ -248,7 +250,8 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
   const at = useStore((s) => s.trace?.at ?? 0);
   const traced = useMemo(() => {
     if (!model || !trace) return null;
-    const items = trace.slides.map((s) => s.item);
+    // Each step only along its own pathways: an event reaches its other handlers too, but the trace doesn't go there.
+    const items = trace.slides;
     const done = tracedParts(model, items.slice(0, at + 1));
     const ahead = tracedParts(model, items.slice(at + 1));
     return { ...done, aheadNodes: ahead.nodes, aheadEdges: ahead.edges };
@@ -294,10 +297,12 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
     return () => { geometry.delete(layerKey); };
   }, [lay, geometry, layerKey]);
 
+  // Trace mode frames the cards the trace reaches (see below); a new node elsewhere doesn't take the camera back.
+  const framing = useRef<{ key: string; before: { camera: Viewport; user: boolean } | null }>({ key: '', before: null });
   const first = useRef(true);
   useEffect(() => {
     if (first.current) { first.current = false; return; }
-    if (!lay || !refit || userCamera.current) return;
+    if (!lay || !refit || userCamera.current || framing.current.key) return;
     const saved = takeSavedViewport(sig);
     camera.current = saved ?? fitViewport(layoutBounds(lay), size.width, size.height);
     fitted.current = saved ? null : camera.current;
@@ -319,10 +324,40 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
     const key = `${focus.seq}|${sig}`;
     if (panned.current === key) return;
     panned.current = key;
+    // Each trace step asks to be shown, but the camera already fits the whole trace.
+    if (traced) return;
     camera.current = centreViewport(ps.map((p) => ({ x: p!.x + NODE_W / 2, y: p!.y + NODE_H / 2 })), Math.max(getViewport().zoom, 1), size);
     void setViewport(camera.current, { duration: motion(400) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus?.seq, refit, sig]);
+
+  // Trace mode zooms the camera to fit what the trace reaches, and ending the trace puts it back where it was. A layer
+  // opened mid-trace (the trace zoomed into a process) starts framed, with no pan; it goes back to the whole graph.
+  const traceKey = traced && lay ? [...traced.nodes, ...traced.aheadNodes].filter((id) => lay.positions.has(id)).sort().join(',') : '';
+  const fresh = useRef(true);
+  useLayoutEffect(() => {
+    if (!lay) return;
+    const wasFresh = fresh.current;
+    fresh.current = false;
+    if ((!refit && !wasFresh) || framing.current.key === traceKey) return;
+    const was = framing.current;
+    if (traceKey) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const id of traceKey.split(',')) {
+        const p = lay.positions.get(id)!;
+        x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x + NODE_W); y1 = Math.max(y1, p.y + NODE_H);
+      }
+      framing.current = { key: traceKey, before: was.before ?? (wasFresh ? null : { camera: camera.current, user: userCamera.current }) };
+      camera.current = fitViewport({ x: x0, y: y0, width: x1 - x0, height: y1 - y0 }, size.width, size.height);
+    } else {
+      framing.current = { key: '', before: null };
+      camera.current = was.before?.camera ?? fitViewport(layoutBounds(lay), size.width, size.height);
+      userCamera.current = was.before?.user ?? false;
+      if (!was.before) fitted.current = camera.current;
+    }
+    void setViewport(camera.current, { duration: wasFresh ? 0 : motion(400) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [traceKey, refit, lay]);
 
   // Stable objects: only a new layout produces new ones.
   const nodes = useMemo<AnyNode[]>(() => {
@@ -336,17 +371,23 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
         draggable: false, selectable: false, focusable: false,
       });
     }
+    // Trace mode hides every card the trace doesn't reach; the rest keep their places, so stepping doesn't move them.
+    const offTrace = (id: string) => !!traced && !traced.nodes.has(id) && !traced.aheadNodes.has(id);
     for (const m of model.nodes) {
-      list.push({ id: m.id, type: 'route', position: lay.positions.get(m.id) ?? { x: 0, y: 0 }, data: {}, width: NODE_W, height: NODE_H });
+      list.push({ id: m.id, type: 'route', position: lay.positions.get(m.id) ?? { x: 0, y: 0 }, data: {}, width: NODE_W, height: NODE_H, hidden: offTrace(m.id) });
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lay, sig]);
+  }, [lay, sig, traced]);
 
   const edges = useMemo<RouteEdge[]>(
-    () => (model ? model.edges.map((e) => ({ id: e.id, source: e.source, target: e.target, type: 'route', data: {} })) : []),
+    () => (model ? model.edges.map((e) => ({
+      id: e.id, source: e.source, target: e.target, type: 'route', data: {},
+      // And every pathway it doesn't take, even between cards it does reach.
+      hidden: !!traced && !traced.edges.has(e.id) && !traced.aheadEdges.has(e.id),
+    })) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sig],
+    [sig, traced],
   );
 
   const view = useMemo<ViewState | null>(
@@ -370,7 +411,13 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
         edgeTypes={edgeTypes}
         colorMode="dark"
         defaultViewport={initialViewport}
-        onMoveEnd={(_, vp) => { camera.current = vp; userCamera.current = !sameViewport(vp, fitted.current); if (refit) saveViewport(sig, vp); }}
+        onMoveEnd={(_, vp) => {
+          camera.current = vp;
+          // A trace's framing is put back when it ends, so it neither counts as the user's camera nor is kept for a reload.
+          if (framing.current.key) return;
+          userCamera.current = !sameViewport(vp, fitted.current);
+          if (refit) saveViewport(sig, vp);
+        }}
         minZoom={MIN_ZOOM}
         maxZoom={MAX_ZOOM}
         zoomOnDoubleClick={false}
