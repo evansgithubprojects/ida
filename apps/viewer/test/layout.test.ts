@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accumulate, chainOrder, chainRows, layout, layoutSeen, NODE_H, NODE_W } from '../src/graph/layout';
+import { accumulate, chainOrder, chainRows, layout, layoutSeen, NODE_H, NODE_W, tangle } from '../src/graph/layout';
 import type { GraphModel, ModelNode } from '../src/graph/model';
 
 const node = (id: string, kind: ModelNode['kind'] = 'handler'): ModelNode => ({ id, label: id, kind, processId: 'a', detail: '' });
@@ -12,6 +12,8 @@ const centre = (l: ReturnType<typeof layout>, id: string) => {
   const p = l.positions.get(id)!;
   return { x: p.x + NODE_W / 2, y: p.y + NODE_H / 2 };
 };
+
+const centres = (l: ReturnType<typeof layout>) => new Map([...l.positions.keys()].map((id) => [id, centre(l, id)]));
 
 describe('circular layout', () => {
   const ids = ['a', 'b', 'c', 'd', 'e', 'f'];
@@ -33,12 +35,26 @@ describe('circular layout', () => {
     }
   });
 
-  it('is deterministic and follows the edges clockwise from the root', () => {
+  it('is deterministic', () => {
     expect([...layout(m, false).positions]).toEqual([...l.positions]);
-    const angle = (id: string) => (Math.atan2(centre(l, id).y, centre(l, id).x) + Math.PI / 2 + 2 * Math.PI) % (2 * Math.PI);
-    expect(angle('a')).toBeCloseTo(0, 6);
-    expect(angle('a')).toBeLessThan(angle('b'));
-    expect(angle('b')).toBeLessThan(angle('c'));
+  });
+
+  it('orders the circle so no pathway crosses another or runs through a card', () => {
+    // In plain breadth-first order (a, b, e, f, c, d) a→f and b→c would cross and a→e would run behind b.
+    expect(tangle(centres(l), m.edges.map((e) => [e.source, e.target]))).toBe(0);
+  });
+
+  it('untangles as far as it can when crossings are unavoidable', () => {
+    // K5 can't be drawn without a crossing; around a circle the best is 5, and nothing should run through a card.
+    const k = ['a', 'b', 'c', 'd', 'e'];
+    const links = k.flatMap((x, i) => k.slice(i + 1).map((y) => [x, y] as [string, string]));
+    expect(tangle(centres(layout(model(k.map((i) => node(i)), links), false)), links)).toBe(5);
+  });
+
+  it('moves other processes to where their pathways cross least', () => {
+    // h1 and h2 sit left and right; p:x links to h2 and p:y to h1, so their spots are swapped to keep the lines apart.
+    const sm = model([node('h1'), node('h2'), node('h3'), node('p:x', 'stub'), node('p:y', 'stub')], [['h1', 'h2'], ['h2', 'h3'], ['h3', 'h1'], ['p:x', 'h2'], ['p:y', 'h1']]);
+    expect(tangle(centres(layout(sm, true)), sm.edges.map((e) => [e.source, e.target]))).toBe(0);
   });
 
   it('centres a lone node', () => {

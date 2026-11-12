@@ -103,24 +103,40 @@ const centreOf = (n: InternalNode) => {
   return { cx: n.internals.positionAbsolute.x + w / 2, cy: n.internals.positionAbsolute.y + h / 2, w, h };
 };
 
+/** "source>target" for every pathway, cached per edge map, so a line can tell whether one runs the other way too. */
+const pairsCache = new WeakMap<Map<string, ModelEdge>, Set<string>>();
+function pairsOf(edges: Map<string, ModelEdge>): Set<string> {
+  let pairs = pairsCache.get(edges);
+  if (!pairs) {
+    pairs = new Set([...edges.values()].map((e) => `${e.source}>${e.target}`));
+    pairsCache.set(edges, pairs);
+  }
+  return pairs;
+}
+
+/** How far apart A→B and B→A are drawn, so they don't lie on top of each other. */
+const PAIR_GAP = 6;
+
 /**
- * Straight between card borders, bowed a little to one side. The bow flips with the direction, so A→B and
- * B→A don't lie on top of each other.
+ * A straight line between card borders. When a pathway also runs the other way, each is moved half of
+ * `PAIR_GAP` to its own side (the side flips with the direction), so the two sit side by side.
  */
-function floatingPath(source: InternalNode, target: InternalNode): [string, number, number] {
+function floatingPath(source: InternalNode, target: InternalNode, paired: boolean): [string, number, number] {
   const s = centreOf(source);
   const t = centreOf(target);
   // Cards that nearly touch would tuck the whole line away.
   const tuck = Math.min(EDGE_TUCK, Math.hypot(t.cx - s.cx, t.cy - s.cy) / 8);
-  const [sx, sy] = edgePoint(s.cx, s.cy, s.w, s.h, t.cx, t.cy, tuck);
-  const [tx, ty] = edgePoint(t.cx, t.cy, t.w, t.h, s.cx, s.cy, tuck);
-  const dx = tx - sx;
-  const dy = ty - sy;
-  const len = Math.hypot(dx, dy) || 1;
-  const bow = len * 0.18;
-  const qx = (sx + tx) / 2 - (dy / len) * bow;
-  const qy = (sy + ty) / 2 + (dx / len) * bow;
-  return [`M ${sx} ${sy} Q ${qx} ${qy} ${tx} ${ty}`, 0.25 * sx + 0.5 * qx + 0.25 * tx, 0.25 * sy + 0.5 * qy + 0.25 * ty];
+  let [sx, sy] = edgePoint(s.cx, s.cy, s.w, s.h, t.cx, t.cy, tuck);
+  let [tx, ty] = edgePoint(t.cx, t.cy, t.w, t.h, s.cx, s.cy, tuck);
+  if (paired) {
+    const len = Math.hypot(tx - sx, ty - sy) || 1;
+    const ox = (-(ty - sy) / len) * (PAIR_GAP / 2);
+    const oy = ((tx - sx) / len) * (PAIR_GAP / 2);
+    sx += ox; sy += oy; tx += ox; ty += oy;
+  }
+  // A pair's labels would sit on top of each other at the middle, so each goes a bit nearer its own source.
+  const at = paired ? 0.35 : 0.5;
+  return [`M ${sx} ${sy} L ${tx} ${ty}`, sx + (tx - sx) * at, sy + (ty - sy) * at];
 }
 
 /** How much of a line the travelling pulse covers. */
@@ -132,7 +148,7 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
   const to = useInternalNode(target);
   const edge = edges.get(id);
   if (!edge || !from || !to) return null;
-  const [path, lx, ly] = floatingPath(from, to);
+  const [path, lx, ly] = floatingPath(from, to, pairsOf(edges).has(`${target}>${source}`));
   const flagged = active.flaggedEdges.get(id);
   const litFlagged = active.litFlaggedEdges.has(id);
   // Lines stay dim and still; a lit one only means an event is on it right now, drawn as a pulse that travels from sender to receiver.
