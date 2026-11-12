@@ -20,6 +20,7 @@ Emitters with the same label share one process. That is usually what you want (e
 
 Name your functions, and the graph names itself:
 
+:::lang node,browser
 ```js
 // Shows as "anonymous#4"
 orders.on('order:placed', (order) => charge(order));
@@ -37,22 +38,29 @@ Or give a label explicitly, which also works for functions you don't control:
 ```js
 recorder.labelHandler(chargeCard, 'charge card');
 ```
+:::
 
+:::lang python
 ```python
 recorder.label_handler(charge_card, "charge card")
 ```
+:::
 
 ## Naming emitters
 
+:::lang node,browser
 ```js
 const payments = new EventEmitter();
 recorder.labelEmitter(payments, 'Payments');
 ```
+:::
 
+:::lang python
 ```python
 payments = ida.Emitter("Payments")          # Python emitters take their label directly
 recorder.label_emitter(some_object, "Payments")
 ```
+:::
 
 For DOM targets, name many at once with the adapter's `label` option:
 

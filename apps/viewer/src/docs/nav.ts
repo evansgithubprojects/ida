@@ -10,7 +10,7 @@ export interface NavSection {
 }
 
 export const NAV: readonly NavSection[] = [
-  { title: 'Getting started', pages: ['overview', 'quickstart/node', 'quickstart/browser', 'quickstart/python', 'quickstart/live', 'projects'] },
+  { title: 'Getting started', pages: ['overview', 'quickstart', 'quickstart/live', 'projects'] },
   { title: 'Concepts', pages: ['concepts/events-and-causality', 'concepts/recorders', 'concepts/templates', 'concepts/offline'] },
   { title: 'Integrations', integrations: true },
   {
@@ -34,5 +34,23 @@ export const NAV: readonly NavSection[] = [
   { title: 'Help', pages: ['troubleshooting'] },
 ];
 
+/** Old pages and where they went: `[slug, language]`. */
+export const MOVED: Readonly<Record<string, readonly [string, DocLanguage]>> = {
+  'quickstart/node': ['quickstart', 'node'],
+  'quickstart/browser': ['quickstart', 'browser'],
+  'quickstart/python': ['quickstart', 'python'],
+};
+
 /** The page `/docs` opens on. */
 export const HOME_SLUG = 'overview';
+
+/**
+ * The languages a docs page can be shown in, in picker order. The same ids as the setup snippets' `LANGUAGES`, so one
+ * `?lang=` serves the integration pages and the markdown pages alike.
+ */
+export const DOC_LANGUAGES = [
+  { id: 'node', label: 'Node.js' },
+  { id: 'browser', label: 'Browser' },
+  { id: 'python', label: 'Python' },
+] as const;
+export type DocLanguage = (typeof DOC_LANGUAGES)[number]['id'];

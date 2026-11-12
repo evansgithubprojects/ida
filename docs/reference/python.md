@@ -1,6 +1,6 @@
 # Python SDK
 
-The `ida-sdk` package records event-driven Python (your own events, Kafka and RabbitMQ) and uploads it to your project. It follows the JavaScript SDK closely, with Python naming. New to it? Start with the [Python quick start](../quickstart/python.md).
+The `ida-sdk` package records event-driven Python (your own events, Kafka and RabbitMQ) and uploads it to your project. It follows the JavaScript SDK closely, with Python naming. New to it? Start with the [Python quick start](../quickstart.md?lang=python).
 
 ```bash
 pip install ida-sdk                    # no dependencies

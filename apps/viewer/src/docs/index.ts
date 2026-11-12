@@ -1,5 +1,5 @@
 import { Marked, type Tokens } from 'marked';
-import { HOME_SLUG, NAV } from './nav';
+import { DOC_LANGUAGES, HOME_SLUG, NAV, type DocLanguage } from './nav';
 
 /** Every markdown file under the repo's `docs/` folder, keyed by its path. */
 const FILES = import.meta.glob('../../../../docs/**/*.md', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
@@ -11,6 +11,13 @@ export interface DocPage {
   title: string;
   /** The markdown after that heading. */
   body: string;
+  /**
+   * The languages its picker offers, in `DOC_LANGUAGES` order: those a `<!-- languages: … -->` line declares, or else
+   * every language a `:::lang` block names. Empty for a page with no language blocks.
+   */
+  languages: DocLanguage[];
+  /** Whether the page declared its languages, which makes every section with language blocks cover all of them. */
+  declared: boolean;
 }
 
 export interface Heading { id: string; text: string; depth: number }
@@ -19,11 +26,40 @@ export interface RenderedPage { html: string; headings: Heading[] }
 
 const PREFIX = '../../../../docs/';
 
+/**
+ * A block shown only for some languages:
+ *
+ *     :::lang node,browser
+ *     ...markdown...
+ *     :::
+ */
+export const LANG_BLOCK = /^:::lang ([a-z, ]+)\n([\s\S]*?)^:::[ \t]*$\n?/gm;
+const DECLARATION = /^<!--\s*languages:\s*([a-z, ]+?)\s*-->[ \t]*\n?/m;
+
+const ids = (list: string) => list.split(',').map((l) => l.trim()).filter(Boolean);
+const known = (id: string): id is DocLanguage => DOC_LANGUAGES.some((l) => l.id === id);
+const inOrder = (set: Set<string>) => DOC_LANGUAGES.map((l) => l.id).filter((id) => set.has(id));
+
+/** The languages each `:::lang` block in `markdown` names, in order. */
+export const blockLanguages = (markdown: string): string[][] => [...markdown.matchAll(LANG_BLOCK)].map((m) => ids(m[1]!));
+
 function parse(path: string, text: string): DocPage {
   const slug = path.slice(PREFIX.length).replace(/\.md$/, '');
-  const m = /^#\s+(.+)\n/.exec(text.replace(/^﻿/, ''));
-  return { slug, title: m ? m[1]!.trim() : slug, body: m ? text.slice(text.indexOf(m[0]) + m[0].length) : text };
+  const m = /^#\s+(.+)\n/.exec(text.replace(/^\uFEFF/, ''));
+  let body = m ? text.slice(text.indexOf(m[0]) + m[0].length) : text;
+  const d = DECLARATION.exec(body);
+  if (d) body = body.replace(DECLARATION, '');
+  const named = new Set((d ? ids(d[1]!) : blockLanguages(body).flat()).filter(known));
+  return { slug, title: m ? m[1]!.trim() : slug, body, languages: inOrder(named), declared: !!d };
 }
+
+/** The page's language to show for `wanted`: it, if the page has it, else the page's first. */
+export const languageFor = (page: DocPage, wanted: string | null | undefined): DocLanguage | undefined =>
+  page.languages.find((l) => l === wanted) ?? page.languages[0];
+
+/** `markdown` with only the blocks for `language` left, their `:::lang` fences removed. */
+export const forLanguage = (markdown: string, language: string | undefined) =>
+  markdown.replace(LANG_BLOCK, (_all, list: string, inner: string) => (language && ids(list).includes(language) ? inner : ''));
 
 export const PAGES: ReadonlyMap<string, DocPage> = new Map(
   Object.entries(FILES).map(([path, text]) => {
@@ -49,21 +85,26 @@ const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;
  */
 export function resolveHref(href: string, fromSlug: string): string {
   if (/^[a-z]+:|^\/|^#/i.test(href)) return href;
-  const [path, hash] = href.split('#') as [string, string | undefined];
+  const [beforeHash, hash] = href.split('#') as [string, string | undefined];
+  const [path, query] = beforeHash.split('?') as [string, string | undefined];
   if (!path.endsWith('.md')) return href;
   const parts = fromSlug.split('/').slice(0, -1);
   for (const seg of path.replace(/\.md$/, '').split('/')) {
     if (seg === '..') parts.pop();
     else if (seg !== '.') parts.push(seg);
   }
-  return `/docs/${parts.join('/')}${hash ? `#${hash}` : ''}`;
+  return `/docs/${parts.join('/')}${query ? `?${query}` : ''}${hash ? `#${hash}` : ''}`;
 }
 
 const cache = new Map<string, RenderedPage>();
 
-/** The page as HTML, with ids on its headings and `{{API_URL}}` replaced by the server's address. */
-export function render(page: DocPage, apiUrl: string): RenderedPage {
-  const key = `${page.slug}\n${apiUrl}`;
+/**
+ * The page as HTML for one language (see `languageFor`), with ids on its headings and `{{API_URL}}` replaced by the
+ * server's address.
+ */
+export function render(page: DocPage, apiUrl: string, language?: string): RenderedPage {
+  const lang = languageFor(page, language);
+  const key = `${page.slug}\n${apiUrl}\n${lang ?? ''}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const headings: Heading[] = [];
@@ -89,7 +130,7 @@ export function render(page: DocPage, apiUrl: string): RenderedPage {
       },
     },
   });
-  const html = md.parse(page.body.replaceAll('{{API_URL}}', apiUrl), { async: false }) as string;
+  const html = md.parse(forLanguage(page.body, lang).replaceAll('{{API_URL}}', apiUrl), { async: false }) as string;
   const out = { html, headings };
   cache.set(key, out);
   return out;

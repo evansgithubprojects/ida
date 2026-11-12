@@ -14,6 +14,7 @@ Your message objects are never changed: the header is added to a copy. Messages 
 
 Every service needs `configure` (or `ida.cloud.configure`) with the **same project's** ingest key, a recorder, and the adapter for its client. Give each service its own recorder key so the system view can tell them apart.
 
+:::lang node
 ### Node, kafkajs
 
 ```js
@@ -47,7 +48,9 @@ connectRecorder('notifier').track(connection);
 ```
 
 `publish`, `sendToQueue` and confirm channels are recorded on publish; `consume` callbacks on delivery. The callback API (`amqplib/callback_api`) works the same way.
+:::
 
+:::lang python
 ### Python, confluent-kafka
 
 ```python
@@ -78,6 +81,7 @@ channel.basic_consume(queue="emails", on_message_callback=send_email)
 ```
 
 Works with `BlockingConnection`, `SelectConnection` and the other pika adapters, for channels opened before or after `instrument()`.
+:::
 
 Full setup for each language is on the [Kafka](/docs/kafka) and [RabbitMQ](/docs/rabbitmq) pages.
 

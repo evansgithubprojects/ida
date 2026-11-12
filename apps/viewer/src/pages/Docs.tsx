@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { Link, NavLink, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
+import { Link, Navigate, NavLink, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { API_URL } from '../cloud/supabase';
 import { SETUPS, SOURCES, languagesFor, type Source } from '../components/SetupSnippet';
-import { PAGES, render, type DocPage } from '../docs';
-import { HOME_SLUG, NAV } from '../docs/nav';
+import { languageFor, PAGES, render, type DocPage } from '../docs';
+import { DOC_LANGUAGES, HOME_SLUG, MOVED, NAV } from '../docs/nav';
 
 /** What a broker integration records and how it links services, beyond the setup itself. */
 const BROKER_NOTES: Partial<Record<Source, string[]>> = {
@@ -52,9 +52,51 @@ const ENTRIES: { section: string; entries: Entry[] }[] = NAV.map((s) => ({
 }));
 const FLAT = ENTRIES.flatMap((s) => s.entries);
 
+/** Where the language picked last is remembered, so every docs page opens in it. */
+const LANG_KEY = 'ida.docs.lang';
+const storedLanguage = () => { try { return localStorage.getItem(LANG_KEY); } catch { return null; } };
+const storeLanguage = (id: string) => { try { localStorage.setItem(LANG_KEY, id); } catch { /* private mode: the URL still carries it */ } };
+
+/**
+ * The language docs pages show: `?lang=` when the URL names one, else the one picked last on any page. One choice
+ * drives the quick start, every page with language blocks, and the integration pages. `choose` puts it in the URL,
+ * so the link can be shared, and remembers it.
+ */
+function useDocLanguage() {
+  const [params, setParams] = useSearchParams();
+  const fromUrl = params.get('lang');
+  const wanted = fromUrl ?? storedLanguage();
+  // A language arriving by link becomes the remembered one too, as long as the docs know it.
+  useEffect(() => {
+    if (fromUrl && DOC_LANGUAGES.some((l) => l.id === fromUrl)) storeLanguage(fromUrl);
+  }, [fromUrl]);
+  const choose = (id: string) => {
+    storeLanguage(id);
+    setParams((p) => { p.set('lang', id); return p; }, { replace: true });
+  };
+  return { wanted, choose };
+}
+
+/** Tabs for the languages a page comes in. */
+function LanguagePicker({ languages, current, onPick }: { languages: readonly { id: string; label: string }[]; current?: string; onPick(id: string): void }) {
+  if (languages.length < 2) return null;
+  return (
+    <div className="tabs docs-lang" role="tablist" aria-label="Language">
+      {languages.map((l) => (
+        <button key={l.id} role="tab" aria-selected={current === l.id} className={current === l.id ? 'current' : ''} onClick={() => onPick(l.id)}>
+          {l.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** `/docs` and `/docs/<page>`: the sidebar, then a markdown page or an integration's setup. */
 export function Docs() {
   const slug = useParams()['*']?.replace(/\/$/, '') || HOME_SLUG;
+  const { hash } = useLocation();
+  const moved = MOVED[slug];
+  if (moved) return <Navigate to={`/docs/${moved[0]}?lang=${moved[1]}${hash}`} replace />;
   const page = PAGES.get(slug);
   const source = SOURCES.find((s) => s.id === slug);
   const at = FLAT.findIndex((e) => e.slug === slug);
@@ -108,7 +150,9 @@ function DocsSidebar({ current }: { current: string }) {
 }
 
 function MarkdownPage({ page }: { page: DocPage }) {
-  const { html, headings } = useMemo(() => render(page, API_URL), [page]);
+  const { wanted, choose } = useDocLanguage();
+  const language = languageFor(page, wanted);
+  const { html, headings } = useMemo(() => render(page, API_URL, language), [page, language]);
   const navigate = useNavigate();
   const { hash } = useLocation();
   const body = useRef<HTMLDivElement>(null);
@@ -136,6 +180,7 @@ function MarkdownPage({ page }: { page: DocPage }) {
     <div className="docs-article-wrap">
       <article className="docs-article">
         <h2>{page.title}</h2>
+        <LanguagePicker languages={DOC_LANGUAGES.filter((l) => page.languages.includes(l.id))} current={language} onPick={choose} />
         <div ref={body} className="doc-body" onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />
       </article>
       {toc.length > 2 && (
@@ -159,11 +204,11 @@ function PrevNext({ prev, next }: { prev?: Entry; next?: Entry }) {
 
 /** Setup for one event source in the language picked (`?lang=`). */
 function IntegrationPage({ source: id }: { source: Source }) {
-  const [params, setParams] = useSearchParams();
+  const { wanted, choose } = useDocLanguage();
   const source = SOURCES.find((s) => s.id === id)!;
   const languages = languagesFor(id);
-  // An unknown or unsupported ?lang= falls back to the source's first language.
-  const language = languages.find((l) => l.id === params.get('lang')) ?? languages[0];
+  // An unknown or unsupported language falls back to the source's first.
+  const language = languages.find((l) => l.id === wanted) ?? languages[0];
   useEffect(() => { window.scrollTo(0, 0); }, [id]);
 
   return (
@@ -173,21 +218,7 @@ function IntegrationPage({ source: id }: { source: Source }) {
       <p className="muted">
         Make an ingest key in your project first, and set it as <code>IDA_PROJECT_KEY</code>. Uploads go to <code>{API_URL}</code>.
       </p>
-      {languages.length > 1 && (
-        <div className="tabs" role="tablist" aria-label="Language">
-          {languages.map((l) => (
-            <button
-              key={l.id}
-              role="tab"
-              aria-selected={language?.id === l.id}
-              className={language?.id === l.id ? 'current' : ''}
-              onClick={() => setParams({ lang: l.id }, { replace: true })}
-            >
-              {l.label}
-            </button>
-          ))}
-        </div>
-      )}
+      <LanguagePicker languages={languages} current={language?.id} onPick={choose} />
       {language && (() => {
         const setup = SETUPS[language.id][id]!;
         return (

@@ -649,3 +649,4 @@ a.feature.integration h4 { color: var(--text); }
 .trace-service { font-weight: 700; color: var(--text); }
 .trace-broker { border: 1px solid var(--warn-dim); border-radius: 999px; padding: 0 6px; color: var(--warn); }
 .trace-time { font-variant-numeric: tabular-nums; }
+.docs-lang { margin: 0 0 18px; }

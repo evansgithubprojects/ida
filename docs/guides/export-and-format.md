@@ -4,18 +4,22 @@ You don't need a project to use Ida. A recorder can export what it holds as a JS
 
 ## Exporting
 
+:::lang node,browser
 ```js
 import { writeFileSync } from 'node:fs';
 import { getRecorder } from '@ida-dev/core';
 
 writeFileSync('recording.json', JSON.stringify(getRecorder().export()));
 ```
+:::
 
+:::lang python
 ```python
 import json, ida
 with open("recording.json", "w") as f:
     json.dump(ida.get_recorder().export(), f)
 ```
+:::
 
 `export()` returns a snapshot of the recorder's window (see [Recorders](../concepts/recorders.md#the-window)): everything recorded in the last `windowMs`, up to `maxEvents`. It doesn't stop recording.
 

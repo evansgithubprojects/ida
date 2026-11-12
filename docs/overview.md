@@ -33,9 +33,9 @@ Replay never re-runs your code. It plays the recorded data back against the grap
 
 | If you have | Start with |
 | --- | --- |
-| A Node app | [Quick start: Node.js](quickstart/node.md) |
-| A web page or front-end app | [Quick start: browser](quickstart/browser.md) |
-| A Python service | [Quick start: Python](quickstart/python.md) |
+| A Node app | [Quick start: Node.js](quickstart.md?lang=node) |
+| A web page or front-end app | [Quick start: Browser](quickstart.md?lang=browser) |
+| A Python service | [Quick start: Python](quickstart.md?lang=python) |
 | Services talking through Kafka or RabbitMQ | [Tracing messages across services](guides/brokers.md) |
 
 Then read [Events and causality](concepts/events-and-causality.md) and [Recorders](concepts/recorders.md) to understand what you are looking at, and [the replay guide](viewer/replay.md) to get the most out of the viewer.

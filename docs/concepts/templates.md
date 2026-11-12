@@ -37,6 +37,7 @@ The Python SDK produces the same shapes for the same data, so templates line up 
 
 By default every occurrence is **template-only**: its values aren't stored. Turn on **deep logging** for the events you need values for:
 
+:::lang node,browser
 ```js
 enable({
   deepLogging: {
@@ -49,11 +50,14 @@ enable({
   deepLogging: { events: (eventName, emitterLabel) => emitterLabel === 'Payments' },
 });
 ```
+:::
 
+:::lang python
 ```python
 ida.enable(deep_logging=["order.confirmed"])
 ida.enable(deep_logging=lambda event_name, emitter_label: emitter_label == "Payments")
 ```
+:::
 
 Matching occurrences are stored with `capture: 'full'` and a JSON-safe copy of the payload. The viewer labels every payload as **template-only** or **full capture**, so you always know whether you're looking at real values or a shape.
 

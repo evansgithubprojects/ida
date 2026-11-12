@@ -1,9 +1,9 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { SOURCES } from '../src/components/SetupSnippet';
-import { PAGES, render, resolveHref } from '../src/docs';
-import { HOME_SLUG, NAV } from '../src/docs/nav';
+import { LANGUAGES, SOURCES } from '../src/components/SetupSnippet';
+import { blockLanguages, forLanguage, languageFor, LANG_BLOCK, PAGES, render, resolveHref, type DocPage } from '../src/docs';
+import { DOC_LANGUAGES, HOME_SLUG, MOVED, NAV } from '../src/docs/nav';
 
 const ROOT = join(__dirname, '../../..');
 const DOCS = join(ROOT, 'docs');
@@ -15,7 +15,10 @@ const files = walk(DOCS).filter((f) => f.endsWith('.md')).map((f) => relative(DO
 const navSlugs = NAV.flatMap((s) => s.pages ?? []);
 const integrations = new Set<string>(SOURCES.map((s) => s.id));
 
-const rendered = new Map([...PAGES.values()].map((p) => [p.slug, render(p, 'https://api.example')]));
+/** A page in each of its languages (or once, without any), as HTML. */
+const variants = (p: DocPage) => (p.languages.length ? p.languages : [undefined]).map((l) => render(p, 'https://api.example', l).html);
+/** Each page's HTML in all its languages together: anchors and links from any of them count. */
+const rendered = new Map([...PAGES.values()].map((p) => [p.slug, { html: variants(p).join('\n') }]));
 const idsOf = (html: string) => new Set([...html.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]!));
 
 /** Where a site link (`/docs/x#y`) points, or why it doesn't resolve. */
@@ -48,6 +51,58 @@ describe('docs', () => {
     expect(resolveHref('python.md', 'reference/core')).toBe('/docs/reference/python');
     expect(resolveHref('/docs/kafka?lang=python', 'overview')).toBe('/docs/kafka?lang=python');
     expect(resolveHref('https://kafka.js.org', 'overview')).toBe('https://kafka.js.org');
+    expect(resolveHref('quickstart.md?lang=python#2-get-an-ingest-key', 'overview')).toBe('/docs/quickstart?lang=python#2-get-an-ingest-key');
+  });
+
+  describe('language blocks', () => {
+    const md = 'Shared.\n\n:::lang node,browser\nJS only.\n:::\n\n:::lang python\nPython only.\n:::\n\nShared again.\n';
+
+    it('keeps only the chosen language', () => {
+      expect(forLanguage(md, 'browser')).toBe('Shared.\n\nJS only.\n\n\nShared again.\n');
+      expect(forLanguage(md, 'python')).toBe('Shared.\n\n\nPython only.\n\nShared again.\n');
+      expect(forLanguage(md, undefined)).toBe('Shared.\n\n\n\nShared again.\n');
+    });
+
+    it('uses the same language ids as the setup snippets and integration pages', () => {
+      expect(DOC_LANGUAGES.map((l) => l.id)).toEqual(LANGUAGES.map((l) => l.id));
+    });
+
+    it('falls back to the page\'s first language', () => {
+      const page = PAGES.get('guides/naming')!;
+      expect(page.languages).toEqual(['node', 'browser', 'python']);
+      expect(languageFor(page, 'python')).toBe('python');
+      expect(languageFor(page, 'cobol')).toBe('node');
+    });
+
+    it('names only known languages, and leaves no unclosed block behind', () => {
+      const known = new Set<string>(DOC_LANGUAGES.map((l) => l.id));
+      for (const page of PAGES.values()) {
+        for (const list of blockLanguages(page.body)) for (const l of list) expect(known.has(l), `${page.slug}: ${l}`).toBe(true);
+        expect(page.body.replace(LANG_BLOCK, ''), page.slug).not.toMatch(/^:::/m);
+      }
+    });
+
+    // A page that declares its languages is one guide in several languages: every step must say something in each.
+    it('covers every declared language in each section that has language blocks', () => {
+      const gaps: string[] = [];
+      for (const page of [...PAGES.values()].filter((p) => p.declared)) {
+        const sections = page.body.split(/^(?=## )/m);
+        for (const section of sections) {
+          const named = new Set(blockLanguages(section).flat());
+          if (!named.size) continue;
+          const title = /^## (.+)/.exec(section)?.[1] ?? '(intro)';
+          for (const l of page.languages) if (!named.has(l)) gaps.push(`${page.slug} › ${title}: no ${l}`);
+        }
+      }
+      expect(gaps).toEqual([]);
+    });
+
+    it('sends old quick start links to the merged page, in their language', () => {
+      for (const [from, [to, lang]] of Object.entries(MOVED)) {
+        expect(PAGES.has(from), from).toBe(false);
+        expect(PAGES.get(to)?.languages, from).toContain(lang);
+      }
+    });
   });
 
   it('has no broken links or anchors between pages', () => {

@@ -148,4 +148,4 @@ sooner, for example at the end of a short script.
 
 ## Documentation
 
-The Python quick start and full reference are in the **Docs** section of the Ida web app (`/docs/quickstart/python` and `/docs/reference/python`), and in the repo's [`docs/`](../docs/reference/python.md) folder.
+The Python quick start and full reference are in the **Docs** section of the Ida web app (`/docs/quickstart?lang=python` and `/docs/reference/python`), and in the repo's [`docs/`](../docs/reference/python.md) folder.
