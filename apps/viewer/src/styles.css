@@ -169,7 +169,8 @@ code, pre { font-family: var(--mono); font-size: 12px; }
 .node-card.broker-exchange { border-style: double; border-width: 3px; border-radius: 4px; }
 .node-card.broker-queue { border-radius: 4px 14px 14px 4px; box-shadow: 3px 3px 0 -1px var(--panel), 3px 3px 0 0 var(--lg-yellow-dark2); }
 .node-card.broker.kind-stub { opacity: .8; }
-.broker-logo { display: inline-flex; vertical-align: -2px; margin-right: 6px; cursor: help; }
+.broker-badge { cursor: help; }
+.broker-logo { display: inline-flex; vertical-align: -2px; margin-right: 4px; }
 .broker-logo-kafka { color: var(--text); }
 .broker-logo-rabbitmq { color: #ff6600; }
 .broker-kind { font-size: 9px; letter-spacing: .06em; text-transform: uppercase; color: var(--lg-yellow-base); margin-right: 6px; vertical-align: 1px; }

@@ -8,15 +8,19 @@ export const BROKER_NAMES: Record<BrokerType, string> = { kafka: 'Kafka', rabbit
 export const brokerTitle = (type: BrokerType | undefined, kind: string) => (type ? `${BROKER_NAMES[type]} ${kind}` : kind);
 
 /**
- * The broker's mark, drawn small on its cards. The tooltip names the broker and what the card is ("Kafka topic").
- * Without a known broker, the kind is written out instead.
+ * The broker's mark and the card's kind, drawn small on its cards. The tooltip names both ("Kafka topic"). Without a
+ * known broker, only the kind is shown.
  */
 export function BrokerLogo({ type, kind }: { type?: BrokerType; kind: string }) {
   const title = brokerTitle(type, kind);
-  if (!type) return <span className="broker-kind" title={title}>{kind}</span>;
   return (
-    <span className={`broker-logo broker-logo-${type}`} title={title} role="img" aria-label={title}>
-      {type === 'kafka' ? <KafkaMark /> : <RabbitMark />}
+    <span className="broker-badge" title={title}>
+      {type && (
+        <span className={`broker-logo broker-logo-${type}`} role="img" aria-label={BROKER_NAMES[type]}>
+          {type === 'kafka' ? <KafkaMark /> : <RabbitMark />}
+        </span>
+      )}
+      <span className="broker-kind">{kind}</span>
     </span>
   );
 }
