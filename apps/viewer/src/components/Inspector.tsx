@@ -153,7 +153,7 @@ const NotificationRow = memo(
             {n.kind === 'throw' ? <><Badge tone="error">✕ Error</Badge><ErrorId id={n.id} /></> : <Badge tone="warn">⚠ Corrupt Payload</Badge>}
             <TierBadge tier={n.tier} />
             {n.external && <Badge tone="external">EXTERNAL</Badge>}
-            <span className="muted">{fmtMs(n.rank.ts - start)}</span>
+            <span className="row-time muted" title="Time since the recording started">{fmtMs(n.rank.ts - start)}<span className="row-time-hint">since init</span></span>
           </span>
           <span className="row-text">{n.finding ? <FindingSummary index={index} finding={n.finding} /> : n.text}</span>
         </button>
