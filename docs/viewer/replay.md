@@ -54,7 +54,7 @@ The graph and the inspector's lists show the events inside the replay window, th
 
 The window follows the playhead: it stays put while the playhead is inside it, and moves to trail the playhead once it leaves. To look at a different stretch of time, move the playhead there, or select an event from that time.
 
-In the live project view, the menu at the top right also picks how much history the view starts with, from the last 5 minutes to the last 24 hours.
+The live project view starts with the last 5 minutes and keeps what arrives after. To replay an earlier stretch, open a [past run](recordings.md#past-runs).
 
 ## Keyboard
 

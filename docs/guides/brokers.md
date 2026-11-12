@@ -107,7 +107,7 @@ RabbitMQ exchanges and queues are identified by their vhost automatically.
 
 ## Seeing it
 
-- Open the project's viewer (**Open viewer**) to see every service together, with topics, exchanges and queues between them. Pick how much history to show at the top right.
+- Open the project's viewer (**Open viewer**) to see every service together, with topics, exchanges and queues between them. Topics show the Kafka logo and exchanges and queues the RabbitMQ logo; hover one to see what it is.
 - Select any event and press **T** (or **Trace**) to light up everything that led to it and everything it caused, across services. See [Traces and the system view](../viewer/traces-and-system.md).
 - The inspector shows each message's broker facts, who published it, who consumed it, and the time between the two.
 

@@ -10,7 +10,7 @@ You can watch events arrive while your app runs, in two ways:
 
 ## Project live view
 
-Once your app uploads to a project (see the [Node](node.md), [browser](browser.md) or [Python](python.md) quick start), open the project and click **Open viewer**. The viewer opens in **● Live** mode on every service in the project: the graph follows the newest events as they arrive, and the dot next to **Recording** in the inspector shows whether the stream is connected. The menu at the top right sets how much history it starts with.
+Once your app uploads to a project (see the [Node](node.md), [browser](browser.md) or [Python](python.md) quick start), open the project and click **Open viewer**. The viewer opens in **● Live** mode on every service in the project: the graph follows the newest events as they arrive, and the dot next to **Recording** in the inspector shows whether the stream is connected. It starts with the last 5 minutes.
 
 Switch to **Replay** at the bottom to stop following and scrub through what has arrived so far. Switch back to **● Live** to follow again.
 

@@ -7,7 +7,7 @@ The viewer draws your app as a graph: **processes** and **handlers** are cards, 
 | Level | Cards are | Use it to |
 | --- | --- | --- |
 | **Services** | One card per service (recorder), with Kafka topics and RabbitMQ exchanges and queues between them. The live project view opens here. | See how services talk. |
-| **Processes** | Inside one service, one card per process: a group of emitters with the same label, such as `Orders` or `button#checkout`. | See which parts of your app talk to which. |
+| **Processes** | Inside one service, one card per process: a group of emitters with the same label, such as `Orders` or `button#checkout`. Topics, exchanges and queues carry their broker's logo. | See which parts of your app talk to which. |
 | **Handlers** | The handlers and emitters inside one process. Processes it talks to appear at the edge as small cards. | See exactly which handler emits what. |
 
 - **Double-click** a card to zoom into it, or select it and use **Zoom into service** / **Zoom into process** in the inspector.

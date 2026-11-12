@@ -7,10 +7,10 @@ When your app is several services talking through Kafka or RabbitMQ, the viewer 
 The live project view opens on every service at once:
 
 - Each **service** card is one recorder key (`checkout`, `payments`, `notifier`). Several runs of it in the time shown (restarts, or several instances) are one card.
-- **Topics**, **exchanges** and **queues** sit between the services that use them, shared by every service that produces to or consumes from them.
+- **Topics**, **exchanges** and **queues** sit between the services that use them, shared by every service that produces to or consumes from them. Each carries its broker's logo and its kind (Kafka topic, RabbitMQ exchange or queue); hover the badge to read it.
 - **Dotted pathways** carry messages from one service to another, linked by the `ida-parent` header (see [Tracing messages across services](../guides/brokers.md)).
 
-Double-click a service to zoom into its processes, and a process to zoom into its handlers. Inside a service, the other services it exchanges messages with appear as small cards at the edge, marked *other service*, so you can still see where its messages come from and go.
+Double-click a service to zoom into its processes, and a process to zoom into its handlers. Inside a service, the processes it exchanges events with elsewhere appear as small cards at the edge, marked with the service they're *in* (or *other process*), so you can still see where its messages come from and go.
 
 Select a service's card to see its **Runs** in view, the **Runtime** and SDK version each ran on, and any **Clock** correction (below).
 

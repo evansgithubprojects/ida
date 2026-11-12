@@ -4,10 +4,9 @@ The viewer shows a project's events: every service live, one past run of a servi
 
 ## The project view
 
-Open your organization, then a project, and click **Open viewer**. The viewer opens **live** on every service in the project at once, linked through Kafka and RabbitMQ, and follows new events as they arrive.
+Open your organization, then a project, and click **Open viewer**. The viewer opens **live** on every service in the project at once, linked through Kafka and RabbitMQ. It starts with the last 5 minutes and follows new events as they arrive. To look further back, open a [past run](#past-runs).
 
-- **History**: the menu at the top right chooses how far back the view starts: the last 5 minutes (the default), 15 minutes, hour, 6 hours or 24 hours.
-- **Services**: the count next to it says how many services have events in view.
+- The count at the top right says how many services have events in view.
 - Clicking a recorder's key under **Recorders** on the project page opens the viewer zoomed into that service.
 
 The URL follows what you're looking at (`?service=payments&process=…`), so you can share a link that opens at the same place, and **Back** steps out of a zoom.
@@ -65,7 +64,7 @@ The viewer explains anything unusual about what it shows in a banner under the h
 
 ## Waiting for events
 
-A live view with nothing in it yet says **Waiting for events…** once connected. Pick a longer history, or check that your app is running and uploading with a key from this project (its console says so if it can't reach the server). If the stream drops, the viewer retries on its own; after several failures, use **Reconnect** at the top.
+A live view with nothing in it yet says **Waiting for events…** once connected: nothing was uploaded in the last 5 minutes. Check that your app is running and uploading with a key from this project (its console says so if it can't reach the server). If the stream drops, the viewer retries on its own; after several failures, use **Reconnect** at the top.
 
 ## Next steps
 

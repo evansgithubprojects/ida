@@ -11,7 +11,7 @@ Work through these in order:
 3. **Was setup early enough?** In the browser, listeners added before `enableEventTargetRecording` aren't recorded. For Kafka in Python, import `Producer` and `Consumer` after `instrument()`. For amqplib, call the adapter before `connect`.
 4. **Is the emitter filtered out?** In Node, emitters created by packages are recorded only for events your code listens to, and Node internals not at all. See [Choose what gets recorded](guides/what-gets-recorded.md).
 5. **Is the app uploading?** Look for console messages from `configure` (below). A short script may exit before its first batch is sent: `await uploader.flush()` (or `ida.cloud.get_uploader().flush()`) before exiting.
-6. **Are you looking at the right project and time?** The key decides the project. In the viewer, pick a longer history at the top right.
+6. **Are you looking at the right project and time?** The key decides the project. The live view shows the last 5 minutes; for older events, zoom into the service and open its run from **Recordings**.
 
 ## Console messages
 
