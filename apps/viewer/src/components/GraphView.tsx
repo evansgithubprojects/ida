@@ -5,12 +5,13 @@ import {
 import '@xyflow/react/dist/style.css';
 import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { accumulate, layoutBounds, layoutSeen, NODE_H, NODE_W, type Positions, type Seen } from '../graph/layout';
-import { processNodeId, type Level, type ModelEdge, type ModelNode } from '../graph/model';
+import { BrokerLogo } from './BrokerLogo';
+import { isBroker, levelDepth, levelInto, parentLevel, processNodeId, sameLevel, serviceNodeId, serviceOfProcess, tracedParts, type Level, type ModelEdge, type ModelNode } from '../graph/model';
 import {
   centreViewport, fitViewport, MAX_ZOOM, sameViewport, saveViewport, takeSavedViewport, MIN_ZOOM, motion, rectOnScreen, toKeyframes, ZOOM_MS, zoomFrames, type Rect, type Viewport,
 } from '../graph/zoom';
-import { useActive, useModel, useRates } from '../hooks';
-import { fmtRate, type Active, type ShownRates } from '../replay';
+import { useActive, useModel, useRates, useTrace } from '../hooks';
+import { fmtRate, type Active, type ReplayIndex, type ShownRates } from '../replay';
 import { useStore } from '../store';
 import { NodeRef } from './common';
 import { GraphSettings } from './GraphSettings';
@@ -32,13 +33,15 @@ interface ViewState {
   focusedEdgeId: string | null;
   /** Graph setting: pathways with no suspect payloads show no count and no pulse. */
   hideHealthy: boolean;
+  /** Trace mode: the cards and pathways the traced message went through; everything else fades. */
+  traced: { nodes: Set<string>; edges: Set<string> } | null;
 }
 
 const ViewCtx = createContext<ViewState | null>(null);
 const useView = () => useContext(ViewCtx)!;
 
 type RouteNode = Node<Record<string, never>, 'route'>;
-type RingNode = Node<{ label: string; size: number }, 'ring'>;
+type RingNode = Node<{ label: string; size: number; broker: boolean }, 'ring'>;
 type AnyNode = RouteNode | RingNode;
 type RouteEdge = Edge<Record<string, never>, 'route'>;
 
@@ -46,18 +49,21 @@ const RING_ID = '__ring';
 const hiddenHandle = { opacity: 0, pointerEvents: 'none' } as const;
 
 const NodeCard = memo(function NodeCard({ id }: NodeProps<RouteNode>) {
-  const { nodes, active, rates, selectedId, focusedId } = useView();
+  const { nodes, active, rates, selectedId, focusedId, traced } = useView();
   const model = nodes.get(id);
   if (!model) return null;
   const rateIn = rates?.in.get(id);
   const rateOut = rates?.out.get(id);
   const flashing = active.flashingNodes.has(id);
   const thrown = active.thrownNodes.get(id) ?? 0;
-  const cls = ['node-card', `kind-${model.kind}`, flashing && 'flash', thrown > 0 && 'has-thrown', model.idle && 'idle', selectedId === id && 'selected', focusedId === id && 'focused'];
+  const cls = ['node-card', `kind-${model.kind}`, model.broker && `broker broker-${model.broker}`, model.inBroker && 'in-broker', flashing && 'flash', thrown > 0 && 'has-thrown', model.idle && 'idle', selectedId === id && 'selected', focusedId === id && 'focused', traced && (traced.nodes.has(id) ? 'traced' : 'dimmed')];
   return (
     <div className={cls.filter(Boolean).join(' ')} style={{ width: NODE_W, height: NODE_H }}>
       <Handle type="target" position={Position.Left} isConnectable={false} style={hiddenHandle} />
-      <div className="node-title" title={model.label}>{model.kind === 'process' || model.kind === 'stub' ? model.label : <NodeRef id={model.id} label={model.label} qualify={false} />}</div>
+      <div className="node-title" title={model.label}>
+        {model.broker && <BrokerLogo type={model.brokerType} kind={model.broker} />}
+        {model.kind === 'process' || model.kind === 'stub' || model.kind === 'service' ? model.label : <NodeRef id={model.id} label={model.label} qualify={false} />}
+      </div>
       <div className={`node-detail ${rateIn?.spike || rateOut?.spike ? 'spike' : ''}`} title={rateIn?.spike || rateOut?.spike ? 'Spike, held until the next update' : undefined}>
         {model.kind === 'stub' ? model.detail : `${fmtRate(rateIn?.value ?? 0)}/s in · ${fmtRate(rateOut?.value ?? 0)}/s out`}
       </div>
@@ -67,10 +73,10 @@ const NodeCard = memo(function NodeCard({ id }: NodeProps<RouteNode>) {
   );
 });
 
-/** The process being looked into, drawn as a big circle behind its handlers. */
+/** The emitter being looked into, drawn as a big circle behind its handlers, in the colour of its card. */
 const RingNodeView = memo(function RingNodeView({ data }: NodeProps<RingNode>) {
   return (
-    <div className="ring-node" style={{ width: data.size, height: data.size }}>
+    <div className={`ring-node${data.broker ? ' ring-broker' : ''}`} style={{ width: data.size, height: data.size }}>
       <span>{data.label}</span>
     </div>
   );
@@ -97,36 +103,52 @@ const centreOf = (n: InternalNode) => {
   return { cx: n.internals.positionAbsolute.x + w / 2, cy: n.internals.positionAbsolute.y + h / 2, w, h };
 };
 
+/** "source>target" for every pathway, cached per edge map, so a line can tell whether one runs the other way too. */
+const pairsCache = new WeakMap<Map<string, ModelEdge>, Set<string>>();
+function pairsOf(edges: Map<string, ModelEdge>): Set<string> {
+  let pairs = pairsCache.get(edges);
+  if (!pairs) {
+    pairs = new Set([...edges.values()].map((e) => `${e.source}>${e.target}`));
+    pairsCache.set(edges, pairs);
+  }
+  return pairs;
+}
+
+/** How far apart A→B and B→A are drawn, so they don't lie on top of each other. */
+const PAIR_GAP = 6;
+
 /**
- * Straight between card borders, bowed a little to one side. The bow flips with the direction, so A→B and
- * B→A don't lie on top of each other.
+ * A straight line between card borders. When a pathway also runs the other way, each is moved half of
+ * `PAIR_GAP` to its own side (the side flips with the direction), so the two sit side by side.
  */
-function floatingPath(source: InternalNode, target: InternalNode): [string, number, number] {
+function floatingPath(source: InternalNode, target: InternalNode, paired: boolean): [string, number, number] {
   const s = centreOf(source);
   const t = centreOf(target);
   // Cards that nearly touch would tuck the whole line away.
   const tuck = Math.min(EDGE_TUCK, Math.hypot(t.cx - s.cx, t.cy - s.cy) / 8);
-  const [sx, sy] = edgePoint(s.cx, s.cy, s.w, s.h, t.cx, t.cy, tuck);
-  const [tx, ty] = edgePoint(t.cx, t.cy, t.w, t.h, s.cx, s.cy, tuck);
-  const dx = tx - sx;
-  const dy = ty - sy;
-  const len = Math.hypot(dx, dy) || 1;
-  const bow = len * 0.18;
-  const qx = (sx + tx) / 2 - (dy / len) * bow;
-  const qy = (sy + ty) / 2 + (dx / len) * bow;
-  return [`M ${sx} ${sy} Q ${qx} ${qy} ${tx} ${ty}`, 0.25 * sx + 0.5 * qx + 0.25 * tx, 0.25 * sy + 0.5 * qy + 0.25 * ty];
+  let [sx, sy] = edgePoint(s.cx, s.cy, s.w, s.h, t.cx, t.cy, tuck);
+  let [tx, ty] = edgePoint(t.cx, t.cy, t.w, t.h, s.cx, s.cy, tuck);
+  if (paired) {
+    const len = Math.hypot(tx - sx, ty - sy) || 1;
+    const ox = (-(ty - sy) / len) * (PAIR_GAP / 2);
+    const oy = ((tx - sx) / len) * (PAIR_GAP / 2);
+    sx += ox; sy += oy; tx += ox; ty += oy;
+  }
+  // A pair's labels would sit on top of each other at the middle, so each goes a bit nearer its own source.
+  const at = paired ? 0.35 : 0.5;
+  return [`M ${sx} ${sy} L ${tx} ${ty}`, sx + (tx - sx) * at, sy + (ty - sy) * at];
 }
 
 /** How much of a line the travelling pulse covers. */
 const PULSE_LENGTH = 0.2;
 
 const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgeProps<RouteEdge>) {
-  const { edges, active, rates, selectedId, focusedEdgeId, hideHealthy } = useView();
+  const { edges, active, rates, selectedId, focusedEdgeId, hideHealthy, traced } = useView();
   const from = useInternalNode(source);
   const to = useInternalNode(target);
   const edge = edges.get(id);
   if (!edge || !from || !to) return null;
-  const [path, lx, ly] = floatingPath(from, to);
+  const [path, lx, ly] = floatingPath(from, to, pairsOf(edges).has(`${target}>${source}`));
   const flagged = active.flaggedEdges.get(id);
   const litFlagged = active.litFlaggedEdges.has(id);
   // Lines stay dim and still; a lit one only means an event is on it right now, drawn as a pulse that travels from sender to receiver.
@@ -135,7 +157,9 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
   const width = 1.5 + Math.min(3, Math.log2(edge.count + 1) * 0.5);
   // Every event still on its way gets its own pulse, so a busy route shows them all instead of restarting one.
   // A selected or focused pathway stays fully drawn so inspecting it still shows something.
-  const quiet = hideHealthy && selectedId !== id && focusedEdgeId !== id;
+  const onTrace = traced?.edges.has(id);
+  const dimmed = !!traced && !onTrace;
+  const quiet = (hideHealthy && selectedId !== id && focusedEdgeId !== id) || dimmed;
   const shown = rates?.edges.get(id);
   const flights = quiet && !litFlagged ? [] : (active.pulses.get(id) ?? []);
   return (
@@ -143,20 +167,25 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
       <BaseEdge
         id={id}
         path={path}
-        className={focusedEdgeId === id ? 'edge-focused' : undefined}
+        className={[focusedEdgeId === id && 'edge-focused', edge.propagated && 'edge-propagated', onTrace && 'edge-traced', dimmed && 'edge-dimmed'].filter(Boolean).join(' ') || undefined}
         style={{
-          stroke: flagged ? 'var(--warn-dim)' : 'var(--edge)', strokeWidth: width, opacity: 0.75,
-          strokeDasharray: flagged ? '7 5' : undefined,
+          stroke: onTrace ? 'var(--accent)' : flagged ? 'var(--warn-dim)' : 'var(--edge)', strokeWidth: onTrace ? width + 1 : width, opacity: dimmed ? 0.15 : onTrace ? 1 : 0.75,
+          // Dashed: these events reached here in a message from another service (an ida-parent header). Long dashes:
+          // small dots, repainted under every moving pulse, cut a busy graph's frame rate in half.
+          strokeDasharray: flagged ? '7 5' : edge.propagated ? '12 8' : undefined,
         }}
       />
-      {flights.map((progress, i) => (
-        <path
-          key={i}
-          d={path} pathLength={1} fill="none" stroke={pulseColor} strokeWidth={width + 1.5} strokeLinecap="round"
-          strokeDasharray={`${PULSE_LENGTH} 2`} strokeDashoffset={PULSE_LENGTH - progress * (1 + PULSE_LENGTH)}
-          style={{ pointerEvents: 'none', filter: `drop-shadow(0 0 5px ${pulseColor})` }}
-        />
-      ))}
+      {/* The glow is a wider, faint stroke under each pulse. A CSS drop-shadow filter looks the same but makes the
+          browser repaint every pulse off-screen on every frame, which drops a busy graph to a few frames a second. */}
+      {flights.map((progress, i) => {
+        const dash = { pathLength: 1, strokeDasharray: `${PULSE_LENGTH} 2`, strokeDashoffset: PULSE_LENGTH - progress * (1 + PULSE_LENGTH) };
+        return (
+          <g key={i} style={{ pointerEvents: 'none' }}>
+            <path d={path} {...dash} fill="none" stroke={pulseColor} strokeWidth={width + 8} strokeLinecap="round" opacity={0.25} />
+            <path d={path} {...dash} fill="none" stroke={pulseColor} strokeWidth={width + 1.5} strokeLinecap="round" />
+          </g>
+        );
+      })}
       {!(quiet && !flagged) && <EdgeLabelRenderer>
         <div className={`edge-label ${selectedId === id ? 'selected' : ''} ${focusedEdgeId === id ? 'focused' : ''}`} style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}>
           <span className={shown?.spike ? 'spike' : undefined} title={shown?.spike ? `Spike: ${fmtRate(shown.value)}/s, held until the next update` : `${edge.count} in this window`}>{fmtRate(shown?.value ?? 0)}/s</span>
@@ -171,7 +200,17 @@ const nodeTypes = { route: NodeCard, ring: RingNodeView };
 const edgeTypes = { route: RouteEdgeView };
 
 const boxOf = (p: { x: number; y: number }): Rect => ({ x: p.x, y: p.y, width: NODE_W, height: NODE_H });
-const sameLevel = (a: Level, b: Level) => a.kind === b.kind && (a.kind === 'process' || (b.kind === 'handlers' && a.processId === b.processId));
+
+/**
+ * The cards a level may be entered through in the level above it, best first: a process's own card, else (for a
+ * service's only process, entered straight from the services level) its service's card.
+ */
+const entryCards = (level: Level, index: ReplayIndex | null): string[] => {
+  if (level.kind === 'process') return level.service ? [serviceNodeId(level.service)] : [];
+  if (level.kind !== 'handlers') return [];
+  const service = serviceOfProcess(index, level.processId);
+  return [processNodeId(level.processId), ...(service ? [serviceNodeId(service)] : [])];
+};
 
 /** What a transition needs to know about a mounted layer: where its nodes are and where the camera is. */
 interface Geometry {
@@ -201,6 +240,8 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
   const focus = useStore((s) => s.focus);
   const setLevel = useStore((s) => s.setLevel);
   const hideHealthy = useStore((s) => s.hideHealthy);
+  const trace = useTrace();
+  const traced = useMemo(() => (model && trace ? tracedParts(model, trace) : null), [model, trace]);
   const { setViewport, getViewport } = useReactFlow<AnyNode, RouteEdge>();
 
   // Re-layout only when the shape of the graph changes, not on every count update.
@@ -280,7 +321,7 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
       const r = lay.ring.radius;
       list.push({
         id: RING_ID, type: 'ring', position: { x: -r, y: -r }, width: 2 * r, height: 2 * r, zIndex: -1,
-        data: { label: index?.processLabel.get(level.processId) ?? level.processId, size: 2 * r },
+        data: { label: index?.processLabel.get(level.processId) ?? level.processId, size: 2 * r, broker: !!index && isBroker(index, level.processId) },
         draggable: false, selectable: false, focusable: false,
       });
     }
@@ -301,9 +342,9 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
     () => (model && active ? {
       nodes: new Map(model.nodes.map((n) => [n.id, n])), edges: new Map(model.edges.map((e) => [e.id, e])), active, rates: rates?.shown ?? null,
       selectedId: selection && selection.type !== 'occurrence' && selection.type !== 'event' ? selection.id : null,
-      focusedId, focusedEdgeId: focusedEdge?.id ?? null, hideHealthy,
+      focusedId, focusedEdgeId: focusedEdge?.id ?? null, hideHealthy, traced,
     } : null),
-    [model, active, rates, selection, focusedId, focusedEdge, hideHealthy],
+    [model, active, rates, selection, focusedId, focusedEdge, hideHealthy, traced],
   );
 
   if (!model || !view || !lay) return null;
@@ -331,7 +372,8 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
         onNodeDoubleClick={(_, n) => {
           const m = model.nodes.find((x) => x.id === n.id);
           if (!m) return;
-          if (m.kind === 'process' || m.kind === 'stub') setLevel({ kind: 'handlers', processId: m.processId });
+          const into = levelInto(m);
+          if (into) setLevel(into);
         }}
       >
         <Controls showInteractive={false} />
@@ -348,16 +390,23 @@ function ZoomCrumbs() {
   const index = useStore((s) => s.index);
   const level = useStore((s) => s.level);
   const setLevel = useStore((s) => s.setLevel);
-  const processLabel = level.kind === 'handlers' ? index?.processLabel.get(level.processId) : undefined;
+  // Every level from the top down to this one.
+  const path: Level[] = [];
+  for (let l: Level | null = level; l; l = parentLevel(index, l)) path.unshift(l);
+  const name = (l: Level) => {
+    if (l.kind === 'services') return 'Services';
+    if (l.kind === 'process') return l.service ?? 'Emitters';
+    const service = serviceOfProcess(index, l.processId);
+    return index?.processLabel.get(l.processId) ?? (service ? `${service} emitter` : l.processId);
+  };
   return (
     <nav className="crumbs zoom-crumbs" aria-label="Zoom level">
-      <button className={level.kind === 'process' ? 'current' : ''} onClick={() => setLevel({ kind: 'process' })}>Processes</button>
-      {processLabel && (
-        <>
-          <span>›</span>
-          <button className="current">{processLabel}</button>
-        </>
-      )}
+      {path.map((l, k) => (
+        <span key={k}>
+          {k > 0 && <span>›</span>}
+          <button className={k === path.length - 1 ? 'current' : ''} onClick={() => setLevel(l)}>{name(l)}</button>
+        </span>
+      ))}
     </nav>
   );
 }
@@ -369,6 +418,8 @@ function ZoomCrumbs() {
  */
 export function GraphView({ actions }: { /** Extra buttons shown left of the settings cog. */ actions?: ReactNode } = {}) {
   const level = useStore((s) => s.level);
+  // Read once per transition (not subscribed): which card a zoom goes through doesn't change with each live batch.
+  const indexNow = () => useStore.getState().index;
   const box = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<Size | null>(null);
   const keys = useRef(0);
@@ -395,7 +446,7 @@ export function GraphView({ actions }: { /** Extra buttons shown left of the set
   }, []);
 
   const { current, outgoing } = layers;
-  const zoomOut = !!outgoing && outgoing.level.kind === 'handlers' && current.level.kind === 'process';
+  const zoomOut = !!outgoing && levelDepth(outgoing.level) > levelDepth(current.level);
 
   useLayoutEffect(() => {
     if (!outgoing) return;
@@ -410,10 +461,8 @@ export function GraphView({ actions }: { /** Extra buttons shown left of the set
     // The parent is the layer holding the card that gets zoomed into: the old one going in, the new one coming out.
     const parent = zoomOut ? current : outgoing;
     const child = zoomOut ? outgoing : current;
-    const focusLevel = child.level;
-    const focusId = focusLevel.kind === 'handlers' ? processNodeId(focusLevel.processId) : null;
     const g = geometry.get(parent.key);
-    const p = focusId ? g?.positions.get(focusId) : undefined;
+    const p = entryCards(child.level, indexNow()).map((id) => g?.positions.get(id)).find(Boolean);
 
     const options: KeyframeAnimationOptions = { duration: ms, fill: 'both', easing: 'linear' };
     let anims: Animation[];

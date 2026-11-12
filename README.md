@@ -4,6 +4,8 @@ Makes event-driven JavaScript easy to follow. It records every event in a time w
 
 An event is **who called it and what it called, including payloads**. Handlers are the nodes; each event points at the event that caused it, so chains form a web.
 
+**Documentation:** quick starts, guides and the full API reference live in [`docs/`](docs/overview.md), and are served by the web app at `/docs`.
+
 ## Packages
 
 | Package | What it does |
@@ -11,7 +13,11 @@ An event is **who called it and what it called, including payloads**. Handlers a
 | [`@ida-dev/core`](packages/core/README.md) | Recorder, ring buffer, templates, causality, corruption detection, JSON export. No DOM dependency. |
 | [`@ida-dev/adapter-eventemitter`](packages/adapter-eventemitter/README.md) | Records Node `EventEmitter`. |
 | [`@ida-dev/adapter-eventtarget`](packages/adapter-eventtarget/README.md) | Records DOM `EventTarget` (native events and `dispatchEvent`). |
+| [`@ida-dev/adapter-kafkajs`](packages/adapter-kafkajs/README.md) | Records Kafka producers and consumers made with kafkajs, linked across services. |
+| [`@ida-dev/adapter-amqplib`](packages/adapter-amqplib/README.md) | Records RabbitMQ publishes and deliveries made with amqplib, linked across services. |
 | [`@ida-dev/cloud`](packages/cloud/README.md) | Uploads recorders to a project on the server; spools locally while offline. |
+| [`ida-sdk`](python/README.md) (PyPI) | The Python SDK: recorder, `ida.Emitter`, uploads, Kafka (confluent-kafka) and RabbitMQ (pika). |
+| `docs` | The documentation, in markdown. The web app renders it at `/docs`. |
 | `apps/server` | Ingest and project API (Node, Hono, Postgres), with Supabase sign-in. See [its README](apps/server/README.md). |
 | `apps/viewer` | The web app: projects, recorders and recordings, plus the replay viewer (also usable locally, without an account). |
 | `apps/demo` | A stand-in user app (Node and browser) that uses the built packages and uploads to a project. Dev only. |
@@ -91,4 +97,4 @@ Replay never re-runs your code: it plays recorded data back against the graph.
 
 ## Scope of the first milestone
 
-Synchronous causality only. Async hops (AsyncLocalStorage / AsyncContext), mitt / eventemitter3 / Vue / React adapters, an in-page overlay and a DevTools extension are not built yet. The `CausalityContext` interface is the seam for async support.
+Async hops are followed in Node 20.16+ / 22.3+ (`AsyncLocalStorage`) and in Python (`contextvars`); browsers record synchronous causality only until AsyncContext ships, and the `CausalityContext` interface is the seam for it. mitt / eventemitter3 / Vue / React adapters, an in-page overlay and a DevTools extension are not built yet.

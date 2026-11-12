@@ -1,13 +1,14 @@
 import { RingBuffer } from './buffer';
 import { matchesCapture, type CaptureRule } from './capture';
-import { SyncStackContext, type CausalityContext } from './causality';
+import { defaultContext, type CausalityContext } from './causality';
 import { CorruptionEngine, SuspectedCorruptionError, type EngineOptions, type Observation } from './corruption';
-import { Registry } from './ids';
+import { Registry, type BrokerRef } from './ids';
 import { toJsonSafe } from './json';
+import type { RemoteParent } from './propagation';
 import { trackEmitter, untrackEmitter } from './routing';
 import { payloadShape, TemplateRegistry, type TemplateKeyFn } from './templates';
 import {
-  RECORDING_VERSION, type ErrorInfo, type Finding, type HandlerResult, type Occurrence,
+  RECORDING_VERSION, type ErrorInfo, type Finding, type HandlerResult, type JsonValue, type Occurrence,
   type RecorderMessage, type Recording,
 } from './types';
 
@@ -93,7 +94,7 @@ export interface RecorderOptions {
   corruption?: CorruptionOptions;
   /**
    * Tracks which event is being handled, so emits can point at their cause. Swap it to support async hops.
-   * @default SyncStackContext (synchronous causality only)
+   * @default AsyncStorageContext in Node (follows `await` and timers, marking those links 'inferred'), else SyncStackContext
    */
   context?: CausalityContext<Frame>;
   /**
@@ -119,6 +120,24 @@ export interface DispatchInfo {
   handlers: Function[];
   /** The raw payload. It is only stored when the event is deep-logged. */
   payload: unknown;
+  /**
+   * Set when the emitter is a topic, exchange or queue. Its process then gets a deterministic id
+   * (`brokerProcessId`), so every service that uses it shares one process.
+   */
+  broker?: BrokerRef;
+  /** Small facts kept on the occurrence even when the payload isn't (topic, partition, offset, routing key, ...). */
+  meta?: Record<string, JsonValue>;
+  /**
+   * The publish this event consumes, from the message's `ida-parent` header. Marks the occurrence `'propagated'`.
+   * When a local handler is also running, `parentId` keeps pointing at it.
+   */
+  remoteParent?: RemoteParent;
+}
+
+/** Which occurrence a dispatch recorded, for writing into an outgoing message's `ida-parent` header. */
+export interface Recorded {
+  sessionId: string;
+  occurrenceId: string;
 }
 
 /** Run one handler under the current event so emits inside it point back at it. */
@@ -136,6 +155,16 @@ export interface Recorder {
   /** The name given with `connectRecorder(key)` or the `key` option. */
   readonly key: string;
   /**
+   * This run's id (a UUID). Uploads file the run under it, and broker adapters write it into the `ida-parent` header
+   * so consumers in other services can point back at the occurrence that published.
+   */
+  readonly sessionId: string;
+  /**
+   * The current time on this recorder's clock, as epoch ms: `startedAt` plus the current `ts`. It follows the
+   * monotonic clock, not later changes to the machine's wall clock. The uploader compares it with the server's clock.
+   */
+  wallTime(): number;
+  /**
    * Claim an emitter: adapters installed without a recorder send its events here instead of to the default recorder.
    * Optional for your own emitters: one nobody tracks is still recorded, by the default recorder (the one `enable()`
    * sets up), when there is one. Tracking also forces in an emitter an installed package created, which the Node
@@ -152,7 +181,7 @@ export interface Recorder {
    * For adapter authors: records one emit and runs it. `run` must call each listener through `invoke` so its timing,
    * errors and emits are attributed to it. Returns whatever `run` returns.
    */
-  dispatch<T>(info: DispatchInfo, run: (invoke: Invoke) => T): T;
+  dispatch<T>(info: DispatchInfo, run: (invoke: Invoke, recorded?: Recorded) => T): T;
   /** Resume recording. Events emitted while stopped are not recorded. */
   start(): void;
   /** Pause recording. What was already recorded is kept. */
@@ -194,6 +223,9 @@ const toErrorInfo = (err: unknown): ErrorInfo =>
     ? { name: err.name, message: err.message, stack: err.stack }
     : { name: 'Error', message: String(err) };
 
+const isThenable = (v: unknown): v is PromiseLike<unknown> =>
+  (typeof v === 'object' || typeof v === 'function') && v !== null && typeof (v as { then?: unknown }).then === 'function';
+
 const looksLikeError = (v: unknown): boolean =>
   v instanceof Error || (typeof v === 'object' && v !== null && 'message' in v && 'stack' in v);
 
@@ -218,11 +250,12 @@ export function createRecorder(opts: RecorderOptions = {}): Recorder {
   const now = opts.now ?? (() => performance.now());
   const origin = now();
   const startedAt = Date.now();
+  const sessionId = globalThis.crypto.randomUUID();
   const deepRule = opts.deepLogging ?? opts.capture;
   const registry = new Registry();
   const templates = new TemplateRegistry(opts.templateKey);
   const buffer = new RingBuffer<Occurrence>(opts.maxEvents ?? 50_000, opts.windowMs ?? 5 * 60_000);
-  const ctx: CausalityContext<Frame> = opts.context ?? new SyncStackContext<Frame>();
+  const ctx: CausalityContext<Frame> = opts.context ?? defaultContext<Frame>();
   const engine = new CorruptionEngine(opts.corruption);
   const notifiers = normalizeNotify(opts.corruption?.notify);
   const consoleOn = [opts.corruption?.notify].flat().includes('console');
@@ -252,11 +285,11 @@ export function createRecorder(opts: RecorderOptions = {}): Recorder {
 
   const evict = (items: Occurrence[]) => items.forEach((o) => templates.release(o.templateId));
 
-  function dispatch<T>(info: DispatchInfo, run: (invoke: Invoke) => T): T {
+  function dispatch<T>(info: DispatchInfo, run: (invoke: Invoke, recorded?: Recorded) => T): T {
     if (!recording) return run((_h, call) => call());
 
     const frame = ctx.current();
-    const emitter = registry.emitter(info.emitter, info.label);
+    const emitter = registry.emitter(info.emitter, info.label, info.broker);
     const handlerIds = info.handlers.map((h) => registry.handler(h, emitter).id);
     const shape = payloadShape(info.payload);
     const template = templates.intern({ emitterId: emitter.node.id, eventName: info.eventName, handlerIds, payloadShape: shape });
@@ -275,7 +308,10 @@ export function createRecorder(opts: RecorderOptions = {}): Recorder {
     const occurrence: Occurrence = {
       id, templateId: template.id, parentId: frame?.eventId ?? null,
       sourceNodeId: frame?.handlerId ?? emitter.node.id, ts, durationMs: 0, handlerResults: [],
-      capture: deep ? 'full' : 'template', ...(deep ? { payload } : {}), causality: 'sync',
+      capture: deep ? 'full' : 'template', ...(deep ? { payload } : {}),
+      causality: info.remoteParent ? 'propagated' : frame && ctx.isAsync?.() ? 'inferred' : 'sync',
+      ...(info.remoteParent && { remoteParent: { ...info.remoteParent } }),
+      ...(info.meta && { meta: toJsonSafe(info.meta) as Record<string, JsonValue> }),
     };
     const observation: Observation = {
       occurrenceId: id, parentId: occurrence.parentId, sourceNodeId: occurrence.sourceNodeId,
@@ -290,10 +326,20 @@ export function createRecorder(opts: RecorderOptions = {}): Recorder {
       engine.onError(frame?.handlerId ?? null, emitter.node.id, id, ts);
     }
 
+    // Handlers that returned a promise and haven't settled. The occurrence is sent when the emit returns, then again,
+    // complete, once they settle (subscribers and the server replace it by id).
+    let unsettled = 0;
+    let finalized = false;
     const finalize = () => {
+      finalized = true;
       occurrence.durationMs = now() - origin - ts;
       const fresh = registry.drainFresh();
       emit({ type: 'occurrence', occurrence, template, nodes: fresh.nodes, processes: fresh.processes });
+    };
+    const settled = () => {
+      if (--unsettled > 0 || !finalized) return;
+      occurrence.durationMs = Math.max(occurrence.durationMs, now() - origin - ts);
+      emit({ type: 'occurrence', occurrence, template, nodes: [], processes: [] });
     };
     evict(buffer.push(occurrence));
 
@@ -310,9 +356,8 @@ export function createRecorder(opts: RecorderOptions = {}): Recorder {
       const node = registry.handler(handler, emitter);
       const handlerFrame: Frame = { eventId: id, handlerId: node.id, children: [] };
       const result: HandlerResult = { handlerId: node.id, ts: now() - origin, durationMs: 0 };
-      try {
-        return ctx.run(handlerFrame, call);
-      } catch (err) {
+      let pending = false;
+      const failed = (err: unknown) => {
         result.error = toErrorInfo(err);
         const trackable = typeof err === 'object' && err !== null;
         const first = trackable ? thrownAt.get(err) : undefined;
@@ -336,15 +381,33 @@ export function createRecorder(opts: RecorderOptions = {}): Recorder {
           const late = engine.observe(child, source);
           if (late) report({ ...late, retroactive: true });
         }
+      };
+      try {
+        const out = ctx.run(handlerFrame, call);
+        if (!isThenable(out)) return out;
+        // An async handler: time it, and catch what it rejects with, when it settles. The caller gets a promise that
+        // settles the same way, so an unhandled rejection is still reported as one.
+        pending = true;
+        unsettled++;
+        const done = () => {
+          result.durationMs = now() - origin - result.ts;
+          settled();
+        };
+        return Promise.resolve(out).then(
+          (v) => { done(); return v; },
+          (err) => { failed(err); done(); throw err; },
+        ) as unknown as typeof out;
+      } catch (err) {
+        failed(err);
         throw err;
       } finally {
-        result.durationMs = now() - origin - result.ts;
+        if (!pending) result.durationMs = now() - origin - result.ts;
         occurrence.handlerResults.push(result);
       }
     };
 
     try {
-      return run(invoke);
+      return run(invoke, { sessionId, occurrenceId: id });
     } finally {
       finalize();
     }
@@ -352,6 +415,8 @@ export function createRecorder(opts: RecorderOptions = {}): Recorder {
 
   const self: Recorder = {
     key: opts.key ?? 'unnamed',
+    sessionId,
+    wallTime: () => startedAt + now() - origin,
     track(emitter) { trackEmitter(self, emitter); },
     untrack(emitter) { untrackEmitter(self, emitter); },
     dispatch,

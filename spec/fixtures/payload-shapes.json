@@ -1,0 +1,23 @@
+{
+  "about": "payloadShape(input) must equal shape in every SDK. Inputs are JSON; two tags stand for values JSON can't hold: {\"$nan\": true} is NaN, {\"$bytes\": \"<base64>\"} is a byte string (Buffer/Uint8Array in JS, bytes in Python).",
+  "cases": [
+    { "name": "null", "input": null, "shape": "null" },
+    { "name": "string", "input": "x", "shape": "string" },
+    { "name": "integer", "input": 3, "shape": "number" },
+    { "name": "float", "input": 3.5, "shape": "number" },
+    { "name": "boolean", "input": true, "shape": "boolean" },
+    { "name": "NaN", "input": { "$nan": true }, "shape": "NaN" },
+    { "name": "bytes", "input": { "$bytes": "aGk=" }, "shape": "bytes" },
+    { "name": "keys are sorted", "input": { "b": 1, "a": "x" }, "shape": "{a:string,b:number}" },
+    { "name": "empty object", "input": {}, "shape": "{}" },
+    { "name": "empty array", "input": [], "shape": "[]" },
+    { "name": "uniform array", "input": [1, 2, 3], "shape": "number[]" },
+    { "name": "mixed array, kinds sorted", "input": ["a", 1, null], "shape": "(null|number|string)[]" },
+    { "name": "only the first 20 items count", "input": [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,"late"], "shape": "number[]" },
+    { "name": "nested", "input": { "items": [1, 2], "u": { "n": null } }, "shape": "{items:number[],u:{n:null}}" },
+    { "name": "array of objects", "input": [{ "id": 1 }, { "id": 2 }], "shape": "{id:number}[]" },
+    { "name": "depth stops at 4", "input": { "a": { "b": { "c": { "d": { "e": 1 } } } } }, "shape": "{a:{b:{c:{d:…}}}}" },
+    { "name": "bytes inside an object", "input": { "key": { "$bytes": "AAE=" }, "n": 1 }, "shape": "{key:bytes,n:number}" },
+    { "name": "kafka-style order", "input": { "orderId": "o-1", "total": 42.5, "lines": [{ "sku": "a", "qty": 2 }] }, "shape": "{lines:{qty:number,sku:string}[],orderId:string,total:number}" }
+  ]
+}

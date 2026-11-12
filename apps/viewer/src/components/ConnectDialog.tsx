@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../cloud/api';
-import { LANGUAGES, SetupSnippet, type Language } from './SetupSnippet';
+import { LANGUAGES, SetupSnippet, sourcesFor, type Language, type Source } from './SetupSnippet';
 
 /**
  * Connects an app to a project in two screens: create an ingest key, then add it to the app. `startAt: 'setup'`
@@ -21,6 +21,10 @@ export function ConnectDialog({ projectId, startAt, onClose, onKeyCreated }: {
   const [secret, setSecret] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [language, setLanguage] = useState<Language>('node');
+  const [picked, setSource] = useState<Source>('eventemitter');
+  // A language without an adapter for the picked source shows its first one instead.
+  const sources = sourcesFor(language);
+  const source = sources.some((s) => s.id === picked) ? picked : sources[0]!.id;
   // The secret is shown once, so Escape must not lose it; Done closes.
   const locked = screen === 'setup' && !!secret;
 
@@ -90,12 +94,22 @@ export function ConnectDialog({ projectId, startAt, onClose, onKeyCreated }: {
                 <p className="hint">Shown only once. Copy it now and keep it somewhere safe, for example as <code>IDA_PROJECT_KEY</code>.</p>
               </>
             )}
-            <label className="lang-select">Language
-              <select value={language} onChange={(e) => setLanguage(e.target.value as Language)}>
-                {LANGUAGES.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-              </select>
-            </label>
-            <SetupSnippet language={language} projectKey={secret} />
+            {/* Plain text, not <label>: a label makes its text part of the picker's hover and click area. */}
+            <div className="lang-select">
+              <span className="pick">
+                <span id="connect-language">Language</span>
+                <select aria-labelledby="connect-language" value={language} onChange={(e) => setLanguage(e.target.value as Language)}>
+                  {LANGUAGES.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+                </select>
+              </span>
+              <span className="pick">
+                <span id="connect-source">with events from</span>
+                <select aria-labelledby="connect-source" value={source} onChange={(e) => setSource(e.target.value as Source)} disabled={sources.length < 2}>
+                  {sources.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                </select>
+              </span>
+            </div>
+            <SetupSnippet language={language} source={source} projectKey={secret} />
             <div className="modal-actions">
               <button className="primary" onClick={onClose}>Done</button>
             </div>

@@ -1,4 +1,5 @@
-import type { Finding, GraphNode, Occurrence, Recording, Template } from '@ida-dev/core';
+import type { Finding, GraphNode, Occurrence, Process, Recording, Template } from '@ida-dev/core';
+import { buildServiceIndex, type ServiceIndex, type SystemView } from './system';
 import { compareRank, findingRank, throwRank, tierOf, type Rank, type Tier } from './severity';
 export type { Tier } from './severity';
 
@@ -34,10 +35,15 @@ export interface ReplayIndex {
   events: Map<string, EventInfo>;
   items: IndexedOccurrence[];
   byId: Map<string, IndexedOccurrence>;
+  /** Occurrence id -> the occurrences it caused (their `parentId`), oldest first. Crosses services in a system view. */
+  children: Map<string, string[]>;
   nodes: Map<string, GraphNode>;
   /** Handlers (and emitters) that deliver to an external system. */
   externalNodes: Set<string>;
   processLabel: Map<string, string>;
+  processes: Map<string, Process>;
+  /** Set for a system view: which service each node and process belongs to, and the links between services. */
+  system: ServiceIndex | null;
   findingsByOcc: Map<string, Finding[]>;
   findingsById: Map<string, Finding>;
   /** Findings traced to a throw, keyed by `throwId`. */
@@ -152,9 +158,14 @@ export function runById(index: ReplayIndex, id: string): Run | null {
 /** A run that threw, or whose payload is suspected corrupt. */
 export const isProblemRun = (index: ReplayIndex, run: Run) => !!run.error || index.findingsByOcc.has(run.item.occ.id);
 
-export function buildIndex(recording: Recording): ReplayIndex {
+/**
+ * `system` is the rest of a system view, when `recording` is one. `origin` keeps a live system view's times counting
+ * from where they did (see `ReplayIndex.origin`).
+ */
+export function buildIndex(recording: Recording, system?: Omit<SystemView, 'recording'> | null, origin?: number): ReplayIndex {
   const templates = new Map(recording.templates.map((t) => [t.id, t]));
   const nodes = new Map(recording.nodes.map((n) => [n.id, n]));
+  const processes = new Map(recording.processes.map((p) => [p.id, p]));
   const findingsByOcc = new Map<string, Finding[]>();
   const findingsById = new Map<string, Finding>();
   const findingsBySource = new Map<string, Finding[]>();
@@ -168,14 +179,19 @@ export function buildIndex(recording: Recording): ReplayIndex {
   }
   const propagations = new Map<string, { occurrenceId: string; handlerId: string }[]>();
   const items: IndexedOccurrence[] = [];
+  const occById = new Map(recording.occurrences.map((o) => [o.id, o]));
   for (const occ of [...recording.occurrences].sort((a, b) => a.ts - b.ts)) {
     const template = templates.get(occ.templateId);
     if (!template) continue;
     // Events nobody listens to dead-end at their own emitter so they still show up.
     const targets = template.handlerIds.length ? template.handlerIds : [template.emitterId];
+    // A message published to one broker node and consumed from another (a RabbitMQ exchange routing it to a queue)
+    // also travelled between the two: draw that route too, or the exchange and the queue look unconnected.
+    const publishedTo = occ.causality === 'propagated' && occ.parentId ? templates.get(occById.get(occ.parentId)?.templateId ?? '')?.emitterId : undefined;
+    const routed = publishedTo && publishedTo !== template.emitterId && nodes.has(publishedTo) ? [{ src: publishedTo, dst: template.emitterId }] : [];
     items.push({
       occ, template,
-      hops: targets.map((dst) => ({ src: occ.sourceNodeId, dst })),
+      hops: [...routed, ...targets.map((dst) => ({ src: occ.sourceNodeId, dst }))],
       throws: occ.handlerResults
         .filter((r) => r.error)
         .map((r) => ({
@@ -202,16 +218,43 @@ export function buildIndex(recording: Recording): ReplayIndex {
     const marked = t.handlerIds.filter((id) => t.external!.includes(nodes.get(id)?.label ?? ''));
     for (const id of marked.length ? marked : [t.emitterId]) externalNodes.add(id);
   }
+  const children = new Map<string, string[]>();
+  for (const { occ } of items) {
+    if (!occ.parentId) continue;
+    const list = children.get(occ.parentId);
+    if (list) list.push(occ.id);
+    else children.set(occ.parentId, [occ.id]);
+  }
   const start = items.length ? (items[0] as IndexedOccurrence).occ.ts : 0;
   const end = items.reduce((m, i) => Math.max(m, i.occ.ts + i.occ.durationMs), start);
   return {
-    recording, events, items, byId: new Map(items.map((i) => [i.occ.id, i])), nodes, externalNodes,
-    processLabel: new Map(recording.processes.map((p) => [p.id, p.label])),
-    findingsByOcc, findingsById, findingsBySource, propagations, start, end, origin: 0,
+    recording, events, items, byId: new Map(items.map((i) => [i.occ.id, i])), children, nodes, externalNodes,
+    processLabel: new Map([...processes.values()].map((p) => [p.id, p.label])),
+    processes,
+    system: system ? buildServiceIndex(system, recording) : null,
+    findingsByOcc, findingsById, findingsBySource, propagations, start, end,
+    // A system view's times count from its window, which can start long before anything happened: count from the
+    // first event instead. A live one drops its oldest events as new ones come, so it passes in the origin it opened
+    // with: times shown stay put, and lists keyed on it don't redraw on every batch.
+    origin: system ? origin ?? start : 0,
   };
 }
 
 export const edgeId = (src: string, dst: string) => `${src}>${dst}`;
+
+const BROKER_KINDS = new Set(['topic', 'exchange', 'queue']);
+
+/**
+ * Whether a hop end counts toward the in/out of the card it is drawn on. A broker's card counts messages: those that
+ * reach its topic, exchange or queue, and those it delivers. A consumer's handler is drawn inside the broker (it
+ * consumes there), but what that handler does next is the consumer's, not more traffic through the broker.
+ */
+export function countsOnCard(index: ReplayIndex, rawId: string, mappedId: string): boolean {
+  if (rawId === mappedId) return true;
+  const n = index.nodes.get(rawId);
+  if (!n || mappedId !== `p:${n.processId}` || !BROKER_KINDS.has(index.processes.get(n.processId)?.kind ?? '')) return true;
+  return n.kind === 'emitter';
+}
 
 export interface ActiveOptions {
   /** How long a lit pathway takes to fade, in recording ms. */
@@ -450,6 +493,71 @@ export function chainOf(index: ReplayIndex, occurrenceId: string): IndexedOccurr
   return chain;
 }
 
+/** The service an occurrence ran in, in a system view: its emitting node's, else its first handler's. */
+export function serviceOfOccurrence(index: ReplayIndex, item: IndexedOccurrence): string | undefined {
+  const sys = index.system;
+  if (!sys) return undefined;
+  return sys.nodeService.get(item.occ.sourceNodeId) ?? sys.nodeService.get(item.template.handlerIds[0] ?? '') ?? undefined;
+}
+
+export interface TraceStep {
+  item: IndexedOccurrence;
+  /** Steps from the trace's root: branches of the tree sit deeper. */
+  depth: number;
+  /** In a system view, the service it ran in. */
+  service?: string;
+  /** Set when the event is a message on a topic, exchange or queue. */
+  broker?: { type: 'kafka' | 'rabbitmq'; kind: Process['kind']; name: string };
+  /** For a message consumed from another service: how long after its publish it was handled. */
+  lagMs?: number;
+}
+
+export interface Trace {
+  /** The occurrence the trace was started from. */
+  occurrenceId: string;
+  /** What led to it, everything it caused, and itself, oldest first. */
+  steps: TraceStep[];
+  ids: Set<string>;
+  /** Some of the story is missing: the root's cause is outside the window or was never recorded. */
+  truncated: boolean;
+}
+
+/**
+ * One message's whole causal tree: the chain that led to `occurrenceId` and everything it caused, across every
+ * service and broker in a system view (where consumed messages point at their publish), or inside one recording.
+ */
+export function traceOf(index: ReplayIndex, occurrenceId: string): Trace | null {
+  const start = index.byId.get(occurrenceId);
+  if (!start) return null;
+  const chain = chainOf(index, occurrenceId);
+  const depth = new Map<string, number>(chain.map((c, k) => [c.occ.id, k]));
+  const queue = [occurrenceId];
+  while (queue.length) {
+    const id = queue.shift()!;
+    for (const child of index.children.get(id) ?? []) {
+      if (depth.has(child) || !index.byId.has(child)) continue;
+      depth.set(child, depth.get(id)! + 1);
+      queue.push(child);
+    }
+  }
+  const steps = [...depth.keys()].map((id) => index.byId.get(id)!).sort((a, b) => a.occ.ts - b.occ.ts).map((item): TraceStep => {
+    const step: TraceStep = { item, depth: depth.get(item.occ.id)! };
+    const service = serviceOfOccurrence(index, item);
+    if (service) step.service = service;
+    const proc = index.processes.get(index.nodes.get(item.template.emitterId)?.processId ?? '');
+    if (proc?.broker && (proc.kind === 'topic' || proc.kind === 'exchange' || proc.kind === 'queue')) {
+      step.broker = { type: proc.broker.type, kind: proc.kind, name: proc.label };
+    }
+    const parent = item.occ.causality === 'propagated' && item.occ.parentId ? index.byId.get(item.occ.parentId) : undefined;
+    if (parent) step.lagMs = item.occ.ts - parent.occ.ts;
+    return step;
+  });
+  const root = chain[0]!;
+  const rootLink = index.system?.links.get(root.occ.id);
+  const truncated = (!!root.occ.parentId && !index.byId.has(root.occ.parentId)) || (!!rootLink && rootLink.status !== 'in-view');
+  return { occurrenceId, steps, ids: new Set(depth.keys()), truncated };
+}
+
 export type ChainStep = { kind: 'event'; item: IndexedOccurrence } | { kind: 'handler'; nodeId: string };
 
 /**
@@ -565,7 +673,7 @@ interface RateOptions {
 }
 
 /** Calls `visit` for every hop of every event that plays in `[lo, hi)`, scanning from item `scanFrom`. */
-function eachPlayedHop(index: ReplayIndex, lo: number, hi: number, opts: RateOptions, scanFrom: number, visit: (src: string, dst: string, at: number) => void): void {
+function eachPlayedHop(index: ReplayIndex, lo: number, hi: number, opts: RateOptions, scanFrom: number, visit: (src: string, dst: string, at: number, hop: Hop) => void): void {
   const map = opts.mapNode ?? ((id: string) => id);
   for (let i = scanFrom; i < index.items.length; i++) {
     const { occ, hops } = index.items[i] as IndexedOccurrence;
@@ -575,7 +683,7 @@ function eachPlayedHop(index: ReplayIndex, lo: number, hi: number, opts: RateOpt
     for (const hop of hops) {
       const src = map(hop.src);
       const dst = map(hop.dst);
-      if (src && dst) visit(src, dst, at);
+      if (src && dst) visit(src, dst, at, hop);
     }
   }
 }
@@ -590,10 +698,10 @@ export function rateSeries(index: ReplayIndex, t: number, opts: RateOptions = {}
     if (!row) m.set(k, (row = new Array<number>(RATE_HISTORY).fill(0)));
     row[slot]! += 1;
   };
-  eachPlayedHop(index, lo, hi, opts, 0, (src, dst, at) => {
+  eachPlayedHop(index, lo, hi, opts, 0, (src, dst, at, hop) => {
     const slot = Math.floor((at - lo) / RATE_STEP_MS);
-    add(out.in, dst, slot);
-    add(out.out, src, slot);
+    if (countsOnCard(index, hop.dst, dst)) add(out.in, dst, slot);
+    if (countsOnCard(index, hop.src, src)) add(out.out, src, slot);
     if (src !== dst) add(out.edges, edgeId(src, dst), slot);
   });
   // Counted whole, then turned into per-second rates, so a steady 4/s reads exactly 4.
@@ -623,9 +731,9 @@ export function recentRates(index: ReplayIndex, t: number, opts: RateOptions & {
   const lo = t - SPIKE_WINDOW_MS + NUDGE;
   const out: RecentRates = { edges: new Map(), in: new Map(), out: new Map() };
   const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1000 / SPIKE_WINDOW_MS);
-  eachPlayedHop(index, lo, t + NUDGE, opts, firstAtOrAfter(index.items, lo - (opts.maxShiftMs ?? 0)), (src, dst) => {
-    bump(out.in, dst);
-    bump(out.out, src);
+  eachPlayedHop(index, lo, t + NUDGE, opts, firstAtOrAfter(index.items, lo - (opts.maxShiftMs ?? 0)), (src, dst, _at, hop) => {
+    if (countsOnCard(index, hop.dst, dst)) bump(out.in, dst);
+    if (countsOnCard(index, hop.src, src)) bump(out.out, src);
     if (src !== dst) bump(out.edges, edgeId(src, dst));
   });
   return out;

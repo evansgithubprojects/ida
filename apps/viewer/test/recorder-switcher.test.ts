@@ -6,6 +6,6 @@ describe('a recorder row subheading', () => {
     expect(processSummary(['Cart', 'Payments', 'Shipping'])).toBe('Cart, Payments, Shipping');
   });
   it('says so when there are none yet', () => {
-    expect(processSummary([])).toBe('No processes yet');
+    expect(processSummary([])).toBe('No emitters yet');
   });
 });

@@ -1,7 +1,10 @@
+import { useState } from 'react';
 import { Link } from 'react-router';
 import { useSession } from '../cloud/auth';
 import { supabase } from '../cloud/supabase';
 import { LogoMark } from '../components/Logo';
+import { LANGUAGES, SetupSnippet, type Language } from '../components/SetupSnippet';
+import { IntegrationGrid } from './Docs';
 
 /** Nodes of the hero's event web: handlers, with the last one the root cause the pulse travels back to. */
 const NODES = [
@@ -61,7 +64,7 @@ const FEATURES = [
   },
   {
     title: 'Inspect',
-    body: 'Start from processes, drop into a process to see its handlers, then inspect one handler for payloads, timings and errors.',
+    body: 'Start from emitters, drop into an emitter to see its handlers, then inspect one handler for payloads, timings and errors.',
   },
 ];
 
@@ -74,6 +77,7 @@ const STEPS = [
 export function Home() {
   const session = useSession();
   const signedIn = !!supabase && !!session;
+  const [language, setLanguage] = useState<Language>('node');
   const cta = signedIn ? { to: '/projects', label: 'Open your projects' } : { to: '/login', label: 'Get started' };
 
   return (
@@ -81,7 +85,7 @@ export function Home() {
       <section className="landing-hero">
         <div className="landing-copy">
           <LogoMark size={44} />
-          <p className="eyebrow">Event debugging for JavaScript</p>
+          <p className="eyebrow">Event debugging for JavaScript and Python</p>
           <h2>Dig up the root.</h2>
           <p className="lede">
             Ida records every event in your app, shows how they branch, and replays them so you can trace
@@ -120,13 +124,22 @@ export function Home() {
             </li>
           ))}
         </ol>
-        <pre className="snippet landing-snippet">{`npm install @ida-dev/core @ida-dev/adapter-eventemitter
+        <div className="landing-snippet">
+          <div className="tabs" role="tablist" aria-label="Language">
+            {LANGUAGES.map((l) => (
+              <button key={l.id} role="tab" aria-selected={language === l.id} className={language === l.id ? 'current' : ''} onClick={() => setLanguage(l.id)}>
+                {l.label}
+              </button>
+            ))}
+          </div>
+          <SetupSnippet language={language} />
+        </div>
+      </section>
 
-import { enable } from '@ida-dev/core';
-import { enableEventEmitterRecording } from '@ida-dev/adapter-eventemitter';
-
-enable();
-enableEventEmitterRecording();`}</pre>
+      <section className="landing-section" id="integrations">
+        <h3>Works with popular event brokers</h3>
+        <p className="muted">In-process emitters, and Kafka and RabbitMQ between services, linked from the service that sent each message to the one that handled it.</p>
+        <IntegrationGrid />
       </section>
 
       <section className="landing-final">

@@ -1,10 +1,11 @@
 import { useEffect, type ReactNode } from 'react';
 import { usePlayback } from '../hooks';
-import { useStore } from '../store';
+import { occurrenceOfSelection, useStore } from '../store';
 import { GraphView } from './GraphView';
 import { Inspector } from './Inspector';
 import { InspectorToggle } from './InspectorToggle';
 import { Timeline } from './Timeline';
+import { TraceBar } from './TraceBar';
 
 /** The graph, inspector and timeline for whatever recording the store holds; `empty` shows until there is one. */
 export function Replay({ empty, corner, actions, exit }: {
@@ -28,6 +29,12 @@ export function Replay({ empty, corner, actions, exit }: {
         setInspectorOpen(!open);
         return;
       }
+      if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const { index, selection, startTrace } = useStore.getState();
+        const id = occurrenceOfSelection(index, selection);
+        if (id) startTrace(id);
+        return;
+      }
       if (e.code === 'Space' && useStore.getState().mode === 'replay') { e.preventDefault(); useStore.getState().togglePlay(); }
     };
     window.addEventListener('keydown', onKey);
@@ -39,7 +46,7 @@ export function Replay({ empty, corner, actions, exit }: {
       {index ? (
         <>
           <div className="main">
-            <div className="canvas">{corner}<GraphView actions={actions} /></div>
+            <div className="canvas">{corner}<GraphView actions={actions} /><TraceBar /></div>
             <div className="inspector-wrap">
               <InspectorToggle />
               {inspectorOpen && <Inspector />}

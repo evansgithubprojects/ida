@@ -34,3 +34,7 @@ Your listeners behave exactly as before. Call `uninstall()` to stop recording.
 ## Only listeners added after setup are recorded
 
 Call `enableEventTargetRecording` before your app registers listeners; ones added earlier are not recorded.
+
+## Documentation
+
+Quick starts, guides and the full API reference are in the **Docs** section of the Ida web app, and in the repo's [`docs/`](../../docs/overview.md) folder.

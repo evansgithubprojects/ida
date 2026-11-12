@@ -1,0 +1,96 @@
+# The Kafka + RabbitMQ demo: three services in two languages, linked through two brokers.
+#
+#   orders (Node) --Kafka topic "orders"--> payments (Python) --RabbitMQ exchange "receipts"--> notifier (Node)
+#
+# Every service uploads to the Ida server running on your machine (`npm run dev`), into the project whose ingest key
+# you put in .env. See README.md.
+#
+# Host ports are moved off the defaults (9094, 5673, 15673) so the demo doesn't clash with brokers you already run.
+
+x-ida: &ida
+  IDA_PROJECT_KEY: ${IDA_PROJECT_KEY:?Put your project's ingest key in examples/brokers/.env (see .env.example)}
+  # host.docker.internal is your machine as seen from inside a container.
+  IDA_ENDPOINT: ${IDA_ENDPOINT:-http://host.docker.internal:8787}
+
+services:
+  kafka:
+    image: apache/kafka:3.9.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,HOST://:9094
+      # Containers reach the broker as kafka:9092; your machine reaches it as localhost:9094.
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    ports:
+      - "9094:9094"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:4.1-management
+    ports:
+      - "5673:5672"
+      - "15673:15672" # management UI: http://localhost:15673 (guest / guest)
+    healthcheck:
+      # `ping` passes before the AMQP port takes connections; this waits for the listeners.
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+
+  orders:
+    build: .
+    restart: on-failure
+    command: ["node", "src/orders.js"]
+    environment:
+      <<: *ida
+      KAFKA_BROKERS: kafka:9092
+      ORDER_EVERY_MS: ${ORDER_EVERY_MS:-2000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  payments:
+    restart: on-failure
+    build:
+      context: payments
+      # The Python SDK is installed from this repo, so the demo runs the code you're working on.
+      additional_contexts:
+        sdk: ../../python
+    environment:
+      <<: *ida
+      KAFKA_BROKERS: kafka:9092
+      AMQP_URL: amqp://guest:guest@rabbitmq:5672
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  notifier:
+    build: .
+    restart: on-failure
+    command: ["node", "src/notifier.js"]
+    environment:
+      <<: *ida
+      AMQP_URL: amqp://guest:guest@rabbitmq:5672
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy

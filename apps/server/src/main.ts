@@ -4,6 +4,7 @@ import { createApp } from './app';
 import { resendMailer } from './mail';
 import { supabaseVerifier } from './auth';
 import { connectPostgres, migrate, openPglite } from './db';
+import { startRetention } from './retention';
 
 /**
  * Environment:
@@ -14,6 +15,8 @@ import { connectPostgres, migrate, openPglite } from './db';
  * - WEB_ORIGINS: comma-separated web-app origins allowed to call the API (default http://localhost:5173).
  * - TRUST_PROXY: how many proxies sit in front of the server (default 0). Needed for per-address limits to see real clients.
  * - PORT (default 8787). Exits with a message when it is taken.
+ * - DEV_RETENTION_HOURS (default 24): with the embedded PGlite database, recorded data older than this is deleted
+ *   every hour so the dev database stays small. 0 keeps everything. Ignored with DATABASE_URL.
  */
 // Settings can live in `apps/server/.env` (see `.env.example`); real environment variables win.
 try { process.loadEnvFile(); } catch { /* no .env */ }
@@ -24,6 +27,10 @@ if (!env.STREAM_SECRET && env.NODE_ENV === 'production') throw new Error('STREAM
 const db = env.DATABASE_URL ? await connectPostgres(env.DATABASE_URL) : await openPglite(env.PGLITE_DIR ?? '.data/pglite');
 const applied = await migrate(db);
 if (applied.length) console.log(`[server] applied migrations: ${applied.join(', ')}`);
+
+const retentionHours = Number(env.DEV_RETENTION_HOURS ?? 24);
+if (!(retentionHours >= 0)) throw new Error('DEV_RETENTION_HOURS must be a number of hours, or 0 to keep everything');
+const stopRetention = !env.DATABASE_URL && retentionHours > 0 ? startRetention(db, retentionHours) : () => {};
 
 const trustedProxies = Number(env.TRUST_PROXY ?? 0);
 if (!Number.isInteger(trustedProxies) || trustedProxies < 0) throw new Error('TRUST_PROXY must be a whole number: how many proxies sit in front of the server');
@@ -55,6 +62,7 @@ let stopping = false;
 const shutdown = () => {
   if (stopping) return;
   stopping = true;
+  stopRetention();
   if ('closeAllConnections' in server) server.closeAllConnections(); // live streams never end by themselves
   server.close();
   db.close().catch((err) => console.error('[server] closing the database failed:', err)).finally(() => process.exit(0));

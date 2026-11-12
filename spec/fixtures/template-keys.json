@@ -1,0 +1,7 @@
+{
+  "about": "defaultTemplateKey(parts) must equal key in every SDK: emitterId|eventName|sorted handler ids joined by ','|payloadShape.",
+  "cases": [
+    { "parts": { "emitterId": "em1", "eventName": "order", "handlerIds": ["h2", "h1"], "payloadShape": "{id:string}" }, "key": "em1|order|h1,h2|{id:string}" },
+    { "parts": { "emitterId": "kafka::topic:orders", "eventName": "orders", "handlerIds": [], "payloadShape": "bytes" }, "key": "kafka::topic:orders|orders||bytes" }
+  ]
+}

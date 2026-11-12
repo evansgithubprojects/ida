@@ -45,3 +45,7 @@ Processes and handlers are named by the recorder, so label them there:
 recorder.labelEmitter(paymentsBus, 'Payments');
 recorder.labelHandler(onOrder, 'charge card');
 ```
+
+## Documentation
+
+Quick starts, guides and the full API reference are in the **Docs** section of the Ida web app, and in the repo's [`docs/`](../../docs/overview.md) folder.

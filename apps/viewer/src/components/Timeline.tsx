@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useTrace } from '../hooks';
 import { inWindow, mergeTicks, type ReplayIndex, type Tick } from '../replay';
 import { SPEEDS, useStore } from '../store';
 import { fmtMs } from './common';
@@ -138,6 +139,7 @@ function ReplayPanel({ exit }: { exit?: ReactNode }) {
           <TimelineBase index={index} view={view} width={width} />
           <rect x={x(window[0])} y={0} width={Math.max(x(window[1]) - x(window[0]), 2)} height={H} className="window-band" />
           <TimelineTicks index={index} view={view} width={width} />
+          <TraceTicks view={view} width={width} />
           {t >= view[0] && t <= view[1] && <line x1={x(t)} x2={x(t)} y1={0} y2={H} className="playhead" />}
         </svg>
       </div>
@@ -228,3 +230,11 @@ const TimelineTicks = memo(function TimelineTicks({ index, view, width }: { inde
     </>
   );
 });
+
+/** Trace mode: where each step of the traced message falls, so its spread shows and you can scrub between them. */
+function TraceTicks({ view, width }: { view: View; width: number }) {
+  const trace = useTrace();
+  const ticks = useMemo(() => (trace ? mergeTicks(pointsAt(trace.steps.map((s) => s.item.occ.ts), view, width)) : []), [trace, view, width]);
+  if (!ticks.length) return null;
+  return <path className="tick-trace" d={ticksPath(ticks, 0, H - 14)}><title>traced message</title></path>;
+}

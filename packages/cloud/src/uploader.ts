@@ -57,6 +57,29 @@ interface Stream {
   seq: number;
   pending: RecorderMessage[];
   unsubscribe: () => void;
+  /** Recent clock-offset samples against the server, newest last. */
+  clock: ClockSample[];
+}
+
+/** One NTP-style measurement: server clock minus recorder clock, give or take `errorMs`. */
+interface ClockSample { offsetMs: number; errorMs: number }
+
+/** Samples kept per stream. The best of the recent ones is used, so a slow request or drift over hours doesn't stick. */
+const CLOCK_SAMPLES = 8;
+
+/** The most precise recent sample: the one with the shortest network delay. */
+const bestClock = (s: Stream): ClockSample | undefined =>
+  s.clock.reduce<ClockSample | undefined>((best, c) => (!best || c.errorMs < best.errorMs ? c : best), undefined);
+
+/**
+ * Server minus client clock from the four timestamps of one request, as NTP does: sent (t0), received by the server
+ * (t1), answered (t2), response read (t3). Assumes the network takes as long each way; the error is at most half
+ * the time spent on the network.
+ */
+export function clockSample(t0: number, t1: number, t2: number, t3: number): ClockSample | undefined {
+  const delay = (t3 - t0) - (t2 - t1);
+  if (!(delay >= 0) || ![t0, t1, t2, t3].every(Number.isFinite)) return undefined;
+  return { offsetMs: ((t1 - t0) + (t2 - t3)) / 2, errorMs: delay / 2 };
 }
 
 const BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 30_000, 60_000];
@@ -171,7 +194,7 @@ export function createUploader(opts: CloudOptions, defaultStore: () => SpoolStor
     const recording = recorder.export();
     const s: Stream = {
       recorder, sessionId: recorder.sessionId, startedAt: recording.startedAt, seq: 0,
-      pending: recording.occurrences.length ? [{ type: 'snapshot', recording }] : [], unsubscribe: () => {},
+      pending: recording.occurrences.length ? [{ type: 'snapshot', recording }] : [], unsubscribe: () => {}, clock: [],
     };
     s.unsubscribe = recorder.subscribe((m) => {
       s.pending.push(m);
@@ -184,13 +207,25 @@ export function createUploader(opts: CloudOptions, defaultStore: () => SpoolStor
 
   type Sent = 'ok' | 'retry' | 'refused';
   const post = async (batch: IngestBatch): Promise<{ result: Sent; error: string; status?: number }> => {
+    // Only a live recorder can time the request; a batch an earlier run left in the spool goes without.
+    const stream = streams.find((x) => x.sessionId === batch.sessionId);
+    const clock = stream && bestClock(stream);
+    const t0 = stream?.recorder.wallTime();
     try {
       const res = await doFetch(url, {
         method: 'POST',
         headers: { Authorization: `Bearer ${opts.projectKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(batch),
+        body: JSON.stringify(stream ? { ...batch, sentAt: t0, ...(clock && { clock }) } : batch),
       });
-      if (res.ok) return { result: 'ok', error: '' };
+      if (res.ok) {
+        if (stream) {
+          const t3 = stream.recorder.wallTime();
+          const body = await res.json().catch(() => null) as { receivedAt?: unknown; repliedAt?: unknown } | null;
+          const sample = body && clockSample(t0!, Number(body.receivedAt), Number(body.repliedAt), t3);
+          if (sample) stream.clock = [...stream.clock, sample].slice(-CLOCK_SAMPLES);
+        }
+        return { result: 'ok', error: '' };
+      }
       const error = await res.text().then((t) => { try { return JSON.parse(t).error ?? t; } catch { return t; } }, () => res.statusText);
       // Retry what may succeed later; anything else would fail the same way forever.
       const transient = res.status >= 500 || res.status === 429 || res.status === 408;
