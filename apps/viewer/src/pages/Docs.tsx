@@ -1,6 +1,9 @@
-import { Link, useParams, useSearchParams } from 'react-router';
+import { useEffect, useMemo, useRef } from 'react';
+import { Link, NavLink, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { API_URL } from '../cloud/supabase';
 import { SETUPS, SOURCES, languagesFor, type Source } from '../components/SetupSnippet';
+import { PAGES, render, type DocPage } from '../docs';
+import { HOME_SLUG, NAV } from '../docs/nav';
 
 /** What a broker integration records and how it links services, beyond the setup itself. */
 const BROKER_NOTES: Partial<Record<Source, string[]>> = {
@@ -16,77 +19,202 @@ const BROKER_NOTES: Partial<Record<Source, string[]>> = {
   ],
 };
 
-/** Setup for one event source in the language picked (`?lang=`); `/docs` alone lists the sources. */
+/** Where to read more after an integration's setup. */
+const INTEGRATION_LINKS: Record<Source, { to: string; label: string }[]> = {
+  eventemitter: [
+    { to: '/docs/reference/adapter-eventemitter', label: 'EventEmitter adapter reference' },
+    { to: '/docs/guides/what-gets-recorded', label: 'Choose what gets recorded' },
+  ],
+  eventtarget: [{ to: '/docs/reference/adapter-eventtarget', label: 'EventTarget adapter reference' }],
+  kafka: [
+    { to: '/docs/guides/brokers', label: 'Tracing messages across services' },
+    { to: '/docs/reference/adapter-kafkajs', label: 'kafkajs adapter reference' },
+    { to: '/docs/reference/python#ida-adapters-kafka', label: 'Python Kafka reference' },
+  ],
+  rabbitmq: [
+    { to: '/docs/guides/brokers', label: 'Tracing messages across services' },
+    { to: '/docs/reference/adapter-amqplib', label: 'amqplib adapter reference' },
+    { to: '/docs/reference/python#ida-adapters-rabbitmq', label: 'Python RabbitMQ reference' },
+  ],
+};
+
+interface Entry { slug: string; title: string }
+
+/** Every sidebar entry in order, markdown pages and integration pages alike, for previous / next links. */
+const ENTRIES: { section: string; entries: Entry[] }[] = NAV.map((s) => ({
+  section: s.title,
+  entries: s.integrations
+    ? SOURCES.map((src) => ({ slug: src.id, title: src.label }))
+    : (s.pages ?? []).flatMap((slug) => {
+        const p = PAGES.get(slug);
+        return p ? [{ slug, title: p.title }] : [];
+      }),
+}));
+const FLAT = ENTRIES.flatMap((s) => s.entries);
+
+/** `/docs` and `/docs/<page>`: the sidebar, then a markdown page or an integration's setup. */
 export function Docs() {
-  const { integration } = useParams();
-  const [params, setParams] = useSearchParams();
-  const source = SOURCES.find((s) => s.id === integration);
-  const languages = source ? languagesFor(source.id) : [];
-  // An unknown or unsupported ?lang= falls back to the source's first language.
-  const language = languages.find((l) => l.id === params.get('lang')) ?? languages[0];
+  const slug = useParams()['*']?.replace(/\/$/, '') || HOME_SLUG;
+  const page = PAGES.get(slug);
+  const source = SOURCES.find((s) => s.id === slug);
+  const at = FLAT.findIndex((e) => e.slug === slug);
 
   return (
-    <div className="page docs">
-      {!source ? (
-        integration ? (
+    <div className="page docs docs-layout">
+      <DocsSidebar current={slug} />
+      <div className="docs-main">
+        {page ? <MarkdownPage page={page} /> : source ? <IntegrationPage source={source.id} /> : (
           <>
-            <h2>No integration called “{integration}”</h2>
-            <p><Link to="/docs">See what Ida can record</Link></p>
+            <h2>No page called “{slug}”</h2>
+            <p><Link to="/docs">Back to the docs</Link></p>
           </>
-        ) : (
-          <>
-            <h2>Integrations</h2>
-            <p className="muted">Pick what your app's events go through. Each page has the setup for the languages that support it.</p>
-            <IntegrationGrid />
-          </>
-        )
-      ) : (
-        <>
-          <h2>{source.label}</h2>
-          <p className="lede">{source.blurb}</p>
-          <p className="muted">
-            Make an ingest key in your project first, and set it as <code>IDA_PROJECT_KEY</code>. Uploads go to <code>{API_URL}</code>.
-          </p>
-          {languages.length > 1 && (
-            <div className="tabs" role="tablist" aria-label="Language">
-              {languages.map((l) => (
-                <button
-                  key={l.id}
-                  role="tab"
-                  aria-selected={language?.id === l.id}
-                  className={language?.id === l.id ? 'current' : ''}
-                  onClick={() => setParams({ lang: l.id }, { replace: true })}
-                >
-                  {l.label}
-                </button>
+        )}
+        {at >= 0 && <PrevNext prev={FLAT[at - 1]} next={FLAT[at + 1]} />}
+      </div>
+    </div>
+  );
+}
+
+function DocsSidebar({ current }: { current: string }) {
+  const navigate = useNavigate();
+  return (
+    <nav className="docs-nav" aria-label="Docs">
+      {/* On narrow screens the list collapses into this picker. */}
+      <select className="docs-nav-select" aria-label="Go to page" value={current} onChange={(e) => navigate(`/docs/${e.target.value}`)}>
+        {ENTRIES.map((s) => (
+          <optgroup key={s.section} label={s.section}>
+            {s.entries.map((e) => <option key={e.slug} value={e.slug}>{e.title}</option>)}
+          </optgroup>
+        ))}
+      </select>
+      <div className="docs-nav-list">
+        {ENTRIES.map((s) => (
+          <div key={s.section} className="docs-nav-section">
+            <h4>{s.section}</h4>
+            <ul>
+              {s.entries.map((e) => (
+                <li key={e.slug}>
+                  <NavLink to={`/docs/${e.slug}`} className={e.slug === current ? 'current' : ''} aria-current={e.slug === current ? 'page' : undefined} end>
+                    {e.title}
+                  </NavLink>
+                </li>
               ))}
-            </div>
-          )}
-          {language && (() => {
-            const setup = SETUPS[language.id][source.id]!;
-            return (
-              <section className="panel-section" role={languages.length > 1 ? 'tabpanel' : undefined}>
-                <h3>{language.label}{setup.library && <span className="muted"> · {setup.library}</span>}</h3>
-                <pre className="snippet">{`${setup.install}\n\n${setup.code('ida_…', API_URL)}`}</pre>
-                {setup.example && (
-                  <>
-                    <h4>Then publish and consume as usual</h4>
-                    <pre className="snippet">{setup.example}</pre>
-                  </>
-                )}
-              </section>
-            );
-          })()}
-          {BROKER_NOTES[source.id] && (
-            <section className="panel-section">
-              <h3>What is recorded</h3>
-              <ul>{BROKER_NOTES[source.id]!.map((n) => <li key={n}>{n}</li>)}</ul>
-              <p className="muted">Open your project's <strong>System view</strong> to see every service together, with each message drawn from the service that sent it to the one that handled it.</p>
-            </section>
-          )}
-        </>
+            </ul>
+          </div>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
+function MarkdownPage({ page }: { page: DocPage }) {
+  const { html, headings } = useMemo(() => render(page, API_URL), [page]);
+  const navigate = useNavigate();
+  const { hash } = useLocation();
+  const body = useRef<HTMLDivElement>(null);
+
+  // A new page starts at its top, or at the heading its link names.
+  useEffect(() => {
+    const target = hash ? document.getElementById(decodeURIComponent(hash.slice(1))) : null;
+    if (target) target.scrollIntoView();
+    else window.scrollTo(0, 0);
+  }, [page, hash]);
+
+  // Links to other docs pages navigate in the app instead of reloading it.
+  const onClick = (e: React.MouseEvent) => {
+    const a = (e.target as HTMLElement).closest('a');
+    if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || a.target) return;
+    const href = a.getAttribute('href') ?? '';
+    if (href.startsWith('/')) {
+      e.preventDefault();
+      navigate(href);
+    }
+  };
+
+  const toc = headings.filter((h) => h.depth === 2);
+  return (
+    <div className="docs-article-wrap">
+      <article className="docs-article">
+        <h2>{page.title}</h2>
+        <div ref={body} className="doc-body" onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />
+      </article>
+      {toc.length > 2 && (
+        <nav className="docs-toc" aria-label="On this page">
+          <h4>On this page</h4>
+          <ul>{toc.map((h) => <li key={h.id}><a href={`#${h.id}`}>{h.text}</a></li>)}</ul>
+        </nav>
       )}
     </div>
+  );
+}
+
+function PrevNext({ prev, next }: { prev?: Entry; next?: Entry }) {
+  return (
+    <nav className="docs-prevnext" aria-label="Previous and next page">
+      {prev ? <Link to={`/docs/${prev.slug}`} className="prev"><small>Previous</small>{prev.title}</Link> : <span />}
+      {next ? <Link to={`/docs/${next.slug}`} className="next"><small>Next</small>{next.title}</Link> : <span />}
+    </nav>
+  );
+}
+
+/** Setup for one event source in the language picked (`?lang=`). */
+function IntegrationPage({ source: id }: { source: Source }) {
+  const [params, setParams] = useSearchParams();
+  const source = SOURCES.find((s) => s.id === id)!;
+  const languages = languagesFor(id);
+  // An unknown or unsupported ?lang= falls back to the source's first language.
+  const language = languages.find((l) => l.id === params.get('lang')) ?? languages[0];
+  useEffect(() => { window.scrollTo(0, 0); }, [id]);
+
+  return (
+    <article className="docs-article">
+      <h2>{source.label}</h2>
+      <p className="lede">{source.blurb}</p>
+      <p className="muted">
+        Make an ingest key in your project first, and set it as <code>IDA_PROJECT_KEY</code>. Uploads go to <code>{API_URL}</code>.
+      </p>
+      {languages.length > 1 && (
+        <div className="tabs" role="tablist" aria-label="Language">
+          {languages.map((l) => (
+            <button
+              key={l.id}
+              role="tab"
+              aria-selected={language?.id === l.id}
+              className={language?.id === l.id ? 'current' : ''}
+              onClick={() => setParams({ lang: l.id }, { replace: true })}
+            >
+              {l.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {language && (() => {
+        const setup = SETUPS[language.id][id]!;
+        return (
+          <section className="panel-section" role={languages.length > 1 ? 'tabpanel' : undefined}>
+            <h3>{language.label}{setup.library && <span className="muted"> · {setup.library}</span>}</h3>
+            <pre className="snippet">{`${setup.install}\n\n${setup.code('ida_…', API_URL)}`}</pre>
+            {setup.example && (
+              <>
+                <h4>Then publish and consume as usual</h4>
+                <pre className="snippet">{setup.example}</pre>
+              </>
+            )}
+          </section>
+        );
+      })()}
+      {BROKER_NOTES[id] && (
+        <section className="panel-section">
+          <h3>What is recorded</h3>
+          <ul>{BROKER_NOTES[id]!.map((n) => <li key={n}>{n}</li>)}</ul>
+          <p className="muted">Open your project's viewer to see every service together, with each message drawn from the service that sent it to the one that handled it.</p>
+        </section>
+      )}
+      <section className="panel-section">
+        <h3>Read more</h3>
+        <ul>{INTEGRATION_LINKS[id].map((l) => <li key={l.to}><Link to={l.to}>{l.label}</Link></li>)}</ul>
+      </section>
+    </article>
   );
 }
 

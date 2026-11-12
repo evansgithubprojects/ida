@@ -58,7 +58,7 @@ To upload recorders to a project in the web app, see [`@ida-dev/cloud`](../cloud
 | `capture` | `{ events }` | none | Alias of `deepLogging`. |
 | `templateKey` | `(parts) => string` | `defaultTemplateKey` | How events are grouped into templates. Default: emitter + event name + handler set + payload shape. |
 | `corruption` | `CorruptionOptions` | see below | Detection of suspected corrupt payloads. |
-| `context` | `CausalityContext` | `SyncStackContext` | Tracks which event is being handled. Swap it to support async hops. |
+| `context` | `CausalityContext` | `defaultContext()` | Tracks which event is being handled. `AsyncStorageContext` on Node 20.16+ / 22.3+ (follows `await` and timers), `SyncStackContext` elsewhere. |
 | `autoStart` | `boolean` | `true` | Start recording immediately. When `false`, call `recorder.start()`. |
 | `now` | `() => number` | `performance.now` | Clock for timestamps, in milliseconds. |
 
@@ -142,3 +142,7 @@ recorder.dispatch(
 Call every listener through `invoke` so its timing, errors and any events it emits are attributed to it. Causality tracking is swappable through `CausalityContext` (for example `AsyncLocalStorage`).
 
 To support routing, find the recorders with `recordersFor(emitter)` and record through all of them with `dispatchAll(recorders, info, run)`, which nests their `dispatch` calls and runs the listeners once.
+
+## Documentation
+
+Quick starts, guides and the full API reference are in the **Docs** section of the Ida web app, and in the repo's [`docs/`](../../docs/overview.md) folder.

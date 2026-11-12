@@ -59,3 +59,7 @@ Recording carries on. Batches go to a spool, and the console says where:
 | `runtime` | Node version / user agent | Shown with each recording. |
 
 `configure` returns an `Uploader` with `status`, `flush()` and `close()`. In Node it flushes before the process exits; in browsers, when the page is hidden.
+
+## Documentation
+
+Quick starts, guides and the full API reference are in the **Docs** section of the Ida web app, and in the repo's [`docs/`](../../docs/overview.md) folder.

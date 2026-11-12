@@ -2,8 +2,9 @@
 Ida for Python: records event-driven code and uploads it to your Ida project, where you can replay it.
 
 >>> import ida
->>> ida.enable()
+>>> import ida.cloud  # not loaded by `import ida` alone
 >>> ida.cloud.configure(project_key=os.environ["IDA_PROJECT_KEY"], endpoint="https://api.example.com")
+>>> ida.enable()
 """
 
 from __future__ import annotations

@@ -145,3 +145,7 @@ says when that happens. Past `spool_max_bytes` the oldest batches are dropped, a
 
 At exit, the SDK spends up to 3 seconds uploading what is left. Call `ida.cloud.get_uploader().flush()` to upload
 sooner, for example at the end of a short script.
+
+## Documentation
+
+The Python quick start and full reference are in the **Docs** section of the Ida web app (`/docs/quickstart/python` and `/docs/reference/python`), and in the repo's [`docs/`](../docs/reference/python.md) folder.

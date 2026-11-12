@@ -22,7 +22,7 @@ export function App() {
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<SignIn />} />
           <Route path="/docs" element={<Docs />} />
-          <Route path="/docs/:integration" element={<Docs />} />
+          <Route path="/docs/*" element={<Docs />} />
           <Route path="/projects" element={<RequireAuth><ProjectsRedirect /></RequireAuth>} />
           <Route path="/invites/:token" element={<RequireAuth><AcceptInvite /></RequireAuth>} />
           <Route path="/orgs" element={<RequireAuth><ProjectsRedirect /></RequireAuth>} />
