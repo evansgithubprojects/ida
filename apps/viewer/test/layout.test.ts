@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accumulate, layout, layoutSeen, NODE_H, NODE_W } from '../src/graph/layout';
+import { accumulate, chainOrder, layout, layoutSeen, NODE_H, NODE_W } from '../src/graph/layout';
 import type { GraphModel, ModelNode } from '../src/graph/model';
 
 const node = (id: string, kind: ModelNode['kind'] = 'handler'): ModelNode => ({ id, label: id, kind, processId: 'a', detail: '' });
@@ -59,6 +59,67 @@ describe('circular layout', () => {
       const c = centre(withStubs, id);
       expect(Math.hypot(c.x, c.y)).toBeGreaterThan(withStubs.ring!.radius + NODE_W / 2);
     }
+  });
+});
+
+describe('a single chain', () => {
+  it('runs left to right in a line, in the order the pathways go', () => {
+    const m = model(['c', 'a', 'b'].map((i) => node(i)), [['a', 'b'], ['b', 'c']]);
+    const l = layout(m, false);
+    const [a, b, c] = ['a', 'b', 'c'].map((id) => centre(l, id));
+    expect([a!.y, b!.y, c!.y]).toEqual([0, 0, 0]);
+    expect(a!.x).toBeLessThan(b!.x);
+    expect(b!.x).toBeLessThan(c!.x);
+    expect(b!.x).toBeCloseTo(0, 6); // centred on the origin
+    expect(b!.x - a!.x).toBeGreaterThan(NODE_W);
+  });
+
+  it('starts from the end nothing flows into, even when pathways go both ways along it', () => {
+    expect(chainOrder(['x', 'y', 'z'], model(['x', 'y', 'z'].map((i) => node(i)), [['z', 'y'], ['y', 'x'], ['x', 'y']]))).toEqual(['z', 'y', 'x']);
+  });
+
+  it("isn't one when it branches, loops or falls apart", () => {
+    const ids = ['a', 'b', 'c', 'd'];
+    const nodes = ids.map((i) => node(i));
+    expect(chainOrder(ids, model(nodes, [['a', 'b'], ['a', 'c'], ['a', 'd']]))).toBeNull();
+    expect(chainOrder(ids, model(nodes, [['a', 'b'], ['b', 'c'], ['c', 'd'], ['d', 'a']]))).toBeNull();
+    expect(chainOrder(ids, model(nodes, [['a', 'b'], ['c', 'd']]))).toBeNull();
+  });
+
+  it('takes in other processes it runs through, unless there is a ring for them to sit outside', () => {
+    const m = model([node('a'), node('s', 'stub'), node('b')], [['a', 's'], ['s', 'b']]);
+    const flat = layout(m, false);
+    expect(['a', 's', 'b'].map((id) => centre(flat, id).y)).toEqual([0, 0, 0]);
+    expect(centre(flat, 'a').x).toBeLessThan(centre(flat, 's').x);
+    expect(centre(flat, 's').x).toBeLessThan(centre(flat, 'b').x);
+    const ringed = layout(m, true);
+    const r = Math.hypot(centre(ringed, 's').x, centre(ringed, 's').y);
+    expect(r).toBeGreaterThan(ringed.ring!.radius);
+  });
+
+  it('keeps other processes on the row, outside the ring, when the chain runs through the process', () => {
+    // warehouse → ship → print → labels, looking into the process that holds ship and print.
+    const m = model([node('warehouse', 'stub'), node('ship'), node('print'), node('labels', 'stub')], [['warehouse', 'ship'], ['ship', 'print'], ['print', 'labels']]);
+    const l = layout(m, true);
+    const xs = ['warehouse', 'ship', 'print', 'labels'].map((id) => centre(l, id).x);
+    expect(['warehouse', 'ship', 'print', 'labels'].map((id) => centre(l, id).y)).toEqual([0, 0, 0, 0]);
+    expect([...xs].sort((a, b) => a - b)).toEqual(xs);
+    expect(-xs[0]! - NODE_W / 2).toBeGreaterThan(l.ring!.radius);
+    expect(xs[3]! - NODE_W / 2).toBeGreaterThan(l.ring!.radius);
+  });
+
+  it('puts a lone node\'s other processes beside it, by which way they send', () => {
+    // Not a chain (two senders), so the circle layout places them: senders left, receivers right.
+    const m = model([node('a', 'stub'), node('b', 'stub'), node('h'), node('out', 'stub')], [['a', 'h'], ['b', 'h'], ['h', 'out']]);
+    const l = layout(m, true);
+    expect(centre(l, 'a').x).toBeLessThan(0);
+    expect(centre(l, 'b').x).toBeLessThan(0);
+    expect(centre(l, 'out').x).toBeGreaterThan(0);
+  });
+
+  it('puts two unlinked nodes side by side', () => {
+    const l = layout(model([node('a'), node('b')]), false);
+    expect(centre(l, 'a').y).toBeCloseTo(centre(l, 'b').y, 6);
   });
 });
 

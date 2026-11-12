@@ -78,21 +78,94 @@ function separate(angles: number[], minSep: number): number[] {
   return result;
 }
 
+/** Space between the cards of a chain laid out in a line, so the pathways between them have room to show. */
+const CHAIN_GAP = 72;
+
 /**
- * Nodes sit evenly around a circle. When `ring` is set, the nodes of the process being looked into form the
- * inner circle and `stub` nodes (other processes) sit on a second circle outside the backdrop ring.
+ * The nodes in order from one end to the other, when the pathways between them form one chain (A → B → C, each
+ * linked only to the ones before and after it); otherwise null. Starts from the end nothing flows into.
+ */
+export function chainOrder(ids: string[], model: GraphModel): string[] | null {
+  if (ids.length < 2) return null;
+  const inner = new Set(ids);
+  const links = new Map<string, Set<string>>(ids.map((id) => [id, new Set()]));
+  const hasIn = new Set<string>();
+  for (const e of model.edges) {
+    if (e.source === e.target || !inner.has(e.source) || !inner.has(e.target)) continue;
+    links.get(e.source)!.add(e.target);
+    links.get(e.target)!.add(e.source);
+    hasIn.add(e.target);
+  }
+  let pairs = 0;
+  for (const set of links.values()) { if (set.size > 2) return null; pairs += set.size; }
+  // A path has one fewer link than nodes; fewer means it's in pieces, more means it closes into a loop.
+  if (pairs / 2 !== ids.length - 1) return null;
+  const ends = ids.filter((id) => links.get(id)!.size === 1);
+  const start = ends.find((id) => !hasIn.has(id)) ?? ends[0];
+  if (!start) return null;
+  const path = [start];
+  for (let prev: string | null = null, at = start; path.length < ids.length;) {
+    const next = [...links.get(at)!].find((id) => id !== prev);
+    if (!next) return null;
+    path.push(next);
+    prev = at;
+    at = next;
+  }
+  return path;
+}
+
+/**
+ * Nodes sit evenly around a circle, except a single chain, which reads left to right in a line (a circle of two or
+ * three would stack it up and down, which fits a wide screen badly). When `ring` is set, the nodes of the process
+ * being looked into form the inner group and `stub` nodes (other processes) sit on a circle outside the backdrop ring.
  */
 export function layout(model: GraphModel, ring: boolean): Layout {
   const positions: Positions = new Map();
+  // Without a ring, stubs needn't sit outside anything: a chain that runs through one is still one line.
+  const all = model.nodes.map((n) => n.id);
+  const whole = chainOrder(all, model);
+  const step = NODE_W + CHAIN_GAP;
+  if (whole && !ring) {
+    whole.forEach((id, i) => positions.set(id, topLeft((i - (whole.length - 1) / 2) * step, 0)));
+    return { positions, ring: null };
+  }
+  // With a ring: a chain that enters from other processes, runs through this one and leaves again (warehouse →
+  // shipping → labels) stays one row, the other processes on it just outside the ring.
+  if (whole) {
+    const isStub = new Set(model.nodes.filter((n) => n.kind === 'stub').map((n) => n.id));
+    const inside = whole.map((id, i) => (isStub.has(id) ? -1 : i)).filter((i) => i >= 0);
+    const lo = inside[0];
+    const hi = inside[inside.length - 1];
+    if (lo !== undefined && hi !== undefined && hi - lo + 1 === inside.length) {
+      const m = inside.length;
+      for (let i = lo; i <= hi; i++) positions.set(whole[i]!, topLeft((i - lo - (m - 1) / 2) * step, 0));
+      const ringRadius = Math.max(((m - 1) * step) / 2, MIN_R / 2) + NODE_W / 2 + RING_PAD;
+      const first = ringRadius + OUTER_GAP + NODE_W / 2;
+      for (let i = lo - 1, k = 0; i >= 0; i--, k++) positions.set(whole[i]!, topLeft(-first - k * step, 0));
+      for (let i = hi + 1, k = 0; i < whole.length; i++, k++) positions.set(whole[i]!, topLeft(first + k * step, 0));
+      return { positions, ring: { radius: ringRadius } };
+    }
+  }
   const innerIds = order(model.nodes.filter((n) => n.kind !== 'stub').map((n) => n.id), model);
   const n = innerIds.length;
-  const radius = n <= 1 ? 0 : Math.max(MIN_R, (NODE_W + GAP) / (2 * Math.sin(Math.PI / n)));
-  const angleOf = new Map<string, number>();
-  innerIds.forEach((id, i) => {
-    const angle = -Math.PI / 2 + (2 * Math.PI * i) / n;
-    angleOf.set(id, angle);
-    positions.set(id, topLeft(Math.cos(angle) * radius, Math.sin(angle) * radius));
-  });
+  /** Where each inner node's centre is, for placing the stubs next to what they connect to. */
+  const centre = new Map<string, { x: number; y: number }>();
+  const chain = chainOrder(innerIds, model);
+  let radius: number;
+  if (chain) {
+    const step = NODE_W + CHAIN_GAP;
+    chain.forEach((id, i) => centre.set(id, { x: (i - (n - 1) / 2) * step, y: 0 }));
+    radius = ((n - 1) * step) / 2;
+  } else {
+    radius = n <= 1 ? 0 : Math.max(MIN_R, (NODE_W + GAP) / (2 * Math.sin(Math.PI / n)));
+    // Two nodes side by side rather than one above the other.
+    const first = n === 2 ? Math.PI : -Math.PI / 2;
+    innerIds.forEach((id, i) => {
+      const angle = first + (2 * Math.PI * i) / n;
+      centre.set(id, { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius });
+    });
+  }
+  for (const [id, c] of centre) positions.set(id, topLeft(c.x, c.y));
 
   const ringRadius = Math.max(radius, MIN_R / 2) + NODE_W / 2 + RING_PAD;
   const stubs = model.nodes.filter((s) => s.kind === 'stub').map((s) => s.id);
@@ -101,11 +174,15 @@ export function layout(model: GraphModel, ring: boolean): Layout {
     const wanted = stubs.map((id, i) => {
       let x = 0;
       let y = 0;
+      // What sends in leans left and what it sends to leans right, so a stub tied to a node at the centre still
+      // sits beside it rather than above or below.
+      let lean = 0;
       for (const e of model.edges) {
         const other = e.source === id ? e.target : e.target === id ? e.source : null;
-        const a = other ? angleOf.get(other) : undefined;
-        if (a !== undefined) { x += Math.cos(a); y += Math.sin(a); }
+        const c = other ? centre.get(other) : undefined;
+        if (c) { x += c.x; y += c.y; lean += e.source === id ? -1 : 1; }
       }
+      if (Math.hypot(x, y) < 1e-6 && lean) x = lean;
       return x || y ? Math.atan2(y, x) : -Math.PI / 2 + (2 * Math.PI * i) / stubs.length;
     });
     const minSep = 2 * Math.asin(Math.min(1, (NODE_W + GAP) / (2 * outer)));
