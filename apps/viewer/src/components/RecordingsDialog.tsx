@@ -81,7 +81,7 @@ export function RecordingsDialog({ projectId, recorderKey, currentSessionId, sou
       <h3 id="recordings-title">Recordings{recorderKey && <> · <code>{recorderKey}</code></>}</h3>
       <p className="muted">{recorderKey
         ? 'Each run of your app is one recording. A run opens with what the other services did meanwhile.'
-        : 'Zoom into a service to see its runs.'}</p>
+        : 'Zoom into a recorder to see its runs.'}</p>
       {recorderKey && sessions.error && <p className="form-error" role="alert">{sessions.error}</p>}
       {recorderKey && !sessions.data && !sessions.error && <TableSkeleton heads={['Started', 'Events', 'Runtime', 'Last data', '', '']} />}
       {recorderKey && sessions.data?.length === 0 && <p className="muted">No recordings yet.</p>}
