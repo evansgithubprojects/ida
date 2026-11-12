@@ -2,7 +2,7 @@ import type { Finding } from '@ida-dev/core';
 import { memo, useDeferredValue, useMemo, useRef, useState } from 'react';
 import { useModel, useRates } from '../hooks';
 import { levelInto, serviceOfProcess, type GraphModel, type ModelNode } from '../graph/model';
-import { RATE_HISTORY, activityOf, chainOf, errorCode, throwIdFor, countFired, edgeId, eventKey, eventLabel, inWindow, isProblemRun, notifications, parseRunId, parseThrowId, recipientsOf, runById, serviceOfOccurrence, throwId, type IndexedOccurrence, type Notification, type ReplayIndex, type Run, type Tier } from '../replay';
+import { RATE_HISTORY, activityOf, chainOf, errorCode, throwIdFor, countFired, edgeId, eventKey, eventLabel, inWindow, isProblemRun, notifications, parseRunId, parseThrowId, recipientsOf, runById, serviceOfOccurrence, throwId, type IndexedOccurrence, type Notification, type ReplayIndex, type Run } from '../replay';
 import { TRAIL_MAX, useStore, type LiveStatus, type Selection } from '../store';
 import { Badge, CallChain, ErrorId, CaptureBadge, EventLink, EventRef, FindingBadges, FindingChain, FindingSummary, fmtMs, HandlerLink, InspectLink, Json, NodeRef, RateChart, Section, shortValue } from './common';
 
@@ -151,9 +151,8 @@ const NotificationRow = memo(
         <button className={`row ${n.external ? 'row-high' : ''}`} onClick={() => startTrace({ type: n.kind, id: n.id, occurrenceId: n.occurrenceId })} title="Step through what led to this">
           <span className="row-head">
             {n.kind === 'throw' ? <><Badge tone="error">✕ Error</Badge><ErrorId id={n.id} /></> : <Badge tone="warn">⚠ Corrupt Payload</Badge>}
-            <TierBadge tier={n.tier} />
             {n.external && <Badge tone="external">EXTERNAL</Badge>}
-            <span className="row-time muted" title="Time since the recording started">{fmtMs(n.rank.ts - start)}<span className="row-time-hint">since init</span></span>
+            <span className="row-time muted" title="Time since the recording started">{fmtMs(n.ts - start)}<span className="row-time-hint">since init</span></span>
           </span>
           <span className="row-text">{n.finding ? <FindingSummary index={index} finding={n.finding} /> : n.text}</span>
         </button>
@@ -161,8 +160,8 @@ const NotificationRow = memo(
     );
   },
   (a, b) =>
-    a.start === b.start && a.n.kind === b.n.kind && a.n.id === b.n.id && a.n.tier === b.n.tier && a.n.external === b.n.external
-    && a.n.rank.ts === b.n.rank.ts && a.n.text === b.n.text && a.n.finding === b.n.finding && a.n.occurrenceId === b.n.occurrenceId,
+    a.start === b.start && a.n.kind === b.n.kind && a.n.id === b.n.id && a.n.external === b.n.external
+    && a.n.ts === b.n.ts && a.n.text === b.n.text && a.n.finding === b.n.finding && a.n.occurrenceId === b.n.occurrenceId,
 );
 
 /**
@@ -245,7 +244,7 @@ function EventDetail({ index, id }: { index: ReplayIndex; id: string }) {
     }
     return model.edges.filter((e) => fired.has(e.id)).map((edge) => ({ edge, n: fired.get(edge.id)! })).sort((a, b) => b.n - a.n);
   }, [model, items]);
-  const recent = useMemo(() => notifications(index, items).sort((a, b) => b.rank.ts - a.rank.ts).slice(0, RECENT_NOTIFICATIONS), [index, items]);
+  const recent = useMemo(() => notifications(index, items).sort((a, b) => b.ts - a.ts).slice(0, RECENT_NOTIFICATIONS), [index, items]);
   if (!ev || !model) return <p className="hint">That event is no longer in the recording.</p>;
   const shapes = [...new Set(all.map((i) => i.template.payloadShape))];
   return (
@@ -745,12 +744,6 @@ function PayloadSection({ item, findings = [] }: { item: IndexedOccurrence; find
   );
 }
 
-const TIER_TONE = { critical: 'external', high: 'error', medium: 'warn', low: 'muted' } as const;
-
-function TierBadge({ tier }: { tier: Tier }) {
-  return <Badge tone={TIER_TONE[tier]} title="Severity, from confidence and whether an external system is reached">{tier}</Badge>;
-}
-
 /** Where payloads went, external systems first. Clicking a row shows that recipient on the graph. */
 function Recipients({ index, findings }: { index: ReplayIndex; findings: Finding[] }) {
   const inspectNode = useStore((s) => s.inspectNode);
@@ -789,10 +782,9 @@ function ErrorDetail({ index, id }: { index: ReplayIndex; id: string }) {
   const tainted = index.findingsBySource.get(id) ?? [];
   const propagated = index.propagations.get(id) ?? [];
   const external = tainted.filter((f) => f.priority === 'high').length;
-  const rank = notifications(index, [item]).find((n) => n.id === id)?.tier;
   return (
     <>
-      <Section title={<><ErrorId id={id} /> <HandlerLink id={src.handlerId} /> {thrown ? 'threw' : 'reported an error'}</>} aside={rank && <TierBadge tier={rank} />}>
+      <Section title={<><ErrorId id={id} /> <HandlerLink id={src.handlerId} /> {thrown ? 'threw' : 'reported an error'}</>}>
         <dl className="facts">
           {thrown && <><dt>Error</dt><dd>{thrown.message}</dd></>}
           <dt>At</dt><dd>{fmtMs((thrown?.at ?? item.occ.ts) - index.origin)}</dd>
@@ -856,8 +848,6 @@ function CorruptPayloadDetail({ index, occurrenceId }: { index: ReplayIndex; occ
   const item = index.byId.get(occurrenceId);
   const findings = index.findingsByOcc.get(occurrenceId) ?? [];
   if (!item || findings.length === 0) return <p className="hint">That payload is no longer in the recording.</p>;
-  const ranked = notifications(index, [item]).filter((n) => n.kind === 'finding');
-  const tier = ranked[0]?.tier;
   const sources = [...new Map(findings.flatMap((f) => (f.taintSource ? [[throwId(f.taintSource.occurrenceId, f.taintSource.handlerId), f.taintSource] as const] : []))).entries()];
   const external = [...new Set(findings.flatMap((f) => f.externalTargets))];
   return (
@@ -877,7 +867,7 @@ function CorruptPayloadDetail({ index, occurrenceId }: { index: ReplayIndex; occ
           })}
         </Section>
       )}
-      <Section title={<EventLink id={eventKey(item.template)} />} aside={tier && <TierBadge tier={tier} />}>
+      <Section title={<EventLink id={eventKey(item.template)} />}>
         <div className="row-badges">
           <Badge tone="warn">⚠ Corrupt Payload</Badge>
           {external.length > 0 && <Badge tone="external" title={external.join(', ')}>EXTERNAL · {external.join(', ')}</Badge>}

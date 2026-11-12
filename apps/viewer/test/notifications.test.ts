@@ -27,8 +27,9 @@ describe('notifications', () => {
   const index = record();
   const list = notifications(index, index.items);
 
-  it('lists the finding with no error first, then the rest by severity', () => {
-    expect(list[0]).toMatchObject({ kind: 'finding', unattributed: true, external: true });
+  it('lists corrupt payloads traced to an error, then errors, then corrupt payloads with no error', () => {
+    expect(list.map((n) => [n.kind, n.unattributed])).toEqual([['finding', false], ['throw', false], ['finding', true]]);
+    expect(list.at(-1)).toMatchObject({ external: true });
     expect(list.map((n) => n.kind)).toContain('throw');
     expect(list.filter((n) => n.unattributed)).toHaveLength(1);
   });

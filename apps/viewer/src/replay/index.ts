@@ -1,7 +1,5 @@
 import type { Finding, GraphNode, Occurrence, Process, Recording, Template } from '@ida-dev/core';
 import { buildServiceIndex, type ServiceIndex, type SystemView } from './system';
-import { compareRank, findingRank, throwRank, tierOf, type Rank, type Tier } from './severity';
-export type { Tier } from './severity';
 
 /** A route an occurrence travelled: source node -> one receiving node. */
 export interface Hop {
@@ -527,8 +525,8 @@ export interface Notification {
   id: string;
   kind: 'throw' | 'finding';
   occurrenceId: string;
-  rank: Rank;
-  tier: Tier;
+  /** When it happened, in recording ms. */
+  ts: number;
   text: string;
   external: boolean;
   /** Set for findings with no error thrown. */
@@ -537,22 +535,27 @@ export interface Notification {
   finding?: Finding;
 }
 
-/** Throws and findings among `items`, most severe first. */
+/** Where a notification sits in the list: corrupt payloads with an error behind them, then errors, then the rest. */
+const notificationGroup = (n: Notification) => (n.kind === 'throw' ? 1 : n.unattributed ? 2 : 0);
+
+/**
+ * Throws and findings among `items`: corrupt payloads traced to an error first, then errors, then corrupt payloads
+ * with no error thrown. Oldest first within each.
+ */
 export function notifications(index: ReplayIndex, items: IndexedOccurrence[]): Notification[] {
   const out: Notification[] = [];
   for (const i of items) {
     for (const th of i.throws) {
       if (th.rethrown) continue;
       const id = th.id;
-      const rank = throwRank(index.findingsBySource.get(id) ?? [], th.at);
-      out.push({ id, kind: 'throw', occurrenceId: i.occ.id, rank, tier: tierOf(rank.score), text: `${index.nodes.get(th.handlerId)?.label} threw: ${th.message}`, external: rank.external, unattributed: false });
+      const external = (index.findingsBySource.get(id) ?? []).some((f) => f.priority === 'high');
+      out.push({ id, kind: 'throw', occurrenceId: i.occ.id, ts: th.at, text: `${index.nodes.get(th.handlerId)?.label} threw: ${th.message}`, external, unattributed: false });
     }
     for (const f of index.findingsByOcc.get(i.occ.id) ?? []) {
-      const rank = findingRank(f);
-      out.push({ id: f.id, kind: 'finding', occurrenceId: i.occ.id, rank, tier: tierOf(rank.score), text: f.summary, external: rank.external, unattributed: !f.taintSource, finding: f });
+      out.push({ id: f.id, kind: 'finding', occurrenceId: i.occ.id, ts: f.ts, text: f.summary, external: f.priority === 'high', unattributed: !f.taintSource, finding: f });
     }
   }
-  return out.sort((a, b) => compareRank(a.rank, b.rank));
+  return out.sort((a, b) => notificationGroup(a) - notificationGroup(b) || a.ts - b.ts);
 }
 
 export interface Recipient {

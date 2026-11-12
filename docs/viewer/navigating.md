@@ -28,7 +28,7 @@ The panel on the right shows whatever you select. Show or hide it with the tab o
 With nothing selected:
 
 - **Recording**: how many events are in the [replay window](replay.md#the-replay-window), out of the total, and, for live views, a dot showing whether the stream is connected.
-- **Notifications**: every error and suspected corrupt payload in the window, ranked **critical**, **high**, **medium** or **low** (from confidence and whether an external system was reached). Click one to open its [trace](traces-and-system.md#traces): a step-by-step walk through what led to it.
+- **Notifications**: every error and suspected corrupt payload in the window. Corrupt payloads traced to an error come first, then errors, then corrupt payloads with no error behind them, oldest first within each. Click one to open its [trace](traces-and-system.md#traces): a step-by-step walk through what led to it.
 
 ### An emitter or handler
 
@@ -79,7 +79,7 @@ Click a red ✕ or an error notification to open its [trace](traces-and-system.m
 
 ### A suspected corrupt payload
 
-- Its severity, reasons, and the **Before / Now** comparison.
+- Its reasons, and the **Before / Now** comparison.
 - **Recipients**: every handler and external system it reached.
 - **Source error**: the failure that made its sender suspect, if any.
 
