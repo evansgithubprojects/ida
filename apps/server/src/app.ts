@@ -9,7 +9,6 @@ import { allows, ensureUser, projectAccess, visibleProjects, type Access } from 
 import type { User, VerifyUser } from './auth';
 import type { Db } from './db';
 import { ingest, parseBatch, SessionConflict } from './ingest';
-import { sessionPeers } from './peers';
 import { newIngestKey, parseIngestKey, sameHash, signStreamToken, verifyStreamToken } from './keys';
 import { notFound, cleanName, iso, UUID } from './http';
 import { rateLimiter } from './limit';
@@ -40,6 +39,8 @@ export interface AppOptions {
   apiPerMinute?: number;
   /** How often an open live stream re-checks that its viewer still has access, in ms. @default 30000 */
   streamRecheckMs?: number;
+  /** How often a project's live stream sends a fresh snapshot (default 60 s). */
+  systemResyncMs?: number;
   /** Most live streams one person can hold open at once. @default 20 */
   maxStreamsPerUser?: number;
   /** Sends invitation emails. Leave out to only hand the link to the admin who invited. */
@@ -129,7 +130,7 @@ export function createApp(opts: AppOptions) {
         const { recorderId, stored } = await ingest(db, key.project_id, batch, receivedAt);
         void db.query('update project_keys set last_used_at = now() where id = $1', [key.id]);
         await db.query('insert into key_recorders (key_id, recorder_id) values ($1, $2) on conflict do nothing', [key.id, recorderId]);
-        if (stored) hub.publish(recorderId, { sessionId: batch.sessionId, messages: batch.messages });
+        if (stored) hub.publish(recorderId, { sessionId: batch.sessionId, messages: batch.messages }, key.project_id);
         return c.json({ ok: true, duplicate: !stored, receivedAt, repliedAt: now() });
       } catch (err) {
         if (err instanceof SessionConflict) return c.json({ error: err.message }, 409);
@@ -156,6 +157,9 @@ export function createApp(opts: AppOptions) {
   app.get('/v1/live', async (c) => {
     const ip = clientIp(c);
     if (failures.over(ip)) return tooMany(c);
+    // A project stream opens on this many ms of history. Checked first, so a bad value doesn't use up the token.
+    const span = c.req.query('span') === undefined ? SYSTEM_WINDOW_MS : Number(c.req.query('span'));
+    if (!Number.isInteger(span) || span < 1 || span > SYSTEM_MAX_WINDOW_MS) return c.json({ error: 'span must be 1 ms to 24 hours' }, 400);
     const grant = verifyStreamToken(streamSecret, c.req.query('token') ?? '', now());
     // One use only: a copy of the URL (from a log, say) is useless once the viewer has connected.
     if (!grant || !claimToken(grant.nonce, grant.expires)) { failures.hit(ip); return c.json({ error: 'invalid or expired stream token' }, 401); }
@@ -173,21 +177,51 @@ export function createApp(opts: AppOptions) {
     };
     return streamSSE(c, async (stream) => {
       stream.onAbort(release); // also covers a client leaving before the first snapshot is sent
-      let current: string | null = null;
-      const snapshot = async (sessionId: string | null) => {
-        const recording = sessionId ? await sessionRecording(db, sessionId) : null;
-        current = sessionId;
-        await stream.writeSSE({ data: JSON.stringify({ type: 'snapshot', recording: recording ?? emptyRecording(now()) }) });
-      };
-      // Live batches queue up while a snapshot is being read, so none slip between the two.
-      let chain: Promise<void> = snapshot(await latestSession(db, recorderId));
-      const stop = hub.watch(recorderId, (b) => {
-        chain = chain.then(async () => {
-          // A new run of the app: its timestamps start over, so the viewer starts from that session's snapshot.
-          if (b.sessionId !== current) return snapshot(b.sessionId);
-          for (const m of b.messages) await stream.writeSSE({ data: JSON.stringify(m) });
+      let chain: Promise<void> = Promise.resolve();
+      const write = (data: unknown) => stream.writeSSE({ data: JSON.stringify(data) });
+      let stop: () => void;
+      let resync: ReturnType<typeof setInterval> | undefined;
+      if (recorderId) {
+        let current: string | null = null;
+        const snapshot = async (sessionId: string | null) => {
+          const recording = sessionId ? await sessionRecording(db, sessionId) : null;
+          current = sessionId;
+          await write({ type: 'snapshot', recording: recording ?? emptyRecording(now()) });
+        };
+        // Live batches queue up while a snapshot is being read, so none slip between the two.
+        chain = snapshot(await latestSession(db, recorderId));
+        stop = hub.watch(recorderId, (b) => {
+          chain = chain.then(async () => {
+            // A new run of the app: its timestamps start over, so the viewer starts from that session's snapshot.
+            if (b.sessionId !== current) return snapshot(b.sessionId);
+            for (const m of b.messages) await write(m);
+          });
         });
-      });
+      } else {
+        // The whole project: a system view of the last `span` ms, then each batch merged onto that view's clock.
+        let from = 0;
+        let shifts = new Map<string, number>();
+        const snapshot = async () => {
+          const to = now();
+          from = to - span;
+          const view = await systemView(db, projectId, from, to, SYSTEM_MAX_OCCURRENCES);
+          shifts = new Map(view.services.map((x) => [x.sessionId, x.clockShiftMs ?? 0]));
+          await write({ type: 'system-snapshot', view });
+        };
+        chain = snapshot();
+        stop = hub.watchProject(projectId, (b) => {
+          chain = chain.then(async () => {
+            // A session the snapshot hasn't placed yet (a new run, or one quiet until now): start over with it in.
+            if (!shifts.has(b.sessionId)) return snapshot();
+            const occurrenceIds = b.messages.flatMap((m) => (m.type === 'occurrence' ? [m.occurrence.id] : []));
+            const findingIds = b.messages.flatMap((m) => (m.type === 'finding' ? [m.finding.id] : []));
+            const { recording, services, links } = await systemView(db, projectId, from, now(), SYSTEM_MAX_OCCURRENCES, { sessionId: b.sessionId, occurrenceIds, findingIds, shifts });
+            await write({ type: 'system-batch', recording, services, links });
+          });
+        });
+        // Clock shifts between services settle as more messages link them; a fresh snapshot now and then redraws them.
+        resync = setInterval(() => { chain = chain.then(snapshot); }, opts.systemResyncMs ?? 60_000);
+      }
       const ping = setInterval(() => { chain = chain.then(() => stream.writeSSE({ event: 'ping', data: '' })); }, 25_000);
       let end!: () => void;
       const ended = new Promise<void>((resolve) => { end = resolve; });
@@ -199,6 +233,7 @@ export function createApp(opts: AppOptions) {
       await ended;
       clearInterval(ping);
       clearInterval(recheck);
+      clearInterval(resync);
       stop();
       release();
     });
@@ -403,6 +438,12 @@ export function createApp(opts: AppOptions) {
     return c.json({ token: signStreamToken(streamSecret, { recorderId: r.id, projectId: c.req.param('projectId'), userId: c.get('user').id }, 30_000, now()) });
   });
 
+  app.post('/v1/projects/:projectId/stream-token', async (c) => {
+    const g = await guard(c, 'viewer');
+    if (g instanceof Response) return g;
+    return c.json({ token: signStreamToken(streamSecret, { projectId: g.id, userId: c.get('user').id }, 30_000, now()) });
+  });
+
   // Every service's events in one wall-clock window, linked across services. `from` / `to` are epoch ms.
   app.get('/v1/projects/:projectId/system', async (c) => {
     const g = await guard(c, 'viewer');
@@ -418,26 +459,6 @@ export function createApp(opts: AppOptions) {
     if (to - from > SYSTEM_MAX_WINDOW_MS) return c.json({ error: 'the window can be at most 24 hours' }, 400);
     if (!Number.isInteger(limit) || limit < 1 || limit > SYSTEM_MAX_OCCURRENCES) return c.json({ error: `limit must be 1-${SYSTEM_MAX_OCCURRENCES}` }, 400);
     return c.json(await systemView(db, g.id, from, to, limit));
-  });
-
-  // The other ends of a session's Kafka / RabbitMQ messages, so a single service's view can draw them.
-  app.get('/v1/sessions/:sessionId/peers', async (c) => {
-    const id = c.req.param('sessionId');
-    if (!UUID.test(id)) return notFound(c);
-    const [owner] = await db.query<{ project_id: string }>(
-      'select r.project_id from sessions s join recorders r on r.id = s.recorder_id where s.id = $1',
-      [id],
-    );
-    if (!owner || !(await projectAccess(db, c.get('user').id, owner.project_id))) return notFound(c);
-    return c.json(await sessionPeers(db, owner.project_id, id));
-  });
-
-  // The same for a recorder's newest session: what its live view shows.
-  app.get('/v1/projects/:projectId/recorders/:recorderKey/peers', async (c) => {
-    const r = await ownRecorder(c);
-    if (r instanceof Response) return r;
-    const session = await latestSession(db, r.id);
-    return c.json(session ? await sessionPeers(db, c.req.param('projectId'), session) : { consumedBy: [], publishedBy: [] });
   });
 
   app.get('/v1/sessions/:sessionId/recording', async (c) => {

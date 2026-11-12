@@ -50,6 +50,18 @@ export interface SystemView {
   truncated: boolean;
 }
 
+/**
+ * Limits `systemView` to one stored batch, for the project's live stream: these occurrences and findings of one
+ * session, on the clock (`from`, `shifts`) of the snapshot the stream already sent.
+ */
+export interface BatchScope {
+  sessionId: string;
+  occurrenceIds: string[];
+  findingIds: string[];
+  /** Each session's `clockShiftMs` in that snapshot. */
+  shifts: Map<string, number>;
+}
+
 const BROKER_KINDS = new Set(['topic', 'exchange', 'queue']);
 const isBroker = (p: Process) => !!p.kind && BROKER_KINDS.has(p.kind);
 
@@ -59,19 +71,28 @@ const isBroker = (p: Process) => !!p.kind && BROKER_KINDS.has(p.kind);
  * A broker process's emitter node is shared too, as `<processId>/emitter`, so pathways from several services meet
  * at one topic.
  */
-export async function systemView(db: Pick<Db, 'query'>, projectId: string, from: number, to: number, limit: number): Promise<SystemView> {
+export async function systemView(
+  db: Pick<Db, 'query'>, projectId: string, from: number, to: number, limit: number, only?: BatchScope,
+): Promise<SystemView> {
   // Newest first, so the limit drops the oldest events, the way the SDK's ring buffer does.
-  const rows = await db.query<{ session_id: string; data: Occurrence; late: boolean; wall_ts: number }>(
-    `select session_id, data, late, wall_ts from occurrences
-     where project_id = $1 and wall_ts >= $2 and wall_ts <= $3
-     order by wall_ts desc, id limit $4`,
-    [projectId, from, to, limit + 1],
-  );
+  const rows = only
+    ? await db.query<{ session_id: string; data: Occurrence; late: boolean; wall_ts: number }>(
+      `select session_id, data, late, wall_ts from occurrences
+       where project_id = $1 and session_id = $2 and id = any($3::text[])
+       order by wall_ts desc, id`,
+      [projectId, only.sessionId, only.occurrenceIds],
+    )
+    : await db.query<{ session_id: string; data: Occurrence; late: boolean; wall_ts: number }>(
+      `select session_id, data, late, wall_ts from occurrences
+       where project_id = $1 and wall_ts >= $2 and wall_ts <= $3
+       order by wall_ts desc, id limit $4`,
+      [projectId, from, to, limit + 1],
+    );
   const truncated = rows.length > limit;
   if (truncated) rows.length = limit;
   rows.reverse();
 
-  const sessionIds = [...new Set(rows.map((r) => r.session_id))];
+  const sessionIds = only ? [only.sessionId] : [...new Set(rows.map((r) => r.session_id))];
   const empty: SystemView = {
     recording: { version: RECORDING_VERSION, startedAt: from, processes: [], nodes: [], templates: [], occurrences: [] },
     services: [], links: [], from, to, truncated,
@@ -106,7 +127,8 @@ export async function systemView(db: Pick<Db, 'query'>, projectId: string, from:
   ]);
 
   const wallOf = new Map(rows.map((r) => [`${r.session_id}/${r.data.id}`, r.wall_ts]));
-  const later = causalShifts(sessions, linkRows, wallOf);
+  // A batch keeps the shifts the stream's snapshot drew each session with, so its events line up with what is shown.
+  const later = only ? new Map(sessions.map((x) => [x.id, only.shifts.get(x.id) ?? 0])) : causalShifts(sessions, linkRows, wallOf);
   /** Where a session's clock starts on the window's: its start, corrected by its clock offset (see ingest). */
   const startOf = new Map(sessions.map((s) => [s.id, Number(s.started_at) + s.clock_offset + (later.get(s.id) ?? 0) - from]));
   /** A session-clock timestamp, moved onto the window's clock. */
@@ -153,7 +175,9 @@ export async function systemView(db: Pick<Db, 'query'>, projectId: string, from:
     const child = ns(l.child_session, l.child_id);
     if (!inView.has(child)) continue;
     const parent = ns(l.parent_session, l.parent_id);
-    const status = inView.has(parent) ? 'in-view' : l.parent_wall !== null ? 'outside-window' : 'missing';
+    // In a batch, a parent the stream has already sent (anything since `from`) is in view on the other end.
+    const shown = inView.has(parent) || (!!only && l.parent_wall !== null && l.parent_wall >= from);
+    const status = shown ? 'in-view' : l.parent_wall !== null ? 'outside-window' : 'missing';
     const childWall = wallOf.get(child)!;
     // An inversion within both clocks' measured error is that error, not disagreement.
     const tolerance = (errorOf.get(l.child_session) ?? 0) + (errorOf.get(l.parent_session) ?? 0);
@@ -186,7 +210,7 @@ export async function systemView(db: Pick<Db, 'query'>, projectId: string, from:
   });
 
   const findings: Finding[] = findingRows
-    .filter((f) => inView.has(ns(f.session_id, f.data.occurrenceId)))
+    .filter((f) => (only ? only.findingIds.includes(f.data.id) : inView.has(ns(f.session_id, f.data.occurrenceId))))
     .map(({ session_id: sid, data: f }) => ({
       ...f,
       id: ns(sid, f.id),
@@ -195,7 +219,7 @@ export async function systemView(db: Pick<Db, 'query'>, projectId: string, from:
       taintSource: f.taintSource && { occurrenceId: ns(sid, f.taintSource.occurrenceId), handlerId: mapNode(sid, f.taintSource.handlerId) },
     }));
 
-  const gaps = gapRows
+  const gaps = (only ? [] : gapRows)
     .map((g) => ({ fromTs: shift(g.session_id, g.from_ts), toTs: shift(g.session_id, g.to_ts), dropped: g.dropped }))
     .filter((g) => g.toTs >= 0 && g.fromTs <= to - from);
 

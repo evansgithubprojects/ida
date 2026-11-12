@@ -1,5 +1,5 @@
 import type { Finding, GraphNode, Occurrence, Process, Recording, Template } from '@ida-dev/core';
-import { buildServiceIndex, type ServiceIndex, type SessionPeers, type SystemView } from './system';
+import { buildServiceIndex, type ServiceIndex, type SystemView } from './system';
 import { compareRank, findingRank, throwRank, tierOf, type Rank, type Tier } from './severity';
 export type { Tier } from './severity';
 
@@ -158,15 +158,8 @@ export function runById(index: ReplayIndex, id: string): Run | null {
 /** A run that threw, or whose payload is suspected corrupt. */
 export const isProblemRun = (index: ReplayIndex, run: Run) => !!run.error || index.findingsByOcc.has(run.item.occ.id);
 
-/** A process standing for another service, drawn in a single service's view where its messages went (see `peers`). */
-export const PEER_PREFIX = 'peer:';
-export const isPeerProcess = (processId: string) => processId.startsWith(PEER_PREFIX);
-
-/**
- * `system` is the rest of a system view, when `recording` is one. `peers` is for a single service's view: the other
- * services its Kafka and RabbitMQ messages came from and went to, drawn as extra hops through the broker.
- */
-export function buildIndex(recording: Recording, system?: Omit<SystemView, 'recording'> | null, peers?: SessionPeers | null): ReplayIndex {
+/** `system` is the rest of a system view, when `recording` is one. */
+export function buildIndex(recording: Recording, system?: Omit<SystemView, 'recording'> | null): ReplayIndex {
   const templates = new Map(recording.templates.map((t) => [t.id, t]));
   const nodes = new Map(recording.nodes.map((n) => [n.id, n]));
   const processes = new Map(recording.processes.map((p) => [p.id, p]));
@@ -222,7 +215,6 @@ export function buildIndex(recording: Recording, system?: Omit<SystemView, 'reco
     const marked = t.handlerIds.filter((id) => t.external!.includes(nodes.get(id)?.label ?? ''));
     for (const id of marked.length ? marked : [t.emitterId]) externalNodes.add(id);
   }
-  if (peers && !system) addPeerHops(peers, items, nodes, processes);
   const children = new Map<string, string[]>();
   for (const { occ } of items) {
     if (!occ.parentId) continue;
@@ -242,48 +234,6 @@ export function buildIndex(recording: Recording, system?: Omit<SystemView, 'reco
     // first event instead. It is a fixed recording, so `start` never moves under it.
     origin: system ? start : 0,
   };
-}
-
-/**
- * Adds the far side of each linked broker message to its occurrence's hops: a publish goes on through the broker to
- * the service that consumed it, and a consume comes from the service that published it. A RabbitMQ message published
- * to an exchange and consumed from a queue also gets the exchange-to-queue route.
- */
-function addPeerHops(peers: SessionPeers, items: IndexedOccurrence[], nodes: Map<string, GraphNode>, processes: Map<string, Process>) {
-  const byId = new Map(items.map((i) => [i.occ.id, i]));
-  const service = (key: string) => {
-    const id = `${PEER_PREFIX}${key}`;
-    if (!processes.has(id)) processes.set(id, { id, label: key });
-    if (!nodes.has(id)) nodes.set(id, { id, label: key, kind: 'emitter', processId: id });
-    return id;
-  };
-  /** The far side's broker node, when it isn't the one this side used. */
-  const brokerNode = (b: NonNullable<SessionPeers['consumedBy'][number]['broker']>, here: string) => {
-    if (nodes.get(here)?.processId === b.id) return null;
-    if (!processes.has(b.id)) processes.set(b.id, { id: b.id, label: b.label, kind: b.kind, ...(b.broker && { broker: b.broker }) });
-    const id = `${b.id}/${PEER_PREFIX}emitter`;
-    if (!nodes.has(id)) nodes.set(id, { id, label: b.label, kind: 'emitter', processId: b.id });
-    return id;
-  };
-  const add = (item: IndexedOccurrence, hops: Hop[]) => {
-    for (const h of hops) if (!item.hops.some((x) => x.src === h.src && x.dst === h.dst)) item.hops.push(h);
-  };
-  for (const link of peers.consumedBy) {
-    const item = byId.get(link.occurrenceId);
-    if (!item) continue;
-    const here = item.template.emitterId;
-    const peer = service(link.service);
-    const far = link.broker ? brokerNode(link.broker, here) : null;
-    add(item, far ? [{ src: here, dst: far }, { src: far, dst: peer }] : [{ src: here, dst: peer }]);
-  }
-  for (const link of peers.publishedBy) {
-    const item = byId.get(link.occurrenceId);
-    if (!item) continue;
-    const here = item.template.emitterId;
-    const peer = service(link.service);
-    const far = link.broker ? brokerNode(link.broker, here) : null;
-    add(item, far ? [{ src: peer, dst: far }, { src: far, dst: here }] : [{ src: peer, dst: here }]);
-  }
 }
 
 export const edgeId = (src: string, dst: string) => `${src}>${dst}`;

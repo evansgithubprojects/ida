@@ -14,7 +14,7 @@ orders (Node, kafkajs)  ──Kafka topic "orders"──▶  payments (Python, c
 - **payments** charges each order and publishes a receipt to RabbitMQ. Every seventh order is over the limit and is declined, so there is an error to trace.
 - **notifier** consumes the receipts and "emails" the customer.
 
-Each service records its own events and uploads them to your Ida project. Open the project's **System view** to follow one order from the storefront, through Kafka, into payments, through RabbitMQ, and out to the email. Messages carry an `ida-parent` header, so the hops between services are linked (drawn dotted).
+Each service records its own events and uploads them to your Ida project. Open the project's viewer to follow one order from the storefront, through Kafka, into payments, through RabbitMQ, and out to the email. Messages carry an `ida-parent` header, so the hops between services are linked (drawn dotted).
 
 ## You need
 
@@ -78,6 +78,6 @@ Run on your machine, the services default to `localhost:9094` for Kafka, `localh
 
 ## Notes
 
-- Each service uses one keyed recorder (`orders`, `payments`, `notifier`), so the System view names services after them.
+- Each service uses one keyed recorder (`orders`, `payments`, `notifier`), so the viewer names services after them.
 - payments runs its Kafka poll loop and its RabbitMQ connection on one thread, so it turns RabbitMQ heartbeats off. That is fine for a demo. A real service would give pika its own thread or use its `SelectConnection`.
-- Restarting the services starts new sessions. The System view shows every session in the time window you pick.
+- Restarting the services starts new sessions. The viewer shows every session in the time window you pick, and each past run under Recordings.

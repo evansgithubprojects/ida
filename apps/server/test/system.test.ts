@@ -344,26 +344,81 @@ describe('an occurrence sent again', () => {
   });
 });
 
-describe('session peers', () => {
-  it("names the other end of each of a session's broker messages, by service", async () => {
+describe('project live stream', () => {
+  const NOW = T0 + 10_000;
+  const SPAN = 5 * 60_000;
+
+  /** An app on a fixed clock, so the stream's window (NOW - SPAN to NOW) holds the events above. */
+  function fixedApp() {
+    const fixed = createApp({ db, verifyUser: async (t) => (t.startsWith('user-') ? { id: t } : null), streamSecret: 's', now: () => NOW });
+    const req = async (method: string, path: string, headers: Record<string, string> = {}, body?: unknown) => {
+      const res = await fixed.request(path, { method, headers: { ...headers, ...(body !== undefined && { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body) });
+      const text = await res.text();
+      return { status: res.status, body: text ? JSON.parse(text) : null };
+    };
+    return { fixed, req, ingest: (key: string, b: IngestBatch) => req('POST', '/v1/ingest', { Authorization: `Bearer ${key}` }, b) };
+  }
+
+  async function open(fixed: ReturnType<typeof createApp>, token: string) {
+    const controller = new AbortController();
+    const res = await fixed.request(`/v1/live?token=${encodeURIComponent(token)}&span=${SPAN}`, { signal: controller.signal });
+    expect(res.status).toBe(200);
+    const reader = res.body!.getReader();
+    let buf = '';
+    const next = async (): Promise<Record<string, unknown>> => {
+      while (!buf.includes('\n\n')) buf += new TextDecoder().decode((await reader.read()).value);
+      const [frame, ...rest] = buf.split('\n\n');
+      buf = rest.join('\n\n');
+      return JSON.parse(frame!.split('\n').find((l) => l.startsWith('data: '))!.slice(6));
+    };
+    const close = async () => { controller.abort(); await reader.cancel().catch(() => {}); };
+    return { next, close };
+  }
+
+  it('sends a system snapshot, a new one for a new session, then each batch merged onto its clock', async () => {
+    const { fixed, req, ingest: send } = fixedApp();
     const { projectId, key } = await newProject();
     const a = randomUUID(), b = randomUUID();
-    await ingest(key, batch('checkout', a, T0, producer(10)));
-    await ingest(key, batch('payments', b, T0 + 5, consumer(20, { sessionId: a, occurrenceId: 'e1' })));
-    const topic = { id: TOPIC, label: 'orders', kind: 'topic', broker: { type: 'kafka' } };
+    await send(key, batch('checkout', a, T0, producer(10)));
 
-    const pub = await call('GET', `/v1/sessions/${a}/peers`, as('user-a'));
-    expect(pub).toMatchObject({ status: 200, body: { consumedBy: [{ occurrenceId: 'e1', service: 'payments', broker: topic }], publishedBy: [] } });
-    const sub = await call('GET', `/v1/sessions/${b}/peers`, as('user-a'));
-    expect(sub.body).toEqual({ consumedBy: [], publishedBy: [{ occurrenceId: 'e1', service: 'checkout', broker: topic }] });
-    // A live view asks by recorder: its newest session.
-    expect((await call('GET', `/v1/projects/${projectId}/recorders/payments/peers`, as('user-a'))).body).toEqual(sub.body);
+    const { token } = (await req('POST', `/v1/projects/${projectId}/stream-token`, as('user-a'))).body;
+    const stream = await open(fixed, token);
+    const first = await stream.next();
+    expect(first).toMatchObject({ type: 'system-snapshot', view: { from: NOW - SPAN, services: [{ sessionId: a }] } });
+
+    // A session the snapshot doesn't have: a fresh snapshot with it in.
+    await send(key, batch('payments', b, T0 + 5, consumer(20, { sessionId: a, occurrenceId: 'e1' })));
+    const second = await stream.next();
+    expect(second).toMatchObject({ type: 'system-snapshot' });
+    expect((second.view as SystemView).services.map((s) => s.recorderKey).sort()).toEqual(['checkout', 'payments']);
+
+    // A later message on that session: only it, namespaced and timed the way the system view draws it.
+    const again = consumer(40, { sessionId: a, occurrenceId: 'e1' }).map((m) => (m.type === 'occurrence' ? { ...m, occurrence: { ...m.occurrence, id: 'e2' } } : m));
+    await send(key, batch('payments', b, T0 + 5, again, 1));
+    const third = await stream.next();
+    expect(third).toMatchObject({ type: 'system-batch' });
+    const rec = (third as unknown as SystemView).recording;
+    expect(rec.occurrences.map((o) => o.id)).toEqual([`${b}/e2`]);
+    expect((third as unknown as SystemView).links).toMatchObject([{ occurrenceId: `${b}/e2`, status: 'in-view' }]);
+
+    const whole = (await req('GET', `/v1/projects/${projectId}/system?from=${NOW - SPAN}&to=${NOW}`, as('user-a'))).body as SystemView;
+    expect(rec.occurrences[0]).toEqual(whole.recording.occurrences.find((o) => o.id === `${b}/e2`));
+    await stream.close();
   });
 
-  it('is a 404 for someone without access', async () => {
-    const { key } = await newProject();
-    const a = randomUUID();
-    await ingest(key, batch('checkout', a, T0, producer(10)));
-    expect((await call('GET', `/v1/sessions/${a}/peers`, as('user-z'))).status).toBe(404);
+  it("can't be opened for a project the person can't view", async () => {
+    const { req } = fixedApp();
+    const { projectId } = await newProject();
+    expect((await req('POST', `/v1/projects/${projectId}/stream-token`, as('user-z'))).status).toBe(404);
+  });
+
+  it('refuses a bad span without using up the token', async () => {
+    const { fixed, req } = fixedApp();
+    const { projectId } = await newProject();
+    const { token } = (await req('POST', `/v1/projects/${projectId}/stream-token`, as('user-a'))).body;
+    expect((await fixed.request(`/v1/live?token=${encodeURIComponent(token)}&span=0`)).status).toBe(400);
+    const stream = await open(fixed, token);
+    expect(await stream.next()).toMatchObject({ type: 'system-snapshot' });
+    await stream.close();
   });
 });

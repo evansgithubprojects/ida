@@ -1,6 +1,6 @@
 import type { Process } from '@ida-dev/core';
 import type { IndexedOccurrence, MapNode, ReplayIndex, Trace } from '../replay';
-import { countsOnCard, edgeId, eventKey, isPeerProcess } from '../replay';
+import { countsOnCard, edgeId, eventKey } from '../replay';
 
 /**
  * services = a system view zoomed all the way out; process = the processes (of one service, when `service` is set);
@@ -25,7 +25,6 @@ export const serviceOfProcess = (index: ReplayIndex | null, processId: string) =
 /** The level a double-click on a card opens: a service's processes, or a process's handlers. */
 export function levelInto(m: ModelNode): Level | null {
   if (m.service) return { kind: 'process', service: m.service };
-  if (isPeerProcess(m.processId)) return null; // another service: nothing of it is recorded here
   if (m.kind === 'process' || m.kind === 'stub') return { kind: 'handlers', processId: m.processId };
   return null;
 }
@@ -160,7 +159,7 @@ export function buildModel(index: ReplayIndex, level: Level, items: IndexedOccur
       e.count++;
       e.times.push(item.occ.ts);
       e.names.add(eventKey(item.template));
-      if (item.occ.causality === 'propagated' || [hop.src, hop.dst].some((n) => isPeerProcess(index.nodes.get(n)?.processId ?? ''))) propagated.add(id);
+      if (item.occ.causality === 'propagated') propagated.add(id);
       edges.set(id, e);
     }
   }
@@ -172,9 +171,7 @@ export function buildModel(index: ReplayIndex, level: Level, items: IndexedOccur
     const p = index.processes.get(pid);
     return p?.kind && p.kind !== 'emitter' ? p.kind : undefined;
   };
-  const processNode = (pid: string): ModelNode => isPeerProcess(pid)
-    ? { id: processNodeId(pid), label: index.processLabel.get(pid) ?? pid, kind: 'stub', processId: pid, detail: 'other service' }
-    : ({
+  const processNode = (pid: string): ModelNode => ({
     id: processNodeId(pid), label: index.processLabel.get(pid) ?? pid, kind: 'process', processId: pid, detail: detail(processNodeId(pid)),
     ...(brokerOf(pid) && { broker: brokerOf(pid) }),
   });
@@ -210,7 +207,7 @@ export function buildModel(index: ReplayIndex, level: Level, items: IndexedOccur
     for (const id of used) {
       if (id.startsWith('p:') && id !== processNodeId(level.processId)) {
         const pid = id.slice(2);
-        nodes.push({ id, label: index.processLabel.get(pid) ?? pid, kind: 'stub', processId: pid, detail: sys?.processService.get(pid) ? `in ${sys.processService.get(pid)}` : isPeerProcess(pid) ? 'other service' : 'other process', ...(brokerOf(pid) && { broker: brokerOf(pid) }) });
+        nodes.push({ id, label: index.processLabel.get(pid) ?? pid, kind: 'stub', processId: pid, detail: sys?.processService.get(pid) ? `in ${sys.processService.get(pid)}` : 'other process', ...(brokerOf(pid) && { broker: brokerOf(pid) }) });
       } else if (id.startsWith('s:')) {
         const key = id.slice(2);
         nodes.push({ id, label: key, kind: 'stub', processId: '', service: key, detail: 'other service' });

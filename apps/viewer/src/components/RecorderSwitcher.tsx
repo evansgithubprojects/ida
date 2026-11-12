@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
 import { api } from '../cloud/api';
 import { useApi } from '../cloud/useApi';
 import { useStore } from '../store';
@@ -10,19 +9,22 @@ export function processSummary(processes: string[]): string {
   return processes.length ? processes.join(', ') : 'No processes yet';
 }
 
-/** Top-left of the graph: the current recorder, a list of the project's others to switch to, and a way to view a remote endpoint instead. */
-export function RecorderSwitcher({ projectId, recorderKey, source, onSource }: {
+/**
+ * Top-left of the graph: the service in view (or all of them), the project's services to zoom into, and a way to
+ * view a remote endpoint instead. `onPick(null)` goes back out to every service.
+ */
+export function RecorderSwitcher({ projectId, service, source, onSource, onPick }: {
   projectId: string;
-  recorderKey: string;
+  service: string | null;
   source: RecordingSource;
   onSource: (source: RecordingSource) => void;
+  onPick: (service: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState(source.kind === 'endpoint' ? source.url : 'http://127.0.0.1:7777');
   const status = useStore((s) => s.live);
   const endpoint = source.kind === 'endpoint' ? source : null;
   const box = useRef<HTMLDivElement>(null);
-  const navigate = useNavigate();
   const recorders = useApi(`recorders:${projectId}`, () => api.recorders(projectId), { pollMs: 10_000 });
   const rows = recorders.data ?? [];
 
@@ -35,11 +37,12 @@ export function RecorderSwitcher({ projectId, recorderKey, source, onSource }: {
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [open]);
 
-  const choose = (key: string) => {
+  const choose = (key: string | null) => {
     setOpen(false);
-    if (endpoint && key === recorderKey) onSource({ kind: 'cloud' });
-    if (key !== recorderKey) navigate(`/projects/${projectId}/recorders/${encodeURIComponent(key)}/live`);
+    if (source.kind !== 'cloud') onSource({ kind: 'cloud' });
+    onPick(key);
   };
+  const cloud = source.kind === 'cloud';
   // Arrow keys move between rows; Enter and Space activate the focused one like any button.
   const onListKey = (e: React.KeyboardEvent) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
@@ -59,16 +62,20 @@ export function RecorderSwitcher({ projectId, recorderKey, source, onSource }: {
 
   return (
     <div ref={box} className="recorder-switcher">
-      <button className="recorder-switcher-button" aria-haspopup="listbox" aria-expanded={open} title={endpoint ? 'Viewing a remote endpoint' : 'Switch recorder'} onClick={() => setOpen((o) => !o)}>
-        <code>{endpoint ? endpoint.url : recorderKey}</code>
+      <button className="recorder-switcher-button" aria-haspopup="listbox" aria-expanded={open} title={endpoint ? 'Viewing a remote endpoint' : 'Switch service'} onClick={() => setOpen((o) => !o)}>
+        {endpoint ? <code>{endpoint.url}</code> : source.kind === 'file' ? <code>{source.name}</code> : service ? <code>{service}</code> : <span>All services</span>}
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
       </button>
       {open && (
         <div className="recorder-switcher-panel">
-         <div role="listbox" aria-label="Recorders" onKeyDown={onListKey}>
+         <div role="listbox" aria-label="Services" onKeyDown={onListKey}>
           {recorders.error && !rows.length && <p className="hint">{recorders.error}</p>}
+          <button className="recorder-row" role="option" aria-selected={cloud && !service} aria-current={cloud && !service ? 'true' : undefined} onClick={() => choose(null)}>
+            <span className="recorder-name">All services</span>
+            <small className="recorder-processes">Every service, linked through their brokers</small>
+          </button>
           {rows.map((r) => (
-            <button key={r.key} className="recorder-row" role="option" aria-selected={!endpoint && r.key === recorderKey} aria-current={!endpoint && r.key === recorderKey ? 'true' : undefined} onClick={() => choose(r.key)}>
+            <button key={r.key} className="recorder-row" role="option" aria-selected={cloud && r.key === service} aria-current={cloud && r.key === service ? 'true' : undefined} onClick={() => choose(r.key)}>
               <span className="recorder-name">
                 <code>{r.key}</code>
                 {r.live && <i className="recorder-live" title="Live" />}

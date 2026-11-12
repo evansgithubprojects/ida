@@ -21,9 +21,9 @@ export function sameHash(a: string, b: string): boolean {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
-/** What a live-stream token grants: one recorder, to one person, in one project. */
+/** What a live-stream token grants, to one person in one project: one recorder's stream, or (no `recorderId`) the whole project's. */
 export interface StreamGrant {
-  recorderId: string;
+  recorderId?: string;
   projectId: string;
   userId: string;
 }
@@ -41,7 +41,7 @@ export interface VerifiedStreamToken extends StreamGrant {
  * for, so the server can keep checking that they still have access while the stream is open.
  */
 export function signStreamToken(secret: string, grant: StreamGrant, ttlMs = 30_000, now = Date.now()): string {
-  const body = Buffer.from(JSON.stringify({ r: grant.recorderId, p: grant.projectId, u: grant.userId, n: randomUUID(), e: now + ttlMs })).toString('base64url');
+  const body = Buffer.from(JSON.stringify({ r: grant.recorderId ?? null, p: grant.projectId, u: grant.userId, n: randomUUID(), e: now + ttlMs })).toString('base64url');
   return `${body}.${createHmac('sha256', secret).update(body).digest('base64url')}`;
 }
 
@@ -54,8 +54,8 @@ export function verifyStreamToken(secret: string, token: string, now = Date.now(
   if (got.length !== want.length || !timingSafeEqual(got, want)) return null;
   try {
     const t = JSON.parse(Buffer.from(body, 'base64url').toString()) as { r?: unknown; p?: unknown; u?: unknown; n?: unknown; e?: unknown };
-    if (typeof t.r !== 'string' || typeof t.p !== 'string' || typeof t.u !== 'string' || typeof t.n !== 'string' || typeof t.e !== 'number') return null;
-    return t.e < now ? null : { recorderId: t.r, projectId: t.p, userId: t.u, nonce: t.n, expires: t.e };
+    if ((typeof t.r !== 'string' && t.r !== null) || typeof t.p !== 'string' || typeof t.u !== 'string' || typeof t.n !== 'string' || typeof t.e !== 'number') return null;
+    return t.e < now ? null : { ...(typeof t.r === 'string' && { recorderId: t.r }), projectId: t.p, userId: t.u, nonce: t.n, expires: t.e };
   } catch {
     return null;
   }

@@ -1,4 +1,4 @@
-import { BrowserRouter, Link, Navigate, NavLink, Outlet, Route, Routes, useLocation } from 'react-router';
+import { BrowserRouter, Link, Navigate, NavLink, Outlet, Route, Routes, useLocation, useParams, useSearchParams } from 'react-router';
 import { RequireAuth, useSession } from './cloud/auth';
 import { supabase } from './cloud/supabase';
 import { Logo } from './components/Logo';
@@ -8,8 +8,7 @@ import { Home } from './pages/Home';
 import { AcceptInvite } from './pages/AcceptInvite';
 import { Project } from './pages/Project';
 import { NewOrg, OrgLayout, OrgMembers, OrgProfile, OrgProjects, OrgSettings, ProjectsRedirect } from './pages/Orgs';
-import { Session } from './pages/Session';
-import { SystemPage } from './pages/System';
+import { ProjectView } from './pages/View';
 import { SignIn } from './pages/SignIn';
 
 export function App() {
@@ -38,15 +37,29 @@ export function App() {
         </Route>
         {/* The connect walkthrough is a dialog on the project page now. */}
         <Route path="/projects/:projectId/connect" element={<Navigate to=".." relative="path" replace />} />
-        {/* A recorder's recordings are a dialog on its replay screen now. */}
-        <Route path="/projects/:projectId/recorders/:recorderKey" element={<Navigate to="live" replace />} />
-        {/* The replay screens fill the window, so they bring their own header. */}
-        <Route path="/projects/:projectId/recorders/:recorderKey/live" element={<RequireAuth><Session live /></RequireAuth>} />
-        <Route path="/projects/:projectId/recorders/:recorderKey/sessions/:sessionId" element={<RequireAuth><Session /></RequireAuth>} />
-        <Route path="/projects/:projectId/system" element={<RequireAuth><SystemPage /></RequireAuth>} />
+        {/* The viewer fills the window, so it brings its own header. */}
+        <Route path="/projects/:projectId/view" element={<RequireAuth><ProjectView /></RequireAuth>} />
+        {/* The recorder and system screens are one viewer now: old links open it zoomed into the same place. */}
+        <Route path="/projects/:projectId/recorders/:recorderKey" element={<ToView />} />
+        <Route path="/projects/:projectId/recorders/:recorderKey/live" element={<ToView />} />
+        <Route path="/projects/:projectId/recorders/:recorderKey/sessions/:sessionId" element={<ToView />} />
+        <Route path="/projects/:projectId/system" element={<ToView />} />
       </Routes>
     </BrowserRouter>
   );
+}
+
+/** An old recorder, session or system URL, sent to the viewer with the same service, run and span. */
+function ToView() {
+  const { projectId = '', recorderKey, sessionId } = useParams();
+  const [params] = useSearchParams();
+  const q = new URLSearchParams();
+  if (recorderKey) q.set('service', recorderKey);
+  if (sessionId) q.set('run', sessionId);
+  const span = params.get('span');
+  if (span) q.set('span', span);
+  const query = q.toString();
+  return <Navigate to={`/projects/${projectId}/view${query ? `?${query}` : ''}`} replace />;
 }
 
 function Shell() {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RECORDING_VERSION, type Occurrence, type Recording } from '@ida-dev/core';
 import { buildModel, levelInto, parentLevel, processNodeId, sameLevel, serviceNodeId, topLevel, type Level } from '../src/graph/model';
 import { buildIndex } from '../src/replay';
@@ -183,5 +183,79 @@ describe('system view', () => {
     useStore.getState().load(recording, 'plain');
     expect(useStore.getState().level).toEqual({ kind: 'process' });
     useStore.getState().unload();
+  });
+});
+
+/** Stands in for the browser's EventSource so the project stream can be driven by hand. */
+class FakeEventSource {
+  static readonly CLOSED = 2;
+  static last: FakeEventSource | null = null;
+  readyState = 1;
+  onopen: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  onmessage: ((ev: { data: string }) => void) | null = null;
+  constructor(readonly url: string) { FakeEventSource.last = this; }
+  close() { this.readyState = FakeEventSource.CLOSED; }
+  send(msg: unknown) { this.onmessage?.({ data: JSON.stringify(msg) }); }
+}
+
+describe('the project live stream', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal('EventSource', FakeEventSource);
+  });
+  afterEach(() => {
+    useStore.getState().unload();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  /** The view without payments: what a snapshot taken before payments' first batch holds. */
+  const withoutPayments = (): SystemView => {
+    const v = systemView();
+    return {
+      ...v,
+      recording: { ...v.recording, occurrences: v.recording.occurrences.filter((o) => !o.id.startsWith('B/')) },
+      services: v.services.filter((x) => x.sessionId !== 'B'),
+      links: [],
+    };
+  };
+
+  it('opens on the services, then merges each batch in without losing the zoom', () => {
+    useStore.getState().connectLive('http://x/live', 'all services');
+    const es = FakeEventSource.last!;
+    es.send({ type: 'system-snapshot', view: withoutPayments() });
+    expect(useStore.getState().level).toEqual({ kind: 'services' });
+    expect([...useStore.getState().index!.system!.services.keys()]).toEqual(['checkout', 'inventory']);
+
+    useStore.getState().setLevel({ kind: 'process', service: 'checkout' });
+    const full = systemView();
+    es.send({
+      type: 'system-batch',
+      recording: { ...full.recording, occurrences: full.recording.occurrences.filter((o) => o.id.startsWith('B/')) },
+      services: full.services.filter((x) => x.sessionId === 'B'),
+      links: full.links,
+    });
+    vi.advanceTimersByTime(300); // batches are applied together
+    const s = useStore.getState();
+    expect(s.level).toEqual({ kind: 'process', service: 'checkout' });
+    expect(s.index!.items).toHaveLength(6);
+    expect([...s.index!.system!.services.keys()]).toContain('payments');
+    expect(s.index!.system!.links.get('B/e1')?.status).toBe('in-view');
+  });
+
+  it('keeps the playhead on the same moment when a fresh snapshot counts from a later start', () => {
+    useStore.getState().connectLive('http://x/live', 'all services');
+    const es = FakeEventSource.last!;
+    es.send({ type: 'system-snapshot', view: systemView() });
+    useStore.getState().setT(20); // stops following
+    const later = systemView();
+    const shifted: SystemView = {
+      ...later,
+      from: later.from + 5,
+      recording: { ...later.recording, startedAt: later.recording.startedAt + 5, occurrences: later.recording.occurrences.map((o) => ({ ...o, ts: o.ts - 5 })) },
+    };
+    es.send({ type: 'system-snapshot', view: shifted });
+    expect(useStore.getState().t).toBe(15);
   });
 });

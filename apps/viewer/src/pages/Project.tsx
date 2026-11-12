@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { api } from '../cloud/api';
-import { recorderToOpen } from '../cloud/lastRecorder';
 import { canInProject, rememberOrg } from '../cloud/orgs';
 import { ago, useApi } from '../cloud/useApi';
 import { IngestKeys } from '../components/IngestKeys';
@@ -36,7 +35,6 @@ export function Project() {
   const access = project.data.access ?? 'viewer';
   const manageKeys = canInProject.manageKeys(access);
   const administer = canInProject.administer(access);
-  const openKey = recorders.data ? recorderToOpen(projectId, recorders.data) : null;
 
   return (
     <div className="page">
@@ -45,8 +43,7 @@ export function Project() {
         <h2>{project.data.name}</h2>
         <div className="page-actions">
           {manageKeys && <button className="link" onClick={() => setConnect('setup')}>Connect an app</button>}
-          {!!recorders.data?.length && <Link className="button" to={`/projects/${projectId}/system`} title="Every service together, linked through Kafka and RabbitMQ">System view</Link>}
-          {openKey && <Link className="button primary" to={`/projects/${projectId}/recorders/${encodeURIComponent(openKey)}/live`} title={`Opens ${openKey}`}>Open viewer</Link>}
+          {!!recorders.data?.length && <Link className="button primary" to={`/projects/${projectId}/view`} title="Every service, live, linked through Kafka and RabbitMQ">Open viewer</Link>}
         </div>
       </div>
       {error && <p className="form-error" role="alert">{error}</p>}
@@ -65,7 +62,7 @@ export function Project() {
             <tbody>
               {recorders.data.map((r) => (
                 <tr key={r.key}>
-                  <td><Link to={`/projects/${projectId}/recorders/${encodeURIComponent(r.key)}/live`}><code>{r.key}</code></Link></td>
+                  <td><Link to={`/projects/${projectId}/view?service=${encodeURIComponent(r.key)}`}><code>{r.key}</code></Link></td>
                   <td>{ago(r.lastSeenAt)}</td>
                 </tr>
               ))}

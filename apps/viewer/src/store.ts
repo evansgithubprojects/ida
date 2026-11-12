@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { topLevel, type Level } from './graph/model';
 import { ZOOM_MS } from './graph/zoom';
 import { buildIndex, capWindow, keepNewest, parseRunId, parseThrowId, windowAround, type ReplayIndex } from './replay';
-import type { SessionPeers, SystemView } from './replay/system';
+import type { SystemLink, SystemService, SystemView } from './replay/system';
 
 export const SPEEDS = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4];
 /** Wall-clock lengths of the lit fade and the red flash, scaled to recording time by playback speed. */
@@ -107,8 +107,6 @@ interface State {
   mode: 'live' | 'replay';
   /** Trace mode: one occurrence whose whole causal tree is highlighted (see `traceOf`). Survives zooms and selections. */
   trace: { occurrenceId: string } | null;
-  /** A single service's view: the services its broker messages came from and went to (see `buildIndex`). */
-  peers: SessionPeers | null;
 
   setMode(mode: 'live' | 'replay'): void;
   /** `system` is the rest of a system view, when `recording` is one: it opens on the services. */
@@ -134,8 +132,6 @@ interface State {
   /** Traces an occurrence's causal tree across services, and inspects it. */
   startTrace(occurrenceId: string): void;
   endTrace(): void;
-  /** Draws the other ends of this service's broker messages; kept until `unload`. */
-  setPeers(peers: SessionPeers | null): void;
   /** `name` is shown as the source instead of the URL. */
   connectLive(url: string, name?: string): void;
   disconnectLive(): void;
@@ -163,6 +159,32 @@ export function pickSpeed(rangeMs: number): number {
 }
 
 let source: EventSource | null = null;
+
+/** A system view without its recording: the services and the links between them. */
+type SystemMeta = Omit<SystemView, 'recording'>;
+
+/** What a project's live stream sends: a whole system view, then each stored batch merged onto its clock. */
+type SystemMessage =
+  | { type: 'system-snapshot'; view: SystemView }
+  | { type: 'system-batch'; recording: Recording; services: SystemService[]; links: SystemLink[] };
+
+/** `base` with `part`'s processes, nodes, templates, occurrences and findings added; an id seen again replaces the old one. */
+export function mergeRecording(base: Recording, part: Recording): Recording {
+  const merge = <T extends { id: string }>(a: T[], b: T[] = []) => {
+    if (!b.length) return a;
+    const fresh = new Map(b.map((x) => [x.id, x]));
+    const have = new Set(a.map((x) => x.id));
+    return [...a.map((x) => fresh.get(x.id) ?? x), ...b.filter((x) => !have.has(x.id))];
+  };
+  return {
+    ...base,
+    processes: merge(base.processes, part.processes),
+    nodes: merge(base.nodes, part.nodes),
+    templates: merge(base.templates, part.templates),
+    occurrences: merge(base.occurrences, part.occurrences),
+    findings: merge(base.findings ?? [], part.findings),
+  };
+}
 
 const SETTINGS_KEY = 'ida_graph_settings';
 
@@ -206,13 +228,19 @@ export const useStore = create<State>()((set, get) => {
   };
 
   let pending: Recording | null = null;
+  /** A project stream's services and links: what `pending` needs to be drawn as a system view. */
+  let pendingSystem: SystemMeta | null = null;
+  /** The services and links of the system view on screen, when it is one. */
+  let currentSystem: SystemMeta | null = null;
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   const flush = () => {
     flushTimer = null;
     if (!pending) return;
     const rec = pending;
     pending = null;
-    applyRecording(rec, true);
+    const sys = pendingSystem ?? currentSystem;
+    pendingSystem = null;
+    applyRecording(rec, true, undefined, sys ?? undefined);
   };
   const schedule = () => {
     if (!flushTimer) flushTimer = setTimeout(flush, 250);
@@ -237,12 +265,17 @@ export const useStore = create<State>()((set, get) => {
     return out;
   }
 
-  function applyRecording(streamed: Recording, live: boolean, name?: string, system?: Omit<SystemView, 'recording'>) {
+  function applyRecording(streamed: Recording, live: boolean, name?: string, system?: SystemMeta) {
     // A live stream never ends, so only its newest events are kept. A saved recording is loaded whole.
     const recording = live ? keepNewest(streamed) : streamed;
-    const index = buildIndex(recording, system, get().peers);
-    const s = get();
-    const keepView = live && s.index !== null;
+    currentSystem = system ?? null;
+    const index = buildIndex(recording, system);
+    const prev = get();
+    const keepView = live && prev.index !== null;
+    // A fresh system snapshot counts its times from a later start: move the playhead and window by as much, so they
+    // stay on the same moments.
+    const moved = keepView && system && prev.index?.system && prev.recording ? prev.recording.startedAt - recording.startedAt : 0;
+    const s = moved ? { ...prev, t: prev.t + moved, window: [prev.window[0] + moved, prev.window[1] + moved] as [number, number] } : prev;
     const mode: 'live' | 'replay' = keepView ? s.mode : live ? 'live' : 'replay';
     const following = mode === 'live';
     // The newest events: a big recording opens on its latest stretch, and a following live view slides along.
@@ -271,7 +304,7 @@ export const useStore = create<State>()((set, get) => {
 
   return {
     recording: null, index: null, sourceName: '', t: 0, playing: false, speed: 1, window: [0, 0],
-    level: { kind: 'process' }, ...loadSettings(), selection: null, trail: [], focus: null, live: 'off', following: true, mode: 'live', liveShift: new Map(), trace: null, peers: null,
+    level: { kind: 'process' }, ...loadSettings(), selection: null, trail: [], focus: null, live: 'off', following: true, mode: 'live', liveShift: new Map(), trace: null,
 
     load(recording, name, system) {
       get().disconnectLive();
@@ -351,13 +384,6 @@ export const useStore = create<State>()((set, get) => {
       get().seekToOccurrence(occurrenceId);
     },
     endTrace() { set({ trace: null }); },
-    setPeers(peers) {
-      const { recording, index } = get();
-      set({ peers });
-      // Only a single service's view takes peers; a system view already holds every side.
-      if (recording && index && !index.system) set({ index: buildIndex(recording, null, peers) });
-    },
-
     connectLive(url, name) {
       get().disconnectLive();
       set({ live: 'connecting' });
@@ -366,11 +392,31 @@ export const useStore = create<State>()((set, get) => {
       es.onopen = () => set({ live: 'on' });
       es.onerror = () => set({ live: es.readyState === EventSource.CLOSED ? 'error' : 'connecting' });
       es.onmessage = (ev) => {
-        const msg = JSON.parse(ev.data) as RecorderMessage;
+        const msg = JSON.parse(ev.data) as RecorderMessage | SystemMessage;
         if (msg.type === 'snapshot') {
           pending = msg.recording;
           flush();
           set({ sourceName: `live · ${name ?? url}` });
+        } else if (msg.type === 'system-snapshot') {
+          const { recording, ...rest } = msg.view;
+          pending = recording;
+          pendingSystem = rest;
+          flush();
+          set({ sourceName: `live · ${name ?? url}` });
+        } else if (msg.type === 'system-batch') {
+          const base = pending ?? get().recording;
+          const sys = pendingSystem ?? currentSystem;
+          if (!base || !sys) return;
+          pending = mergeRecording(base, msg.recording);
+          const known = new Set(sys.services.map((x) => x.sessionId));
+          const linked = new Set(msg.links.map((l) => l.occurrenceId));
+          pendingSystem = {
+            ...sys,
+            services: [...sys.services, ...msg.services.filter((x) => !known.has(x.sessionId))],
+            links: [...sys.links.filter((l) => !linked.has(l.occurrenceId)), ...msg.links],
+            to: Math.max(sys.to, msg.recording.startedAt + Math.max(0, ...msg.recording.occurrences.map((o) => o.ts))),
+          };
+          schedule();
         } else if (msg.type === 'finding') {
           const base = pending ?? get().recording;
           // A finding re-sent under the same id is an existing one that was traced to its source error.
@@ -405,11 +451,12 @@ export const useStore = create<State>()((set, get) => {
       if (flushTimer) clearTimeout(flushTimer);
       flushTimer = null;
       pending = null;
+      pendingSystem = null;
       if (get().live !== 'off') set({ live: 'off' });
     },
     unload() {
       get().disconnectLive();
-      set({ recording: null, index: null, sourceName: '', selection: null, trail: [], focus: null, playing: false, level: { kind: 'process' }, trace: null, peers: null });
+      set({ recording: null, index: null, sourceName: '', selection: null, trail: [], focus: null, playing: false, level: { kind: 'process' }, trace: null });
     },
   };
 });
