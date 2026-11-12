@@ -62,7 +62,7 @@ function Crumbs({ index }: { index: ReplayIndex }) {
     return <EventRef>{label(t)}</EventRef>;
   };
   const root = level.kind === 'handlers' ? index.processLabel.get(level.processId) ?? level.processId
-    : level.kind === 'services' ? 'Services' : level.service ?? 'Processes';
+    : level.kind === 'services' ? 'Services' : level.service ?? 'Emitters';
   return (
     <nav className="inspector-crumbs" aria-label="Inspection trail">
       <button className={selection ? '' : 'current'} onClick={() => select(null)} title="Overview of this level">{root}</button>
@@ -106,7 +106,7 @@ function Overview({ index }: { index: ReplayIndex }) {
         <p className="hint">
           {level.kind === 'services'
             ? 'Each card is a service; topics, exchanges and queues sit between the services that use them. Dotted pathways carry messages from one service to another. Double-click a card to zoom in.'
-            : 'Click a node or pathway to inspect it. Double-click a process to zoom in. Click a handler to see its activity.'}
+            : 'Click a node or pathway to inspect it. Double-click an emitter to zoom in. Click a handler to see its activity.'}
         </p>
       </Section>
       <NotificationList index={index} title="Notifications" list={list} empty="No throws or suspected corrupt payloads in this window." />
@@ -302,15 +302,15 @@ function NodeDetail({ index, id }: { index: ReplayIndex; id: string }) {
   }
   return (
     <>
-      <Section title={m.kind === 'process' || m.kind === 'stub' || m.kind === 'service' ? m.label : <NodeRef id={m.id} label={m.label} />} aside={<Badge tone="muted">{m.broker ?? (m.service && m.kind === 'stub' ? 'service' : m.kind)}</Badge>}>
+      <Section title={m.kind === 'process' || m.kind === 'stub' || m.kind === 'service' ? m.label : <NodeRef id={m.id} label={m.label} />} aside={<Badge tone="muted">{m.broker ?? (m.service && m.kind === 'stub' ? 'service' : m.kind === 'process' ? 'emitter' : m.kind)}</Badge>}>
         <dl className="facts">
-          {m.processId && <><dt>Process</dt><dd>{index.processLabel.get(m.processId)}</dd></>}
+          {m.processId && <><dt>Emitter</dt><dd>{index.processLabel.get(m.processId)}</dd></>}
           <SystemFacts index={index} m={m} />
           <dt>Traffic</dt><dd>{m.detail}</dd>
           <dt>Throws</dt><dd>{threw ? <Badge tone="error">✕ {threw}</Badge> : 'none'}</dd>
           {runs && <><dt>Activity</dt><dd>handled {handled.length} · emitted {runs.length - handled.length} · avg {fmtMs(avg)}</dd></>}
         </dl>
-        {levelInto(m) && <button className="primary" onClick={() => setLevel(levelInto(m)!)}>Zoom into {m.service ? 'service' : m.broker ?? 'process'}</button>}
+        {levelInto(m) && <button className="primary" onClick={() => setLevel(levelInto(m)!)}>Zoom into {m.service ? 'service' : m.broker ?? 'emitter'}</button>}
       </Section>
       {m.kind !== 'stub' && <RateSection id={id} kind="node" />}
       <EventList title="Receiving" events={receiving} />

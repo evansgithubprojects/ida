@@ -114,6 +114,42 @@ export function chainOrder(ids: string[], model: GraphModel): string[] | null {
   return path;
 }
 
+/** Distance between the rows of a layout of several chains. */
+const ROW_STEP = NODE_H + 72;
+
+/** Each connected piece of the graph as a row, when every piece is a chain; otherwise null. See `layout`. */
+export function chainRows(ids: string[], model: GraphModel): string[][] | null {
+  const known = new Set(ids);
+  const near = new Map<string, string[]>(ids.map((id) => [id, []]));
+  for (const e of model.edges) {
+    if (e.source === e.target || !known.has(e.source) || !known.has(e.target)) continue;
+    near.get(e.source)!.push(e.target);
+    near.get(e.target)!.push(e.source);
+  }
+  const seen = new Set<string>();
+  const chains: string[][] = [];
+  const alone: string[] = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    const piece: string[] = [];
+    for (const queue = [id]; queue.length;) {
+      const at = queue.pop()!;
+      if (seen.has(at)) continue;
+      seen.add(at);
+      piece.push(at);
+      queue.push(...near.get(at)!);
+    }
+    if (piece.length === 1) { alone.push(piece[0]!); continue; }
+    const chain = chainOrder(piece, model);
+    if (!chain) return null;
+    chains.push(chain);
+  }
+  // Only worth it when something is a chain; cards with no pathways at all keep the circle.
+  if (!chains.length) return null;
+  chains.sort((a, b) => b.length - a.length);
+  return alone.length ? [...chains, alone] : chains;
+}
+
 /**
  * Nodes sit evenly around a circle, except a single chain, which reads left to right in a line (a circle of two or
  * three would stack it up and down, which fits a wide screen badly). When `ring` is set, the nodes of the process
@@ -125,8 +161,12 @@ export function layout(model: GraphModel, ring: boolean): Layout {
   const all = model.nodes.map((n) => n.id);
   const whole = chainOrder(all, model);
   const step = NODE_W + CHAIN_GAP;
-  if (whole && !ring) {
-    whole.forEach((id, i) => positions.set(id, topLeft((i - (whole.length - 1) / 2) * step, 0)));
+  // Without a ring: when every connected piece is a chain (a card on its own counts), each chain is a row, longest
+  // first, and the cards on their own share a row below. A service with no traffic to the others doesn't turn the
+  // rest back into a circle.
+  const rows = ring ? null : chainRows(all, model);
+  if (rows) {
+    rows.forEach((row, r) => row.forEach((id, i) => positions.set(id, topLeft((i - (row.length - 1) / 2) * step, (r - (rows.length - 1) / 2) * ROW_STEP))));
     return { positions, ring: null };
   }
   // With a ring: a chain that enters from other processes, runs through this one and leaves again (warehouse →

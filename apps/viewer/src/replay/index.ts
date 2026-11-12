@@ -158,8 +158,11 @@ export function runById(index: ReplayIndex, id: string): Run | null {
 /** A run that threw, or whose payload is suspected corrupt. */
 export const isProblemRun = (index: ReplayIndex, run: Run) => !!run.error || index.findingsByOcc.has(run.item.occ.id);
 
-/** `system` is the rest of a system view, when `recording` is one. */
-export function buildIndex(recording: Recording, system?: Omit<SystemView, 'recording'> | null): ReplayIndex {
+/**
+ * `system` is the rest of a system view, when `recording` is one. `origin` keeps a live system view's times counting
+ * from where they did (see `ReplayIndex.origin`).
+ */
+export function buildIndex(recording: Recording, system?: Omit<SystemView, 'recording'> | null, origin?: number): ReplayIndex {
   const templates = new Map(recording.templates.map((t) => [t.id, t]));
   const nodes = new Map(recording.nodes.map((n) => [n.id, n]));
   const processes = new Map(recording.processes.map((p) => [p.id, p]));
@@ -231,8 +234,9 @@ export function buildIndex(recording: Recording, system?: Omit<SystemView, 'reco
     system: system ? buildServiceIndex(system, recording) : null,
     findingsByOcc, findingsById, findingsBySource, propagations, start, end,
     // A system view's times count from its window, which can start long before anything happened: count from the
-    // first event instead. It is a fixed recording, so `start` never moves under it.
-    origin: system ? start : 0,
+    // first event instead. A live one drops its oldest events as new ones come, so it passes in the origin it opened
+    // with: times shown stay put, and lists keyed on it don't redraw on every batch.
+    origin: system ? origin ?? start : 0,
   };
 }
 

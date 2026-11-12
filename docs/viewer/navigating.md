@@ -1,19 +1,19 @@
 # Navigating the graph
 
-The viewer draws your app as a graph: **processes** and **handlers** are cards, and **pathways** between them are the routes events take. You zoom between levels of detail, and click anything to inspect it on the right.
+The viewer draws your app as a graph: **emitters** and **handlers** are cards, and **pathways** between them are the routes events take. You zoom between levels of detail, and click anything to inspect it on the right.
 
 ## Zoom levels
 
 | Level | Cards are | Use it to |
 | --- | --- | --- |
 | **Services** | One card per service (recorder), with Kafka topics and RabbitMQ exchanges and queues between them. The live project view opens here. | See how services talk. |
-| **Processes** | Inside one service, one card per process: a group of emitters with the same label, such as `Orders` or `button#checkout`. Topics, exchanges and queues carry their broker's logo. | See which parts of your app talk to which. |
-| **Handlers** | The handlers and emitters inside one process. Processes it talks to appear at the edge as small cards. | See exactly which handler emits what. |
+| **Emitters** | Inside one service, one card per emitter: everything emitting under the same label, such as `Orders` or `button#checkout`. Topics, exchanges and queues carry their broker's logo. | See which parts of your app talk to which. |
+| **Handlers** | The handlers inside one emitter, and what they emit. Emitters it talks to appear at the edge as small cards. | See exactly which handler emits what. |
 
-- **Double-click** a card to zoom into it, or select it and use **Zoom into service** / **Zoom into process** in the inspector.
+- **Double-click** a card to zoom into it, or select it and use **Zoom into service** / **Zoom into emitter** in the inspector.
 - The breadcrumb along the top of the graph (`Services › checkout › Payments`) shows where you are; click a level to go back up. The browser's **Back** button steps out too.
-- A local file or bridge has no services level: it opens at its processes.
-- Selecting a handler or an error from the inspector zooms to its process automatically.
+- A local file or bridge has no services level: it opens at its emitters.
+- Selecting a handler or an error from the inspector zooms to its emitter automatically.
 
 Each card shows how busy it is. A card that briefly lights up with a **spike** saw a burst of events, held until the next update.
 
@@ -30,11 +30,11 @@ With nothing selected:
 - **Recording**: how many events are in the [replay window](replay.md#the-replay-window), out of the total, and, for live views, a dot showing whether the stream is connected.
 - **Notifications**: every error and suspected corrupt payload in the window, ranked **critical**, **high**, **medium** or **low** (from confidence and whether an external system was reached). Click one to go to it.
 
-### A process or handler
+### An emitter or handler
 
 Click a card:
 
-- **Process**, **Traffic**, and **Throws**: where it lives, how much it's doing, and how many errors it threw.
+- **Emitter**, **Traffic**, and **Throws**: where it lives, how much it's doing, and how many errors it threw.
 - **Activity** (handlers): how many events it handled and emitted, and the average time it took.
 - **Rate**: events per second over time.
 - **Receiving** / **Sending**: the events coming in and going out, with counts.

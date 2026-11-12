@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RECORDING_VERSION, type Occurrence, type Recording } from '@ida-dev/core';
-import { buildModel, levelInto, parentLevel, processNodeId, sameLevel, serviceNodeId, topLevel, type Level } from '../src/graph/model';
+import { buildModel, levelInto, normalizeLevel, parentLevel, processNodeId, sameLevel, serviceNodeId, topLevel, type Level } from '../src/graph/model';
 import { buildIndex } from '../src/replay';
 import type { SystemView } from '../src/replay/system';
 import { useStore } from '../src/store';
@@ -119,12 +119,33 @@ describe('system view', () => {
     const services = buildModel(i, { kind: 'services' });
     expect(levelInto(services.nodes.find((n) => n.id === serviceNodeId('payments'))!)).toEqual({ kind: 'process', service: 'payments' });
     expect(levelInto(services.nodes.find((n) => n.id === processNodeId(ORDERS))!)).toEqual({ kind: 'handlers', processId: ORDERS });
-    expect(parentLevel(i, { kind: 'handlers', processId: 'B/p1' })).toEqual({ kind: 'process', service: 'payments' });
+    // payments has one process of its own, so its level would only repeat the services level: in goes straight to
+    // that process, and out comes back to the services.
+    expect(normalizeLevel(i, { kind: 'process', service: 'payments' })).toEqual({ kind: 'handlers', processId: 'B/p1' });
+    expect(parentLevel(i, { kind: 'handlers', processId: 'B/p1' })).toEqual({ kind: 'services' });
     expect(parentLevel(i, { kind: 'handlers', processId: ORDERS })).toEqual({ kind: 'services' });
     expect(parentLevel(i, { kind: 'process', service: 'payments' })).toEqual({ kind: 'services' });
     expect(parentLevel(i, { kind: 'services' })).toBeNull();
     expect(sameLevel({ kind: 'process', service: 'a' }, { kind: 'process', service: 'b' })).toBe(false);
     expect(sameLevel({ kind: 'process' }, { kind: 'process' })).toBe(true);
+  });
+
+  it('keeps the level of a service that has more than one process', () => {
+    const { recording, ...rest } = systemView();
+    // A second process in payments (another worker in the same run).
+    const two = { ...recording, processes: [...recording.processes, { id: 'B/p2', label: 'Refunds' }] };
+    const services = rest.services.map((x) => (x.sessionId === 'B' ? { ...x, processIds: [...x.processIds, 'B/p2'] } : x));
+    const i = buildIndex(two, { ...rest, services });
+    expect(normalizeLevel(i, { kind: 'process', service: 'payments' })).toEqual({ kind: 'process', service: 'payments' });
+    expect(parentLevel(i, { kind: 'handlers', processId: 'B/p1' })).toEqual({ kind: 'process', service: 'payments' });
+  });
+
+  it('goes straight into the only process when the zoom is set on a service', () => {
+    const { recording, ...rest } = systemView();
+    useStore.getState().load(recording, 'system', rest);
+    useStore.getState().setLevel({ kind: 'process', service: 'checkout' });
+    expect(useStore.getState().level).toEqual({ kind: 'handlers', processId: 'A/p1' });
+    useStore.getState().unload();
   });
 
   it('draws the route from the exchange a message was published to, to the queue it was consumed from', () => {
@@ -238,7 +259,7 @@ describe('the project live stream', () => {
     });
     vi.advanceTimersByTime(300); // batches are applied together
     const s = useStore.getState();
-    expect(s.level).toEqual({ kind: 'process', service: 'checkout' });
+    expect(s.level).toEqual({ kind: 'handlers', processId: 'A/p1' }); // checkout's only process
     expect(s.index!.items).toHaveLength(6);
     expect([...s.index!.system!.services.keys()]).toContain('payments');
     expect(s.index!.system!.links.get('B/e1')?.status).toBe('in-view');
@@ -257,5 +278,21 @@ describe('the project live stream', () => {
     };
     es.send({ type: 'system-snapshot', view: shifted });
     expect(useStore.getState().t).toBe(15);
+  });
+
+  it('keeps counting times from where it started when the oldest events are dropped', () => {
+    useStore.getState().connectLive('http://x/live', 'all services');
+    const es = FakeEventSource.last!;
+    es.send({ type: 'system-snapshot', view: systemView() });
+    const origin = useStore.getState().index!.origin; // the first event, at 10
+    // A later snapshot, 5 ms on, that no longer holds the first two events.
+    const v = systemView();
+    es.send({
+      type: 'system-snapshot',
+      view: { ...v, from: v.from + 5, recording: { ...v.recording, startedAt: v.recording.startedAt + 5, occurrences: v.recording.occurrences.filter((o) => o.ts > 15).map((o) => ({ ...o, ts: o.ts - 5 })) } },
+    });
+    const index = useStore.getState().index!;
+    expect(index.start).toBe(15);
+    expect(index.origin).toBe(origin - 5); // the same moment, on the new clock
   });
 });

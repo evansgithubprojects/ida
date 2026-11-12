@@ -1,6 +1,6 @@
 import type { RecorderMessage, Recording } from '@ida-dev/core';
 import { create } from 'zustand';
-import { topLevel, type Level } from './graph/model';
+import { normalizeLevel, topLevel, type Level } from './graph/model';
 import { ZOOM_MS } from './graph/zoom';
 import { buildIndex, capWindow, keepNewest, parseRunId, parseThrowId, windowAround, type ReplayIndex } from './replay';
 import type { SystemLink, SystemService, SystemView } from './replay/system';
@@ -269,12 +269,14 @@ export const useStore = create<State>()((set, get) => {
     // A live stream never ends, so only its newest events are kept. A saved recording is loaded whole.
     const recording = live ? keepNewest(streamed) : streamed;
     currentSystem = system ?? null;
-    const index = buildIndex(recording, system);
     const prev = get();
     const keepView = live && prev.index !== null;
     // A fresh system snapshot counts its times from a later start: move the playhead and window by as much, so they
     // stay on the same moments.
     const moved = keepView && system && prev.index?.system && prev.recording ? prev.recording.startedAt - recording.startedAt : 0;
+    // A live system view keeps counting times from where it started (moved with the clock, like the playhead).
+    const origin = keepView && system && prev.index?.system ? prev.index.origin + moved : undefined;
+    const index = buildIndex(recording, system, origin);
     const s = moved ? { ...prev, t: prev.t + moved, window: [prev.window[0] + moved, prev.window[1] + moved] as [number, number] } : prev;
     const mode: 'live' | 'replay' = keepView ? s.mode : live ? 'live' : 'replay';
     const following = mode === 'live';
@@ -353,7 +355,7 @@ export const useStore = create<State>()((set, get) => {
       const [a, b] = index ? capWindow(index, sorted, keep) : sorted;
       set({ window: [a, b], t: Math.min(Math.max(t, a), b), following: false, mode: 'replay' });
     },
-    setLevel(level) { set({ level, selection: null, trail: [] }); },
+    setLevel(level) { set({ level: normalizeLevel(get().index, level), selection: null, trail: [] }); },
     setHideHealthy(hideHealthy) {
       set({ hideHealthy });
       saveSettings({ hideHealthy });

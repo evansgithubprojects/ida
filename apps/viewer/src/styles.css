@@ -158,7 +158,9 @@ code, pre { font-family: var(--mono); font-size: 12px; }
 /* graph */
 .node-card { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; display: flex; flex-direction: column; justify-content: center; cursor: pointer; transition: border-color .15s; }
 .node-card.kind-process { background: color-mix(in srgb, var(--lg-green-dark3) 40%, var(--panel)); }
-.node-card.kind-emitter { border-style: dashed; }
+.node-card.kind-emitter { border-style: dashed; background: color-mix(in srgb, var(--lg-green-dark3) 40%, var(--panel)); border-color: var(--lg-green-dark2); }
+.node-card.kind-emitter.in-broker { background: color-mix(in srgb, var(--lg-yellow-dark3) 55%, var(--panel)); border-color: var(--lg-yellow-dark2); }
+.ring-node.ring-broker { --tint: var(--lg-yellow-dark3); --tint-edge: var(--lg-yellow-dark2); }
 /* Dimmed with colour, not opacity: pathways run a little under their cards and must not show through. */
 .node-card.kind-stub { border-style: dotted; background: color-mix(in srgb, var(--panel) 70%, var(--bg)); }
 .node-card.kind-stub .node-title, .node-card.kind-stub .node-detail { opacity: .75; }
@@ -195,7 +197,8 @@ code, pre { font-family: var(--mono); font-size: 12px; }
 .graph-stack { position: absolute; inset: 0; overflow: hidden; }
 .graph-layer { position: absolute; inset: 0; transform-origin: 0 0; }
 .graph-layer.animating { pointer-events: none; will-change: transform, opacity; }
-.ring-node { box-sizing: border-box; border: 1.5px solid var(--border); border-radius: 50%; background: rgb(2 52 48 / .3); pointer-events: none; display: flex; justify-content: center; }
+/* The zoomed-into emitter's circle and its own emitter card take the colour of the card it was entered from. */
+.ring-node { --tint: var(--lg-green-dark3); --tint-edge: var(--lg-green-dark2); box-sizing: border-box; border: 1.5px solid color-mix(in srgb, var(--tint-edge) 70%, transparent); border-radius: 50%; background: color-mix(in srgb, var(--tint) 45%, transparent); pointer-events: none; display: flex; justify-content: center; }
 .ring-node span { margin-top: 10px; font-size: 12px; font-weight: 600; color: var(--muted); }
 
 .edge-label { position: absolute; pointer-events: all; display: flex; gap: 4px; font-size: 11px; background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 1px 6px; }

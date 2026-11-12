@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { api } from '../cloud/api';
 import { useApi } from '../cloud/useApi';
-import { sameLevel, serviceOfProcess, type Level } from '../graph/model';
+import { normalizeLevel, sameLevel, serviceOfProcess, type Level } from '../graph/model';
 import { LogoMark } from '../components/Logo';
 import { RecorderSwitcher } from '../components/RecorderSwitcher';
 import { RecordingsButton, type RecordingSource } from '../components/RecordingsDialog';
@@ -44,7 +44,7 @@ export function ProjectView() {
   const span = SPANS.some((ms) => String(ms) === params.get('span')) ? Number(params.get('span')) : DEFAULT_SPAN;
   const run = params.get('run');
   const urlService = params.get('service');
-  const urlProcess = params.get('process');
+  const urlProcess = params.get('emitter') ?? params.get('process'); // ?process= from before the rename
   const project = useApi(`project:${projectId}`, () => api.project(projectId));
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -119,7 +119,7 @@ export function ProjectView() {
   const system = !!index?.system;
   useEffect(() => {
     if (!system) return;
-    const want = levelFromUrl(urlService, urlProcess);
+    const want = normalizeLevel(useStore.getState().index, levelFromUrl(urlService, urlProcess));
     const { level: now, setLevel } = useStore.getState();
     if (!sameLevel(want, now)) setLevel(want);
   }, [system, urlService, urlProcess]);
@@ -130,7 +130,7 @@ export function ProjectView() {
   useEffect(() => {
     if (!system) { synced.current = false; return; }
     if (!synced.current) {
-      synced.current = sameLevel(level, levelFromUrl(urlService, urlProcess));
+      synced.current = sameLevel(level, normalizeLevel(index, levelFromUrl(urlService, urlProcess)));
       lastLevel.current = level;
       return;
     }
@@ -142,7 +142,8 @@ export function ProjectView() {
     // Each zoom step is a history entry, so Back steps out again.
     setParams((p) => {
       if (service) p.set('service', service); else p.delete('service');
-      if (process) p.set('process', process); else p.delete('process');
+      p.delete('process');
+      if (process) p.set('emitter', process); else p.delete('emitter');
       return p;
     });
   }, [system, level, index, urlService, urlProcess, setParams]);
@@ -150,7 +151,7 @@ export function ProjectView() {
   const service = system ? serviceOfLevel(level, index) : urlService;
   const pick = (key: string | null) => {
     if (system) useStore.getState().setLevel(key ? { kind: 'process', service: key } : { kind: 'services' });
-    else setParams((p) => { if (key) p.set('service', key); else p.delete('service'); p.delete('process'); return p; });
+    else setParams((p) => { if (key) p.set('service', key); else p.delete('service'); p.delete('process'); p.delete('emitter'); return p; });
   };
   const backToLive = () => setParams((p) => { p.delete('run'); return p; });
 

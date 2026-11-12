@@ -64,7 +64,7 @@ const FEATURES = [
   },
   {
     title: 'Inspect',
-    body: 'Start from processes, drop into a process to see its handlers, then inspect one handler for payloads, timings and errors.',
+    body: 'Start from emitters, drop into an emitter to see its handlers, then inspect one handler for payloads, timings and errors.',
   },
 ];
 

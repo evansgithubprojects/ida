@@ -9,6 +9,12 @@ import { countsOnCard, edgeId, eventKey } from '../replay';
 export type Level = { kind: 'services' } | { kind: 'process'; service?: string } | { kind: 'handlers'; processId: string };
 
 /** How far in a level is: services 0, processes 1, handlers 2. */
+/** Whether a process is a topic, exchange or queue rather than an app emitter. */
+export const isBroker = (index: ReplayIndex, pid: string): boolean => {
+  const kind = index.processes.get(pid)?.kind;
+  return !!kind && kind !== 'emitter';
+};
+
 export const levelDepth = (l: Level) => (l.kind === 'services' ? 0 : l.kind === 'process' ? 1 : 2);
 
 export const sameLevel = (a: Level, b: Level) =>
@@ -29,13 +35,37 @@ export function levelInto(m: ModelNode): Level | null {
   return null;
 }
 
+/**
+ * The service's only process of its own (broker processes aside), when it has exactly one. Zoomed into such a service
+ * there is nothing to see but that one card and the same neighbours as the services level, so zooming goes straight
+ * into the process instead (see `normalizeLevel`). A service with several processes, or several running instances,
+ * keeps its own level.
+ */
+export function soleProcess(index: ReplayIndex | null, service: string): string | null {
+  let found: string | null = null;
+  for (const [pid, owner] of index?.system?.processService ?? []) {
+    if (owner !== service) continue;
+    if (found) return null;
+    found = pid;
+  }
+  return found;
+}
+
+/** `level`, or the process it would only show one card of: see `soleProcess`. */
+export function normalizeLevel(index: ReplayIndex | null, level: Level): Level {
+  if (level.kind !== 'process' || !level.service) return level;
+  const only = soleProcess(index, level.service);
+  return only ? { kind: 'handlers', processId: only } : level;
+}
+
 /** The level one step out from `level`. */
 export function parentLevel(index: ReplayIndex | null, level: Level): Level | null {
   if (level.kind === 'handlers') {
     if (!index?.system) return { kind: 'process' };
     // A broker process belongs to no one service, so out of it is the whole system.
     const service = serviceOfProcess(index, level.processId);
-    return service ? { kind: 'process', service } : { kind: 'services' };
+    // A service's only process was entered straight from the services level, so that is where out goes.
+    return service && soleProcess(index, service) !== level.processId ? { kind: 'process', service } : { kind: 'services' };
   }
   if (level.kind === 'process' && index?.system) return { kind: 'services' };
   return null;
@@ -57,6 +87,8 @@ export interface ModelNode {
   broker?: Process['kind'];
   /** Which broker it belongs to (Kafka, RabbitMQ), for its logo. */
   brokerType?: NonNullable<Process['broker']>['type'];
+  /** An emitter node inside a topic, exchange or queue: drawn in the broker's colour, like the card it was zoomed in from. */
+  inBroker?: boolean;
   /** For a `service` node, or a stub that stands for one: its recorder key. */
   service?: string;
 }
@@ -205,17 +237,19 @@ export function buildModel(index: ReplayIndex, level: Level, items: IndexedOccur
   } else if (level.kind === 'process' || level.kind === 'services') {
     for (const pid of index.processLabel.keys()) nodes.push(processNode(pid));
   } else {
+    const hostIsBroker = isBroker(index, level.processId);
+    const inBroker = (n: { kind: string }) => n.kind === 'emitter' && hostIsBroker;
     for (const n of index.nodes.values()) {
       // An emitter that never fired or received anything is just noise.
       const idle = n.kind === 'emitter' && !handled.get(n.id) && !emitted.get(n.id);
       if (n.processId !== level.processId) continue;
-      if (!idle) nodes.push({ id: n.id, label: n.label, kind: n.kind, processId: n.processId, detail: detail(n.id), rawId: n.id });
-      else if (pinned.includes(n.id)) nodes.push({ id: n.id, label: n.label, kind: n.kind, processId: n.processId, detail: 'no activity in window', rawId: n.id, idle: true });
+      if (!idle) nodes.push({ id: n.id, label: n.label, kind: n.kind, processId: n.processId, detail: detail(n.id), rawId: n.id, ...(inBroker(n) && { inBroker: true }) });
+      else if (pinned.includes(n.id)) nodes.push({ id: n.id, label: n.label, kind: n.kind, processId: n.processId, detail: 'no activity in window', rawId: n.id, idle: true, ...(inBroker(n) && { inBroker: true }) });
     }
     for (const id of used) {
       if (id.startsWith('p:') && id !== processNodeId(level.processId)) {
         const pid = id.slice(2);
-        nodes.push({ id, label: index.processLabel.get(pid) ?? pid, kind: 'stub', processId: pid, detail: sys?.processService.get(pid) ? `in ${sys.processService.get(pid)}` : 'other process', ...brokerFields(pid) });
+        nodes.push({ id, label: index.processLabel.get(pid) ?? pid, kind: 'stub', processId: pid, detail: sys?.processService.get(pid) ? `in ${sys.processService.get(pid)}` : 'other emitter', ...brokerFields(pid) });
       } else if (id.startsWith('s:')) {
         const key = id.slice(2);
         nodes.push({ id, label: key, kind: 'stub', processId: '', service: key, detail: 'other service' });

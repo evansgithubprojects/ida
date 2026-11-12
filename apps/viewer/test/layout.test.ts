@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accumulate, chainOrder, layout, layoutSeen, NODE_H, NODE_W } from '../src/graph/layout';
+import { accumulate, chainOrder, chainRows, layout, layoutSeen, NODE_H, NODE_W } from '../src/graph/layout';
 import type { GraphModel, ModelNode } from '../src/graph/model';
 
 const node = (id: string, kind: ModelNode['kind'] = 'handler'): ModelNode => ({ id, label: id, kind, processId: 'a', detail: '' });
@@ -15,7 +15,8 @@ const centre = (l: ReturnType<typeof layout>, id: string) => {
 
 describe('circular layout', () => {
   const ids = ['a', 'b', 'c', 'd', 'e', 'f'];
-  const m = model(ids.map((i) => node(i)), [['a', 'b'], ['b', 'c'], ['c', 'd']]);
+  // a branches (to b, e and f), so this is no chain: it stays a circle.
+  const m = model(ids.map((i) => node(i)), [['a', 'b'], ['b', 'c'], ['c', 'd'], ['a', 'e'], ['a', 'f']]);
   const l = layout(m, false);
 
   it('puts every node the same distance from the origin', () => {
@@ -115,6 +116,29 @@ describe('a single chain', () => {
     expect(centre(l, 'a').x).toBeLessThan(0);
     expect(centre(l, 'b').x).toBeLessThan(0);
     expect(centre(l, 'out').x).toBeGreaterThan(0);
+  });
+
+  it('keeps a chain in a row when another card has no pathways, which sits on a row of its own below', () => {
+    // payments → orders → warehouse → shipping, and shop on its own.
+    const ids = ['shop', 'payments', 'orders', 'warehouse', 'shipping'];
+    const m = model(ids.map((i) => node(i)), [['payments', 'orders'], ['orders', 'warehouse'], ['warehouse', 'shipping']]);
+    expect(chainRows(ids, m)).toEqual([['payments', 'orders', 'warehouse', 'shipping'], ['shop']]);
+    const l = layout(m, false);
+    const ys = ['payments', 'orders', 'warehouse', 'shipping'].map((id) => centre(l, id).y);
+    expect(new Set(ys).size).toBe(1);
+    expect(centre(l, 'shop').y).toBeGreaterThan(ys[0]!);
+  });
+
+  it('puts each of two separate chains on its own row, longest first', () => {
+    const ids = ['a', 'b', 'x', 'y', 'z'];
+    const m = model(ids.map((i) => node(i)), [['a', 'b'], ['x', 'y'], ['y', 'z']]);
+    expect(chainRows(ids, m)).toEqual([['x', 'y', 'z'], ['a', 'b']]);
+  });
+
+  it('keeps the circle when any piece branches, or nothing is linked', () => {
+    const ids = ['a', 'b', 'c', 'd'];
+    expect(chainRows(ids, model(ids.map((i) => node(i)), [['a', 'b'], ['a', 'c'], ['a', 'd']]))).toBeNull();
+    expect(chainRows(ids, model(ids.map((i) => node(i))))).toBeNull();
   });
 
   it('puts two unlinked nodes side by side', () => {

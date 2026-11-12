@@ -9,11 +9,11 @@ Open your organization, then a project, and click **Open viewer**. The viewer op
 - The count at the top right says how many services have events in view.
 - Clicking a recorder's key under **Recorders** on the project page opens the viewer zoomed into that service.
 
-The URL follows what you're looking at (`?service=payments&process=…`), so you can share a link that opens at the same place, and **Back** steps out of a zoom.
+The URL follows what you're looking at (`?service=payments&emitter=…`), so you can share a link that opens at the same place, and **Back** steps out of a zoom.
 
 ### Switching service
 
-The menu in the graph's top-left corner shows what's in view: **All services**, or the service you've zoomed into. Open it to see every recorder in the project, with the processes each recorded and a dot on those that are live, and pick one to zoom into it. **All services** zooms back out.
+The menu in the graph's top-left corner shows what's in view: **All services**, or the service you've zoomed into. Open it to see every recorder in the project, with the emitters each recorded and a dot on those that are live, and pick one to zoom into it. **All services** zooms back out.
 
 ## Past runs
 

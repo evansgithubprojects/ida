@@ -6,12 +6,12 @@ import '@xyflow/react/dist/style.css';
 import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { accumulate, layoutBounds, layoutSeen, NODE_H, NODE_W, type Positions, type Seen } from '../graph/layout';
 import { BrokerLogo } from './BrokerLogo';
-import { levelDepth, levelInto, parentLevel, processNodeId, sameLevel, serviceNodeId, serviceOfProcess, tracedParts, type Level, type ModelEdge, type ModelNode } from '../graph/model';
+import { isBroker, levelDepth, levelInto, parentLevel, processNodeId, sameLevel, serviceNodeId, serviceOfProcess, tracedParts, type Level, type ModelEdge, type ModelNode } from '../graph/model';
 import {
   centreViewport, fitViewport, MAX_ZOOM, sameViewport, saveViewport, takeSavedViewport, MIN_ZOOM, motion, rectOnScreen, toKeyframes, ZOOM_MS, zoomFrames, type Rect, type Viewport,
 } from '../graph/zoom';
 import { useActive, useModel, useRates, useTrace } from '../hooks';
-import { fmtRate, type Active, type ShownRates } from '../replay';
+import { fmtRate, type Active, type ReplayIndex, type ShownRates } from '../replay';
 import { useStore } from '../store';
 import { NodeRef } from './common';
 import { GraphSettings } from './GraphSettings';
@@ -41,7 +41,7 @@ const ViewCtx = createContext<ViewState | null>(null);
 const useView = () => useContext(ViewCtx)!;
 
 type RouteNode = Node<Record<string, never>, 'route'>;
-type RingNode = Node<{ label: string; size: number }, 'ring'>;
+type RingNode = Node<{ label: string; size: number; broker: boolean }, 'ring'>;
 type AnyNode = RouteNode | RingNode;
 type RouteEdge = Edge<Record<string, never>, 'route'>;
 
@@ -56,7 +56,7 @@ const NodeCard = memo(function NodeCard({ id }: NodeProps<RouteNode>) {
   const rateOut = rates?.out.get(id);
   const flashing = active.flashingNodes.has(id);
   const thrown = active.thrownNodes.get(id) ?? 0;
-  const cls = ['node-card', `kind-${model.kind}`, model.broker && `broker broker-${model.broker}`, flashing && 'flash', thrown > 0 && 'has-thrown', model.idle && 'idle', selectedId === id && 'selected', focusedId === id && 'focused', traced && (traced.nodes.has(id) ? 'traced' : 'dimmed')];
+  const cls = ['node-card', `kind-${model.kind}`, model.broker && `broker broker-${model.broker}`, model.inBroker && 'in-broker', flashing && 'flash', thrown > 0 && 'has-thrown', model.idle && 'idle', selectedId === id && 'selected', focusedId === id && 'focused', traced && (traced.nodes.has(id) ? 'traced' : 'dimmed')];
   return (
     <div className={cls.filter(Boolean).join(' ')} style={{ width: NODE_W, height: NODE_H }}>
       <Handle type="target" position={Position.Left} isConnectable={false} style={hiddenHandle} />
@@ -73,10 +73,10 @@ const NodeCard = memo(function NodeCard({ id }: NodeProps<RouteNode>) {
   );
 });
 
-/** The process being looked into, drawn as a big circle behind its handlers. */
+/** The emitter being looked into, drawn as a big circle behind its handlers, in the colour of its card. */
 const RingNodeView = memo(function RingNodeView({ data }: NodeProps<RingNode>) {
   return (
-    <div className="ring-node" style={{ width: data.size, height: data.size }}>
+    <div className={`ring-node${data.broker ? ' ring-broker' : ''}`} style={{ width: data.size, height: data.size }}>
       <span>{data.label}</span>
     </div>
   );
@@ -185,9 +185,16 @@ const edgeTypes = { route: RouteEdgeView };
 
 const boxOf = (p: { x: number; y: number }): Rect => ({ x: p.x, y: p.y, width: NODE_W, height: NODE_H });
 
-/** The card a level is entered through, in the level above it. */
-const entryCard = (level: Level) =>
-  level.kind === 'handlers' ? processNodeId(level.processId) : level.kind === 'process' && level.service ? serviceNodeId(level.service) : null;
+/**
+ * The cards a level may be entered through in the level above it, best first: a process's own card, else (for a
+ * service's only process, entered straight from the services level) its service's card.
+ */
+const entryCards = (level: Level, index: ReplayIndex | null): string[] => {
+  if (level.kind === 'process') return level.service ? [serviceNodeId(level.service)] : [];
+  if (level.kind !== 'handlers') return [];
+  const service = serviceOfProcess(index, level.processId);
+  return [processNodeId(level.processId), ...(service ? [serviceNodeId(service)] : [])];
+};
 
 /** What a transition needs to know about a mounted layer: where its nodes are and where the camera is. */
 interface Geometry {
@@ -298,7 +305,7 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
       const r = lay.ring.radius;
       list.push({
         id: RING_ID, type: 'ring', position: { x: -r, y: -r }, width: 2 * r, height: 2 * r, zIndex: -1,
-        data: { label: index?.processLabel.get(level.processId) ?? level.processId, size: 2 * r },
+        data: { label: index?.processLabel.get(level.processId) ?? level.processId, size: 2 * r, broker: !!index && isBroker(index, level.processId) },
         draggable: false, selectable: false, focusable: false,
       });
     }
@@ -372,9 +379,9 @@ function ZoomCrumbs() {
   for (let l: Level | null = level; l; l = parentLevel(index, l)) path.unshift(l);
   const name = (l: Level) => {
     if (l.kind === 'services') return 'Services';
-    if (l.kind === 'process') return l.service ?? 'Processes';
+    if (l.kind === 'process') return l.service ?? 'Emitters';
     const service = serviceOfProcess(index, l.processId);
-    return index?.processLabel.get(l.processId) ?? (service ? `${service} process` : l.processId);
+    return index?.processLabel.get(l.processId) ?? (service ? `${service} emitter` : l.processId);
   };
   return (
     <nav className="crumbs zoom-crumbs" aria-label="Zoom level">
@@ -395,6 +402,8 @@ function ZoomCrumbs() {
  */
 export function GraphView({ actions }: { /** Extra buttons shown left of the settings cog. */ actions?: ReactNode } = {}) {
   const level = useStore((s) => s.level);
+  // Read once per transition (not subscribed): which card a zoom goes through doesn't change with each live batch.
+  const indexNow = () => useStore.getState().index;
   const box = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<Size | null>(null);
   const keys = useRef(0);
@@ -436,9 +445,8 @@ export function GraphView({ actions }: { /** Extra buttons shown left of the set
     // The parent is the layer holding the card that gets zoomed into: the old one going in, the new one coming out.
     const parent = zoomOut ? current : outgoing;
     const child = zoomOut ? outgoing : current;
-    const focusId = entryCard(child.level);
     const g = geometry.get(parent.key);
-    const p = focusId ? g?.positions.get(focusId) : undefined;
+    const p = entryCards(child.level, indexNow()).map((id) => g?.positions.get(id)).find(Boolean);
 
     const options: KeyframeAnimationOptions = { duration: ms, fill: 'both', easing: 'linear' };
     let anims: Animation[];

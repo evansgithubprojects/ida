@@ -6,7 +6,7 @@ import type { RecordingSource } from './RecordingsDialog';
 
 /** The recorder's name and its processes as a row's subheading, so the list reads as what each recorder contains. */
 export function processSummary(processes: string[]): string {
-  return processes.length ? processes.join(', ') : 'No processes yet';
+  return processes.length ? processes.join(', ') : 'No emitters yet';
 }
 
 /**
