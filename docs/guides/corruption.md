@@ -11,7 +11,7 @@ Findings always say **suspected**: Ida can't know your data's rules, only that a
 1. **A failure taints its source.** When a handler throws, or an `error` event is emitted with an `Error`, that handler (or emitter) becomes suspect, for `taintWindowMs` (1 s) or its next `taintCount` (5) emits, whichever ends first.
 2. **Its next payloads are compared with earlier clean ones** of the same event from the same emitter. Up to 20 earlier samples are kept.
 3. **Flagged payloads taint what they cause**, for `taintDepth` (1) hop, so a bad payload passed along is caught one step further.
-4. **Payloads emitted before the failure** (in the same handler run) are checked again once it fails, and flagged as *retroactive*.
+4. **Payloads emitted before the failure** (in the same handler run) are checked again once it fails, and flagged as *retroactive* (tagged **created before error** in the viewer).
 
 With [deep logging](../concepts/templates.md#keeping-full-payloads) on for the event, values are compared (basis **deep**). Without it, only shapes are (basis **shape**), which catches fields that disappear or change type but not bad values.
 

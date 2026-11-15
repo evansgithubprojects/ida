@@ -136,6 +136,59 @@ describe('links across scopes', () => {
   });
 });
 
+describe('trace follows the inspector', () => {
+  let t = 0;
+  const rec = createRecorder({ now: () => (t += 10) });
+  const a = {};
+  const b = {};
+  const send = (e: object, name: string, handlers: Function[]) =>
+    rec.dispatch({ emitter: e, eventName: name, handlers, payload: undefined }, (invoke) => handlers.forEach((h) => invoke(h, () => h())));
+  const boom = function boom() { throw new Error('nope'); };
+  const start = function start() { send(b, 'charge', [boom]); };
+  try { send(a, 'go', [start]); } catch { /* both threw */ }
+  const recording = rec.export();
+
+  const setup = () => {
+    useStore.getState().load(recording, 'test');
+    const index = useStore.getState().index!;
+    const go = index.items.find((i) => i.template.eventName === 'go')!;
+    const charge = index.items.find((i) => i.template.eventName === 'charge')!;
+    const throwId = charge.throws[0]!.id;
+    return { go, charge, throwId };
+  };
+  const trace = () => useStore.getState().trace!;
+
+  it('moves to the slide of an event already in the trace', () => {
+    const { go, charge } = setup();
+    useStore.getState().startTrace({ type: 'occurrence', id: charge.occ.id, occurrenceId: charge.occ.id });
+    useStore.getState().traceStep(1);
+    useStore.getState().seekToOccurrence(go.occ.id);
+    expect(trace().at).toBe(0);
+    expect(trace().path.target.id).toBe(charge.occ.id);
+    useStore.getState().endTrace();
+  });
+
+  it('switches to the trace of an error inspected from inside a trace, on the error itself', () => {
+    const { go, charge, throwId } = setup();
+    useStore.getState().startTrace({ type: 'occurrence', id: go.occ.id, occurrenceId: go.occ.id });
+    useStore.getState().select({ type: 'throw', id: throwId });
+    expect(trace().path.target).toMatchObject({ type: 'throw', id: throwId, occurrenceId: charge.occ.id });
+    expect(trace().at).toBe(trace().path.slides.length - 1);
+    useStore.getState().endTrace();
+  });
+
+  it('opens a trace started from inside another on its last slide, and a fresh one on its root', () => {
+    const { charge, throwId } = setup();
+    useStore.getState().startTrace({ type: 'occurrence', id: charge.occ.id, occurrenceId: charge.occ.id });
+    expect(trace().at).toBe(0);
+    useStore.getState().startTrace({ type: 'throw', id: throwId, occurrenceId: charge.occ.id });
+    expect(trace().path.target.type).toBe('throw');
+    expect(trace().at).toBe(trace().path.slides.length - 1);
+    expect(useStore.getState().selection).toEqual({ type: 'throw', id: throwId });
+    useStore.getState().endTrace();
+  });
+});
+
 describe('the replay window cap', () => {
   const many = (n: number) => {
     let t = 0;

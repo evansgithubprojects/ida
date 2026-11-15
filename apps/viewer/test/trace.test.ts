@@ -141,7 +141,7 @@ describe('tracePath', () => {
     ]);
     const finding = subs({ type: 'finding', id: 'f1', occurrenceId: 'B/e3' });
     expect(finding[2]).toBe('charge threw "declined" while handling orders.orders in payments. The suspect payload is traced to this error.');
-    expect(finding[3]).toBe('Receipts.receipt carried a suspected corrupt payload (amount is missing) to Bank.');
+    expect(finding[3]).toBe('Receipts.receipt carried a suspected corrupt payload to Bank.');
     expect(subs({ type: 'occurrence', id: 'D/e1', occurrenceId: 'D/e1' })[2]).toBe('orders.orders came through topic orders and was picked up in audit 14ms after it was published. This is the event you traced.');
   });
 

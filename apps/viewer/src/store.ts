@@ -264,6 +264,30 @@ export const useStore = create<State>()((set, get) => {
     if (target) setFocus(target, to ? ZOOM_MS : 0);
   };
 
+  /**
+   * Keeps an open trace on what the inspector shows. An error or a suspected corrupt payload gets its own trace, on
+   * its last slide (the error or payload itself); an event or run already in the trace moves the trace to its slide,
+   * and one that isn't gets its own trace. Nodes, pathways, event kinds and spikes aren't steps, so they leave it be.
+   */
+  const followSelection = (selection: Selection) => {
+    const { trace, index } = get();
+    if (!trace || !index || !selection) return;
+    const occurrenceId = occurrenceOfSelection(index, selection);
+    if (!occurrenceId) return;
+    const slides = trace.path.slides;
+    if (selection.type === 'occurrence' || selection.type === 'run') {
+      const k = slides.findIndex((s) => s.item.occ.id === occurrenceId);
+      if (k >= 0) return set({ trace: { ...trace, at: k, auto: false } });
+    }
+    const target: TraceTarget = selection.type === 'throw' || selection.type === 'finding'
+      ? { type: selection.type, id: selection.id, occurrenceId }
+      : { type: 'occurrence', id: occurrenceId, occurrenceId };
+    const t = trace.path.target;
+    if (t.type === target.type && t.id === target.id) return set({ trace: { ...trace, at: slides.length - 1, auto: false } });
+    const path = tracePath(index, target);
+    if (path) set({ trace: { ...trace, path, at: path.slides.length - 1, auto: false } });
+  };
+
   /** Inspects slide `k` of a trace, zoomed into the handlers of the process it happens in. */
   const showSlide = (path: TracePath, k: number) => {
     const processId = path.slides[k]?.processId;
@@ -425,6 +449,7 @@ export const useStore = create<State>()((set, get) => {
       // Clicking the graph itself needs no pan; anything else (a link in the inspector) shows where it is.
       if (selection && !opts?.fromGraph) reveal(selection);
       else set((s) => ({ selection, trail: !selection ? [] : [selection] }));
+      followSelection(selection);
       // Clicking something on the graph is asking to see it, so a hidden inspector opens.
       if (selection && opts?.fromGraph && !get().inspectorOpen) get().setInspectorOpen(true);
     },
@@ -435,13 +460,16 @@ export const useStore = create<State>()((set, get) => {
       const { window, index } = get();
       const ts = item.occ.ts;
       reveal(selection, { t: ts, playing: false, following: false, mode: 'replay', window: trailing(index, window, ts) });
+      followSelection(selection);
     },
     inspectNode(nodeId) { reveal({ type: 'node', id: nodeId }); },
     startTrace(target) {
       const { index, mode, trace } = get();
       const path = index && tracePath(index, target);
       if (!path) return;
-      const at = 0;
+      // A new trace opens on its root. One opened from inside a trace (a link in the inspector) lands on what was
+      // clicked, so the inspector and the trace keep showing the same thing.
+      const at = trace ? path.slides.length - 1 : 0;
       set({ trace: { path, at, auto: false, prevMode: trace?.prevMode ?? mode }, playing: false, following: false, liveShift: new Map() });
       showSlide(path, at);
       if (!get().inspectorOpen) get().setInspectorOpen(true);

@@ -34,14 +34,16 @@ Clicking a **notification** (an error or a suspected corrupt payload) opens its 
 - A **suspected corrupt payload**'s trace runs through the error it's traced to, then on to the payload itself. Events emitted after the failure on the way are marked as possibly carrying the bad state.
 - An **event**'s trace runs from the root to that event.
 
-The trace replaces the timeline at the bottom of the screen. It opens on the first step (where the chain started) and ends on the error, payload or event. Each step shows:
+The trace replaces the timeline at the bottom of the screen. It opens on the first step (where the chain started), or, when opened from inside another trace, on the error, payload or event you clicked (see below). It ends on the error, payload or event. Each step shows:
 
-- a **subtitle** saying why the step matters: where the chain started, which handler emitted the next event, the broker a message went through and how long it waited there, which handler threw and with what message;
+- a **subtitle** saying why the step matters: where the chain started, which handler emitted the next event, the broker a message went through and how long it waited there, which handler threw and with what message, and on a corrupt payload's last step, who it reached (what was wrong with it is in the inspector's **Data** section);
 - the graph zoomed into the handlers of the process the step happens in (the throwing handler's on an error step), whatever level you were at;
 - the step's pathway pulsing on the graph: only to the handler the trace goes on through (the one that emitted the next step, or the one that threw), not to every handler the event reached. The event you traced shows all of its handlers. Steps already shown stay lit, steps still ahead are faint, and every card and pathway the trace doesn't reach is hidden (the rest keep their places). The camera zooms to fit the trace, and goes back where it was when the trace ends. Event rates (n/s) are hidden while a trace is open; a pathway that carried a suspected corrupt payload keeps its ⚠ mark;
 - the step in the inspector.
 
 Below the subtitle, a strip lists every step, oldest first, with each step's service (shown when it changes), broker, event and handler. Errors are marked with a red ✕ and the corrupt payload with ⚠. Click a step to jump to it.
+
+The trace follows the inspector. Click a link to an error or a suspected corrupt payload while a trace is open (the **Source error** in a payload's inspector, say) and the trace switches to that one's trace, on the error or payload itself. Click an event that is already a step and the trace moves to it; any other event gets its own trace.
 
 Step with **‹ Prev** / **Next ›** or **←** / **→**. **▶ Play** steps forward on its own (**Space**). Press **Esc** or click **✕** to end the trace.
 

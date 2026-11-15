@@ -171,9 +171,9 @@ export function subtitleOf(index: ReplayIndex, path: TracePath, k: number): stri
     case 'target': {
       if (path.target.type === 'finding') {
         const f = index.findingsById.get(path.target.id) ?? index.findingsByOcc.get(item.occ.id)?.[0];
-        const reason = f?.reasons[0]?.message;
+        // What was wrong with it is in the inspector's Data section, so the sentence only says where it went.
         const to = recipientsOf(index, f ? [f] : []).map((r) => r.label);
-        return `${event} carried a suspected corrupt payload${reason ? ` (${reason})` : ''}${to.length ? ` to ${to.join(', ')}` : ''}.`;
+        return `${event} carried a suspected corrupt payload${to.length ? ` to ${to.join(', ')}` : ''}.`;
       }
       return `${flow()}. This is the event you traced.`;
     }
