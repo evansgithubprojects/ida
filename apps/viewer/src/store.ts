@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { normalizeLevel, sameLevel, topLevel, type Level } from './graph/model';
 import { ZOOM_MS } from './graph/zoom';
 import { buildIndex, capWindow, keepNewest, parseRunId, parseThrowId, windowAround, type ReplayIndex } from './replay';
+import { spikeById } from './replay/spikes';
 import { tracePath, type TracePath, type TraceSlide, type TraceTarget } from './replay/trace';
 import type { SystemLink, SystemService, SystemView } from './replay/system';
 
@@ -30,6 +31,7 @@ export type Selection =
   | { type: 'throw'; id: string }
   | { type: 'finding'; id: string }
   | { type: 'run'; id: string }
+  | { type: 'spike'; id: string }
   | null;
 
 /** What the graph should pan to and pulse: a node (raw or as drawn) or a pathway. */
@@ -42,6 +44,7 @@ export function focusTargetOf(index: ReplayIndex | null, sel: NonNullable<Select
     case 'node': return { nodeId: sel.id };
     case 'edge': return { edgeId: sel.id };
     case 'event': { const e = index.events.get(sel.id); return e ? { nodeId: e.emitterId } : null; }
+    case 'spike': { const s = spikeById(index, sel.id); const e = s && index.events.get(s.eventKey); return e ? { nodeId: e.emitterId } : null; }
     case 'occurrence': { const i = index.byId.get(sel.id); return i ? { nodeId: i.occ.sourceNodeId } : null; }
     case 'run': { const r = parseRunId(index, sel.id); return r ? { nodeId: r.nodeId } : null; }
     case 'throw': { const t = parseThrowId(index, sel.id); return t ? { nodeId: t.handlerId } : null; }
@@ -65,8 +68,8 @@ export function occurrenceOfSelection(index: ReplayIndex | null, sel: Selection)
   }
 }
 
-/** Events, errors, payloads and runs mean the same thing at every zoom level, so inspecting one survives a zoom. */
-const levelFree = (t: Selection) => t?.type === 'event' || t?.type === 'throw' || t?.type === 'finding' || t?.type === 'run';
+/** Events, errors, payloads, runs and spikes mean the same thing at every zoom level, so inspecting one survives a zoom. */
+const levelFree = (t: Selection) => t?.type === 'event' || t?.type === 'throw' || t?.type === 'finding' || t?.type === 'run' || t?.type === 'spike';
 
 /**
  * The zoom level that draws what `sel` is about, or null when the current one already does. Handlers are only drawn
@@ -97,6 +100,8 @@ interface State {
   inspectorOpen: boolean;
   /** Which kinds of notification the lists show: errors (`throw`) and corrupt payloads (`finding`). Persists across reloads. */
   notificationKinds: NotificationKinds;
+  /** Whether the Spikes menus are open. Persists across reloads. */
+  spikesOpen: boolean;
   selection: Selection;
   /** Everything inspected at this zoom level, oldest first; `selection` is always its last entry. */
   trail: NonNullable<Selection>[];
@@ -128,6 +133,7 @@ interface State {
   setLevel(level: Level): void;
   setHideHealthy(hide: boolean): void;
   setNotificationKind(kind: keyof NotificationKinds, shown: boolean): void;
+  setSpikesOpen(open: boolean): void;
   setInspectorOpen(open: boolean): void;
   /** `fromGraph` marks a click on the graph itself: everything drawn there sits directly under the level, so it starts a new trail. */
   select(selection: Selection, opts?: { fromGraph?: boolean }): void;
@@ -210,7 +216,7 @@ const SETTINGS_KEY = 'ida_graph_settings';
 
 export interface NotificationKinds { throw: boolean; finding: boolean }
 
-interface Settings { hideHealthy: boolean; inspectorOpen: boolean; notificationKinds: NotificationKinds }
+interface Settings { hideHealthy: boolean; inspectorOpen: boolean; notificationKinds: NotificationKinds; spikesOpen: boolean }
 
 function loadSettings(): Settings {
   try {
@@ -220,9 +226,10 @@ function loadSettings(): Settings {
       hideHealthy: saved.hideHealthy === true,
       inspectorOpen: saved.inspectorOpen !== false,
       notificationKinds: { throw: kinds?.throw !== false, finding: kinds?.finding !== false },
+      spikesOpen: saved.spikesOpen !== false,
     };
   } catch {
-    return { hideHealthy: false, inspectorOpen: true, notificationKinds: { throw: true, finding: true } };
+    return { hideHealthy: false, inspectorOpen: true, notificationKinds: { throw: true, finding: true }, spikesOpen: true };
   }
 }
 
@@ -397,6 +404,10 @@ export const useStore = create<State>()((set, get) => {
       set({ window: [a, b], t: Math.min(Math.max(t, a), b), following: false, mode: 'replay' });
     },
     setLevel(level) { set({ level: normalizeLevel(get().index, level), selection: null, trail: [] }); },
+    setSpikesOpen(spikesOpen) {
+      set({ spikesOpen });
+      saveSettings({ spikesOpen });
+    },
     setNotificationKind(kind, shown) {
       const notificationKinds = { ...get().notificationKinds, [kind]: shown };
       set({ notificationKinds });

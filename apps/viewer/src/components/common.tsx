@@ -6,7 +6,7 @@ import { useStore } from '../store';
 
 export { fmtMs } from '../replay';
 
-export function Badge({ tone, children, title }: { tone: 'full' | 'template' | 'error' | 'warn' | 'external' | 'muted'; children: ReactNode; title?: string }) {
+export function Badge({ tone, children, title }: { tone: 'full' | 'template' | 'error' | 'warn' | 'external' | 'muted' | 'spike'; children: ReactNode; title?: string }) {
   return <span className={`badge badge-${tone}`} title={title}>{children}</span>;
 }
 
@@ -242,11 +242,17 @@ const CHART_H = 48;
 export interface RateSeries { label: string; values: number[]; color: string; current?: { value: number; spike: boolean } }
 
 /**
+ * Labels for a chart that isn't of the last few minutes: what each point is (`point`, e.g. "+2s"), and what the axis
+ * reads at either end.
+ */
+export interface ChartSpan { point(i: number): string; start: string; end: string; description: string }
+
+/**
  * Events per second over the last few minutes, oldest first, one value per `RATE_STEP_MS` step. Several series share
  * one plot and scale (`max`), each in its own color with a legend. The readout above shows the newest values, or
- * the ones under the pointer.
+ * the ones under the pointer. With `span`, the points are of some other stretch of time, labelled by it.
  */
-export function RateChart({ series, max }: { series: RateSeries[]; max: number }) {
+export function RateChart({ series, max, span }: { series: RateSeries[]; max: number; span?: ChartSpan }) {
   const [hover, setHover] = useState<number | null>(null);
   const n = series[0]?.values.length ?? 0;
   const top = max > 0 ? max : 1;
@@ -255,7 +261,7 @@ export function RateChart({ series, max }: { series: RateSeries[]; max: number }
   const y = (v: number) => CHART_H - 1 - (v / top) * (CHART_H - 3);
   const shown = hover ?? n - 1;
   // The newest point reads what the graph's label shows, which can be a spike ahead of the last completed step.
-  const atNow = hover === null || hover === n - 1;
+  const atNow = !span && (hover === null || hover === n - 1);
   const minutes = Math.round((n * RATE_STEP_MS) / 60_000);
   const spiking = atNow && series.some((r) => r.current?.spike);
   return (
@@ -268,14 +274,14 @@ export function RateChart({ series, max }: { series: RateSeries[]; max: number }
             <strong>{fmtRate(atNow && r.current ? r.current.value : r.values[shown] ?? 0)}/s</strong>
           </span>
         ))}
-        <span className={spiking ? 'spike' : 'muted'}>{!atNow ? agoLabel((n - 1 - hover!) * RATE_STEP_MS) : spiking ? 'spike' : `last ${RATE_STEP_MS / 1000} s`}</span>
+        <span className={spiking ? 'spike' : 'muted'}>{span ? span.point(shown) : !atNow ? agoLabel((n - 1 - hover!) * RATE_STEP_MS) : spiking ? 'spike' : `last ${RATE_STEP_MS / 1000} s`}</span>
       </figcaption>
       <div className="rate-plot">
         <svg
           viewBox={`0 0 ${CHART_W} ${CHART_H}`}
           preserveAspectRatio="none"
           role="img"
-          aria-label={`${series.map((r) => `${r.label} ${fmtRate(r.values[n - 1] ?? 0)}`).join(', ')} events per second now, peak ${fmtRate(max)} per second over the last ${minutes} minutes`}
+          aria-label={span ? `${span.description}, peak ${fmtRate(max)} per second` : `${series.map((r) => `${r.label} ${fmtRate(r.values[n - 1] ?? 0)}`).join(', ')} events per second now, peak ${fmtRate(max)} per second over the last ${minutes} minutes`}
           onPointerMove={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             setHover(Math.min(n - 1, Math.max(0, Math.round(((e.clientX - r.left) / r.width) * (n - 1)))));
@@ -293,7 +299,7 @@ export function RateChart({ series, max }: { series: RateSeries[]; max: number }
           <span key={r.label} className="rate-dot" style={{ left: `${(x(shown) / CHART_W) * 100}%`, top: `${(y(r.values[shown] ?? 0) / CHART_H) * 100}%`, background: r.color }} />
         ))}
       </div>
-      <div className="rate-axis muted"><span>{minutes} min ago</span><span>peak {fmtRate(max)}/s</span><span>now</span></div>
+      <div className="rate-axis muted"><span>{span ? span.start : `${minutes} min ago`}</span><span>peak {fmtRate(max)}/s</span><span>{span ? span.end : 'now'}</span></div>
     </figure>
   );
 }

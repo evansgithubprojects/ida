@@ -156,6 +156,12 @@ code, pre { font-family: var(--mono); font-size: 12px; }
 .badge-warn { background: var(--lg-yellow-dark3); border-color: var(--lg-yellow-dark2); color: var(--lg-yellow-light2); }
 .badge-external { background: var(--lg-red-base); border-color: var(--lg-red-light1); color: #fff; font-weight: 700; }
 .badge-muted { background: transparent; border-color: var(--border); color: var(--muted); }
+.spike-menu > summary { list-style: none; cursor: pointer; }
+.spike-menu > summary::-webkit-details-marker { display: none; }
+.spike-menu > summary h3::before { content: '▸'; display: inline-block; width: 1em; color: var(--muted); }
+.spike-menu[open] > summary h3::before { content: '▾'; }
+.spike-menu:not([open]) > summary h3 { margin-bottom: 0; }
+.badge-spike { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); color: var(--lg-blue-light1); }
 
 /* graph */
 .node-card { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; display: flex; flex-direction: column; justify-content: center; cursor: pointer; transition: border-color .15s; }

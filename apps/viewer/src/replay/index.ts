@@ -561,7 +561,8 @@ const notificationGroup = (n: Notification) => (n.kind === 'throw' ? 1 : n.unatt
 
 /**
  * Throws and findings among `items`: corrupt payloads traced to an error first, then errors, then corrupt payloads
- * with no error thrown. Within each, those reaching an external system come first, then oldest first.
+ * with no error thrown. Within each, those reaching an external system come first, then oldest first. Spikes have their
+ * own list (see `spikesAmong`), so a burst of the errors they cause can't push them out of sight.
  */
 export function notifications(index: ReplayIndex, items: IndexedOccurrence[]): Notification[] {
   const out: Notification[] = [];

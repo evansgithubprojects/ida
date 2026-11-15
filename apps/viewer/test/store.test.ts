@@ -244,6 +244,22 @@ describe('notification filter', () => {
   });
 });
 
+describe('spikes menu', () => {
+  it('is open by default, and is saved closed', () => {
+    const saved = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => saved.get(k) ?? null, setItem: (k: string, v: string) => void saved.set(k, v) });
+    try {
+      expect(useStore.getState().spikesOpen).toBe(true);
+      useStore.getState().setSpikesOpen(false);
+      expect(useStore.getState().spikesOpen).toBe(false);
+      expect(JSON.parse(saved.get('ida_graph_settings')!).spikesOpen).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+      useStore.getState().setSpikesOpen(true);
+    }
+  });
+});
+
 describe('inspector setting', () => {
   it('is open by default and flips', () => {
     expect(useStore.getState().inspectorOpen).toBe(true);
@@ -267,7 +283,7 @@ describe('inspector setting', () => {
     try {
       useStore.getState().setHideHealthy(true);
       useStore.getState().setInspectorOpen(false);
-      expect(JSON.parse(saved.get('ida_graph_settings')!)).toEqual({ hideHealthy: true, inspectorOpen: false, notificationKinds: { throw: true, finding: true } });
+      expect(JSON.parse(saved.get('ida_graph_settings')!)).toEqual({ hideHealthy: true, inspectorOpen: false, notificationKinds: { throw: true, finding: true }, spikesOpen: true });
     } finally {
       vi.unstubAllGlobals();
       useStore.getState().setHideHealthy(false);
