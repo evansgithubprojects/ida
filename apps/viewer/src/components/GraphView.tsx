@@ -176,9 +176,9 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
         className={[focusedEdgeId === id && 'edge-focused', edge.propagated && 'edge-propagated', onTrace && 'edge-traced'].filter(Boolean).join(' ') || undefined}
         style={{
           stroke: onTrace || ahead ? 'var(--accent)' : flagged ? 'var(--warn-dim)' : 'var(--edge)', strokeWidth: onTrace ? width + 1 : width, opacity: ahead ? 0.4 : onTrace ? 1 : 0.75,
-          // Dashed: these events reached here in a message from another service (an ida-parent header). Long dashes:
-          // small dots, repainted under every moving pulse, cut a busy graph's frame rate in half.
-          strokeDasharray: flagged ? '7 5' : edge.propagated ? '12 8' : undefined,
+          // Dashed: suspected corrupt payloads. Long dashes: small dots, repainted under every moving pulse, cut a busy
+          // graph's frame rate in half. Routes between services stay solid: the graph connects services.
+          strokeDasharray: flagged ? '7 5' : undefined,
         }}
       />
       {/* The glow is a wider, faint stroke under each pulse. A CSS drop-shadow filter looks the same but makes the
@@ -192,8 +192,9 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
           </g>
         );
       })}
-      {/* In trace mode a pathway's label is only its corrupt-payload mark: rates say nothing about one trace. */}
-      {!(quiet && !flagged) && (!traced || flagged) && <EdgeLabelRenderer>
+      {/* In trace mode a pathway's label is only its corrupt-payload mark: rates say nothing about one trace.
+          Quieting healthy pulses keeps the rates: it hides motion, not numbers. */}
+      {(!traced || flagged) && <EdgeLabelRenderer>
         <div className={`edge-label ${selectedId === id ? 'selected' : ''} ${focusedEdgeId === id ? 'focused' : ''}`} style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}>
           {!traced && <span className={shown?.spike ? 'spike' : undefined} title={shown?.spike ? `Spike: ${fmtRate(shown.value)}/s, held until the next update` : `${edge.count} in this window`}>{fmtRate(shown?.value ?? 0)}/s</span>}
           {flagged && <span className="mark mark-warn" title={`Suspected corrupt payloads on this route${flagged.high ? ', some reaching an external system' : ''}`}>⚠{flagged.count}</span>}

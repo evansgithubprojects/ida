@@ -39,7 +39,7 @@ Hover a tick or stretch to see what it is.
 - **Click or drag** on the track to move the playhead.
 - The readout shows the playhead's time from the start of the recording, and the recording's length.
 
-As the playhead passes an event, a pulse travels along its pathway in the graph, from the sender to the receiver. Pulses carrying a suspected corrupt payload are yellow. To see only those, open the graph settings (the cog in the graph's top-right corner) and turn on **Quiet healthy pulses**.
+As the playhead passes an event, a pulse travels along its pathway in the graph, from the sender to the receiver. Pulses carrying a suspected corrupt payload are yellow. To see only those, open the graph settings (the cog in the graph's top-right corner) and turn on **Quiet healthy pulses**. Every pathway still shows its event rate.
 
 ### Zooming the track
 
