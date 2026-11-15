@@ -85,4 +85,7 @@ These are suggestions from the planning discussion, not final decisions.
 - Replay viewer: play/pause/scrub, lit-up pathways, click-to-inspect, replay window control, process → handler → activity zoom
 - A demo app with a simulated event stream to exercise the viewer
 
-Future idea: AI insights for faster error tracing and root cause location
+## Future ideas
+
+- AI insights for faster error tracing and root cause location.
+- **Custom action nodes in the graph:** use the graph layout itself to set up actions, by placing custom nodes that react to what happens on the nodes they connect to. First case: when a chosen process or handler errors, text selected people from the org's member list. Other actions (other notification channels, and so on) can follow the same pattern.
