@@ -220,14 +220,17 @@ export function FindingSummary({ index, finding }: { index: ReplayIndex; finding
 export function FindingChain({ index, finding }: { index: ReplayIndex; finding: Finding }) {
   const item = index.byId.get(finding.occurrenceId);
   if (!item) return <span className="muted">event no longer recorded</span>;
-  const recipients = finding.externalTargets.length
-    ? finding.externalTargets.map((t) => {
-      const handler = item.template.handlerIds.find((id) => index.nodes.get(id)?.label === t);
-      return handler ? <HandlerLink key={t} id={handler} during={item.occ.id} /> : <span key={t} className="entity-ref"><EntityIcon kind="external" />{t}</span>;
-    })
-    : item.template.handlerIds.map((id) => <HandlerLink key={id} id={id} during={item.occ.id} />);
+  // Every recipient, side by side in one pill: they all received the same event, so none follows another.
+  const handlers = item.template.handlerIds;
+  const external = finding.externalTargets.filter((t) => !handlers.some((id) => index.nodes.get(id)?.label === t));
+  const recipients = handlers.length + external.length > 0 && (
+    <span className="recipients-pill" title="Every handler and external system this payload reached">
+      {handlers.map((id) => <span key={id} className="recipient"><HandlerLink id={id} during={item.occ.id} /></span>)}
+      {external.map((t) => <span key={t} className="recipient"><span className="entity-ref"><EntityIcon kind="external" />{t}</span></span>)}
+    </span>
+  );
   const source = finding.taintSource;
-  return <CallChain index={index} occurrenceId={item.occ.id} threw={source?.handlerId} errorId={source ? throwId(source.occurrenceId, source.handlerId) : undefined} tail={recipients} />;
+  return <CallChain index={index} occurrenceId={item.occ.id} threw={source?.handlerId} errorId={source ? throwId(source.occurrenceId, source.handlerId) : undefined} tail={recipients ? [recipients] : []} />;
 }
 
 /** How long ago a step ended, e.g. "35s ago" or "2m 05s ago". */

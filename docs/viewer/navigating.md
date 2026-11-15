@@ -67,7 +67,7 @@ Click a single run, payload or step to see one occurrence of an event:
 - Broker facts for Kafka and RabbitMQ messages: topic, partition, offset, consumer group, exchange, routing key, queue, delivery tag. With a message from another service, **Published by** or **Consumed by** names the other side, and the time between them.
 - **Causal chain**: the events that led here, back to the root. Click any to go there.
 - **Trace what led here**: step through the path that caused this event (see [Traces](traces-and-system.md#traces)).
-- **Payload**: the values if the event was deep-logged (**full capture**), or its shape if not (**template-only**). For a suspected corrupt payload, a **Field / Before / Now** table shows what changed.
+- **Data**: the payload's values if the event was deep-logged (**full capture**), or its shape if not (**template-only**). For a suspected corrupt payload, a **Field / Before / Now** table shows what changed.
 
 ### An error
 
@@ -79,9 +79,10 @@ Click a red ✕ or an error notification to open its [trace](traces-and-system.m
 
 ### A suspected corrupt payload
 
-- Its reasons, and the **Before / Now** comparison.
-- **Recipients**: every handler and external system it reached.
-- **Source error**: the failure that made its sender suspect, if any.
+- **Source error**: the failure that made its sender suspect, if any. Click it to trace it.
+- **Data**: what was flagged in the payload, with the **Before / Now** comparison.
+- **Pathway**: the chain of events from that error to the payload, ending at every handler and external system it reached, side by side in one pill.
+- **Details**: its tags (confidence, external systems reached), when it happened, the **Event** (click it to inspect that event across all its occurrences), who emitted it and its causality. Its handlers are in the **Pathway** pill.
 
 ## Next steps
 

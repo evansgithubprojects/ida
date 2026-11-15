@@ -13,6 +13,8 @@ export function Inspector() {
   return (
     <aside className="inspector" id="inspector">
       <Crumbs index={index} />
+      {/* A quiet reminder of what is being inspected: every section below is about this one payload. */}
+      {showsCorruptPayload(index, selection) && <p className="inspector-title"><span className="warn-mark">⚠</span> Corrupt payload</p>}
       {!selection && <Overview index={index} />}
       {selection?.type === 'event' && <EventDetail index={index} id={selection.id} />}
       {selection?.type === 'node' && <NodeDetail index={index} id={selection.id} />}
@@ -24,6 +26,14 @@ export function Inspector() {
       {selection?.type === 'spike' && <SpikeDetail index={index} id={selection.id} />}
     </aside>
   );
+}
+
+/** Whether the selection opens the corrupt payload inspector (`CorruptPayloadDetail`) with something in it. */
+function showsCorruptPayload(index: ReplayIndex, selection: ReturnType<typeof useStore.getState>['selection']): boolean {
+  const occurrenceId = selection?.type === 'finding' ? index.findingsById.get(selection.id)?.occurrenceId
+    : selection?.type === 'occurrence' ? selection.id
+    : undefined;
+  return !!occurrenceId && index.byId.has(occurrenceId) && !!index.findingsByOcc.get(occurrenceId)?.length;
 }
 
 /** The level being looked at, then everything inspected on it so far. The first crumb returns to the level overview. */
@@ -743,8 +753,12 @@ export function OccurrenceDetail({ index, id }: { index: ReplayIndex; id: string
   );
 }
 
-/** When and where an event happened, who handled it, and (unless `chain` is false) the events that led to it. */
-function EventFacts({ index, item, chain: showChain = true }: { index: ReplayIndex; item: IndexedOccurrence; chain?: boolean }) {
+/**
+ * When and where an event happened, who handled it, and (unless `chain` is false) the events that led to it. `event`
+ * adds a field linking to the event itself, for inspectors whose title isn't already that link; `handlers` false
+ * leaves out who handled it, for inspectors that show the recipients elsewhere.
+ */
+function EventFacts({ index, item, chain: showChain = true, event = false, handlers = true }: { index: ReplayIndex; item: IndexedOccurrence; chain?: boolean; event?: boolean; handlers?: boolean }) {
   const seek = useStore((s) => s.seekToOccurrence);
   const startTrace = useStore((s) => s.startTrace);
   const tracing = useStore((s) => s.trace !== null);
@@ -755,8 +769,9 @@ function EventFacts({ index, item, chain: showChain = true }: { index: ReplayInd
     <>
       <dl className="facts">
         <dt>At</dt><dd>{fmtMs(item.occ.ts - index.origin)} · took {fmtMs(item.occ.durationMs)}</dd>
+        {event && <><dt>Event</dt><dd><EventLink id={eventKey(item.template)} /></dd></>}
         <dt>Emitted by</dt><dd>{showNode(item.occ.sourceNodeId)}</dd>
-        <dt>Handlers</dt>
+        {handlers && <><dt>Handlers</dt>
         <dd>
           {item.occ.blocked ? <span className="muted">none, blocked by policy</span> : results.length === 0 && <span className="muted">none</span>}
           <ul className="handler-list">
@@ -767,7 +782,7 @@ function EventFacts({ index, item, chain: showChain = true }: { index: ReplayInd
               </li>
             ))}
           </ul>
-        </dd>
+        </dd></>}
         <dt>Causality</dt><dd>{CAUSALITY[item.occ.causality] ?? item.occ.causality}</dd>
         <CrossService index={index} item={item} />
         {item.occ.meta && Object.entries(item.occ.meta).map(([k, v]) => (
@@ -794,7 +809,7 @@ function EventFacts({ index, item, chain: showChain = true }: { index: ReplayInd
 /** The payload, led by what was flagged in it when it is suspected corrupt. */
 function PayloadSection({ item, findings = [] }: { item: IndexedOccurrence; findings?: Finding[] }) {
   return (
-    <Section title="Payload" aside={<CaptureBadge occ={item.occ} />}>
+    <Section title="Data" aside={<CaptureBadge occ={item.occ} />}>
       {findings.map((f) => (
         <div key={f.id}>
           <ul className="reasons">{f.reasons.map((r, k) => <li key={k}>{r.message}</li>)}</ul>
@@ -1031,8 +1046,8 @@ function FindingSelection({ index, id }: { index: ReplayIndex; id: string }) {
 
 /**
  * The one inspector for a suspected corrupt payload, whether it was opened from a notification, an error, a
- * pathway or the timeline: the error it is traced to, the event itself, the payload and what was flagged in it, and
- * where it went.
+ * pathway or the timeline: the error it is traced to, the payload and what was flagged in it, the pathway from that
+ * error to where the payload went, then the event itself.
  */
 function CorruptPayloadDetail({ index, occurrenceId }: { index: ReplayIndex; occurrenceId: string }) {
   const startTrace = useStore((s) => s.startTrace);
@@ -1050,7 +1065,7 @@ function CorruptPayloadDetail({ index, occurrenceId }: { index: ReplayIndex; occ
             const message = sourceItem?.throws.find((t) => t.handlerId === source.handlerId)?.message;
             return sourceItem ? (
               <button key={id} className="link source-error" onClick={() => startTrace({ type: 'throw', id, occurrenceId: source.occurrenceId })}>
-                <ErrorId id={id} /> <NodeRef id={source.handlerId} /> {message ? `threw: ${message}` : 'reported an error'} →
+                <ErrorId id={id} /> <NodeRef id={source.handlerId} /> {message ? `threw: ${message}` : 'reported an error'}
               </button>
             ) : (
               <p key={id} className="hint">The source error is no longer in the recording.</p>
@@ -1058,21 +1073,22 @@ function CorruptPayloadDetail({ index, occurrenceId }: { index: ReplayIndex; occ
           })}
         </Section>
       )}
-      <Section title={<EventLink id={eventKey(item.template)} />}>
-        <div className="row-badges">
-          <Badge tone="warn">⚠ Corrupt Payload</Badge>
-          {external.length > 0 && <Badge tone="external" title={external.join(', ')}>EXTERNAL · {external.join(', ')}</Badge>}
-          {[...new Set(findings.map((f) => f.confidence))].map((c) => <Badge key={c} tone="muted">{c} confidence</Badge>)}
-          {findings.some((f) => f.basis === 'shape') && <Badge tone="muted">shape comparison only</Badge>}
-          {findings.some((f) => f.retroactive) && <Badge tone="muted">found after the fact</Badge>}
-        </div>
-        {/* Findings on one event differ only in what was flagged, so they share a chain unless traced to different throws. */}
+      {/* Findings on one event differ only in what was flagged, so they share a chain unless traced to different throws. */}
+      <PayloadSection item={item} findings={findings} />
+      <Section title="Pathway">
         {[...new Map(findings.map((f) => [f.taintSource?.handlerId, f])).values()].map((f) => (
           <p key={f.id} className="finding-chain"><FindingChain index={index} finding={f} /></p>
         ))}
-        <EventFacts index={index} item={item} chain={false} />
       </Section>
-      <PayloadSection item={item} findings={findings} />
+      <Section title="Details">
+        <div className="row-badges">
+          {external.length > 0 && <Badge tone="external" title={`Reached ${external.join(', ')}`}>EXTERNAL RECIPIENT</Badge>}
+          {[...new Set(findings.map((f) => f.confidence))].map((c) => <Badge key={c} tone="muted">{c} confidence</Badge>)}
+          {findings.some((f) => f.basis === 'shape') && <Badge tone="muted">shape comparison only</Badge>}
+          {findings.some((f) => f.retroactive) && <Badge tone="muted" title="Sent before the error it is traced to, in the same handler run, and flagged once that run failed">created before error</Badge>}
+        </div>
+        <EventFacts index={index} item={item} chain={false} event handlers={false} />
+      </Section>
     </>
   );
 }
