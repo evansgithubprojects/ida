@@ -3,7 +3,7 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { connectRecorder, type IngestBatch, type Recorder } from '@ida-dev/core';
+import { connectRecorder, type IngestBatch, type Recorder } from '@eda-debugger/core';
 import { resetRecorders } from '../../core/src/registry';
 import { memoryStore, Spool, type SpoolStore } from '../src/spool';
 import { fileStore } from '../src/store-node';
@@ -268,32 +268,5 @@ describe('spool', () => {
     const again = new Spool(indexedDbStore('test-spool'));
     expect(await again.size()).toBe(2);
     expect((await again.peek())!.seq).toBe(0);
-  });
-});
-
-describe('configuration', () => {
-  const make = (over: Record<string, unknown>) => () =>
-    createUploader({ projectKey: 'ida_abc_secret', endpoint: 'https://api.test', quiet: true, spool: false, ...over } as never, () => null, 'test');
-
-  it('throws at startup when the project key is missing or empty', () => {
-    expect(make({ projectKey: undefined })).toThrow(/missing a projectKey/);
-    expect(make({ projectKey: '' })).toThrow(/missing a projectKey/);
-    expect(make({ projectKey: '   ' })).toThrow(/missing a projectKey/);
-  });
-
-  it("throws when the key isn't a project key", () => {
-    expect(make({ projectKey: 'eyJhbGciOiJIUzI1NiJ9.abc' })).toThrow(/isn't a project key/);
-  });
-
-  it('throws when the endpoint is missing', () => {
-    expect(make({ endpoint: undefined })).toThrow(/missing an endpoint/);
-    expect(make({ endpoint: '' })).toThrow(/missing an endpoint/);
-  });
-
-  it('accepts current ida_ keys and legacy eda_ keys', async () => {
-    for (const projectKey of ['ida_abc_secret', 'eda_abc_secret']) {
-      const u = make({ projectKey })();
-      await u.close();
-    }
   });
 });

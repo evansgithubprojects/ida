@@ -1,11 +1,8 @@
-import type { RecorderMessage, Recording } from '@ida-dev/core';
+import type { RecorderMessage, Recording } from '@eda-debugger/core';
 import { create } from 'zustand';
-import { normalizeLevel, sameLevel, topLevel, type Level } from './graph/model';
+import type { Level } from './graph/model';
 import { ZOOM_MS } from './graph/zoom';
-import { buildIndex, capWindow, keepNewest, parseRunId, parseThrowId, windowAround, type ReplayIndex } from './replay';
-import { spikeById } from './replay/spikes';
-import { tracePath, type TracePath, type TraceSlide, type TraceTarget } from './replay/trace';
-import type { SystemLink, SystemService, SystemView } from './replay/system';
+import { buildIndex, capWindow, keepNewest, parseRunId, parseThrowId, type ReplayIndex } from './replay';
 
 export const SPEEDS = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4];
 /** Wall-clock lengths of the lit fade and the red flash, scaled to recording time by playback speed. */
@@ -31,7 +28,6 @@ export type Selection =
   | { type: 'throw'; id: string }
   | { type: 'finding'; id: string }
   | { type: 'run'; id: string }
-  | { type: 'spike'; id: string }
   | null;
 
 /** What the graph should pan to and pulse: a node (raw or as drawn) or a pathway. */
@@ -44,7 +40,6 @@ export function focusTargetOf(index: ReplayIndex | null, sel: NonNullable<Select
     case 'node': return { nodeId: sel.id };
     case 'edge': return { edgeId: sel.id };
     case 'event': { const e = index.events.get(sel.id); return e ? { nodeId: e.emitterId } : null; }
-    case 'spike': { const s = spikeById(index, sel.id); const e = s && index.events.get(s.eventKey); return e ? { nodeId: e.emitterId } : null; }
     case 'occurrence': { const i = index.byId.get(sel.id); return i ? { nodeId: i.occ.sourceNodeId } : null; }
     case 'run': { const r = parseRunId(index, sel.id); return r ? { nodeId: r.nodeId } : null; }
     case 'throw': { const t = parseThrowId(index, sel.id); return t ? { nodeId: t.handlerId } : null; }
@@ -56,20 +51,8 @@ export function focusTargetOf(index: ReplayIndex | null, sel: NonNullable<Select
   }
 }
 
-/** The occurrence a selection is about, when it names one: what trace mode can start from. */
-export function occurrenceOfSelection(index: ReplayIndex | null, sel: Selection): string | null {
-  if (!index || !sel) return null;
-  switch (sel.type) {
-    case 'occurrence': return index.byId.has(sel.id) ? sel.id : null;
-    case 'run': return parseRunId(index, sel.id)?.occurrenceId ?? null;
-    case 'throw': return parseThrowId(index, sel.id)?.occurrenceId ?? null;
-    case 'finding': return index.findingsById.get(sel.id)?.occurrenceId ?? null;
-    default: return null;
-  }
-}
-
-/** Events, errors, payloads, runs and spikes mean the same thing at every zoom level, so inspecting one survives a zoom. */
-const levelFree = (t: Selection) => t?.type === 'event' || t?.type === 'throw' || t?.type === 'finding' || t?.type === 'run' || t?.type === 'spike';
+/** Events, errors, payloads and runs mean the same thing at every zoom level, so inspecting one survives a zoom. */
+const levelFree = (t: Selection) => t?.type === 'event' || t?.type === 'throw' || t?.type === 'finding' || t?.type === 'run';
 
 /**
  * The zoom level that draws what `sel` is about, or null when the current one already does. Handlers are only drawn
@@ -98,10 +81,6 @@ interface State {
   hideHealthy: boolean;
   /** Whether the inspector panel is shown. Persists across reloads. */
   inspectorOpen: boolean;
-  /** Which kinds of notification the lists show: errors (`throw`) and corrupt payloads (`finding`). Persists across reloads. */
-  notificationKinds: NotificationKinds;
-  /** Whether the Spikes menus are open. Persists across reloads. */
-  spikesOpen: boolean;
   selection: Selection;
   /** Everything inspected at this zoom level, oldest first; `selection` is always its last entry. */
   trail: NonNullable<Selection>[];
@@ -113,16 +92,9 @@ interface State {
   liveShift: Map<string, number>;
   /** Live follows the stream's newest events with no timeline; Replay opens the scrub window. Saved recordings are always Replay. */
   mode: 'live' | 'replay';
-  /**
-   * Trace mode: a slideshow through what caused an error, a corrupt payload or an event (see `tracePath`). `at` is the
-   * slide shown; `auto` steps forward on its own. While it is open the graph shows only that slide, and a live stream's
-   * batches wait until it ends. Survives zooms and selections.
-   */
-  trace: { path: TracePath; at: number; auto: boolean; prevMode: 'live' | 'replay' } | null;
 
   setMode(mode: 'live' | 'replay'): void;
-  /** `system` is the rest of a system view, when `recording` is one: it opens on the services. */
-  load(recording: Recording, name: string, system?: Omit<SystemView, 'recording'>): void;
+  load(recording: Recording, name: string): void;
   setT(t: number): void;
   togglePlay(): void;
   pause(): void;
@@ -132,37 +104,20 @@ interface State {
   setWindow(window: [number, number], keep?: 'start' | 'end'): void;
   setLevel(level: Level): void;
   setHideHealthy(hide: boolean): void;
-  setNotificationKind(kind: keyof NotificationKinds, shown: boolean): void;
-  setSpikesOpen(open: boolean): void;
   setInspectorOpen(open: boolean): void;
   /** `fromGraph` marks a click on the graph itself: everything drawn there sits directly under the level, so it starts a new trail. */
   select(selection: Selection, opts?: { fromGraph?: boolean }): void;
   /** Inspects an occurrence and moves the playhead to it; see `selectAt`. */
   seekToOccurrence(id: string): void;
-  /** Selects `selection` and moves the playhead to the occurrence it is about; the window follows it if needed. */
+  /** Selects `selection` and moves the playhead to the occurrence it is about, widening the window to include it. */
   selectAt(selection: NonNullable<Selection>, occurrenceId: string): void;
   /** Inspects a handler: zooms into its process if needed, selects it and pans the graph to it. */
   inspectNode(rawNodeId: string): void;
-  /** Opens the trace slideshow on what led to `target`, at its first slide (the root). */
-  startTrace(target: TraceTarget): void;
-  /** Shows slide `k` of the trace (clamped) and inspects it. */
-  traceStep(k: number): void;
-  setTraceAuto(auto: boolean): void;
-  /** Closes the trace: a live stream goes back to following, with the batches that arrived meanwhile. */
-  endTrace(): void;
   /** `name` is shown as the source instead of the URL. */
   connectLive(url: string, name?: string): void;
   disconnectLive(): void;
   /** Disconnects and forgets the current recording, so a page that loads another doesn't show this one meanwhile. */
   unload(): void;
-}
-
-/** What the inspector shows for slide `k`: the error or payload the trace is about, a throw, or the event. */
-function slideSelection(path: TracePath, k: number): NonNullable<Selection> {
-  const slide: TraceSlide = path.slides[k]!;
-  if (k === path.slides.length - 1 && path.target.type !== 'occurrence') return { type: path.target.type, id: path.target.id };
-  if (slide.thrownBy) return { type: 'throw', id: slide.thrownBy.id };
-  return { type: 'occurrence', id: slide.item.occ.id };
 }
 
 const sameSelection = (a: NonNullable<Selection>, b: NonNullable<Selection>) => a.type === b.type && a.id === b.id;
@@ -186,50 +141,16 @@ export function pickSpeed(rangeMs: number): number {
 
 let source: EventSource | null = null;
 
-/** A system view without its recording: the services and the links between them. */
-type SystemMeta = Omit<SystemView, 'recording'>;
-
-/** What a project's live stream sends: a whole system view, then each stored batch merged onto its clock. */
-type SystemMessage =
-  | { type: 'system-snapshot'; view: SystemView }
-  | { type: 'system-batch'; recording: Recording; services: SystemService[]; links: SystemLink[] };
-
-/** `base` with `part`'s processes, nodes, templates, occurrences and findings added; an id seen again replaces the old one. */
-export function mergeRecording(base: Recording, part: Recording): Recording {
-  const merge = <T extends { id: string }>(a: T[], b: T[] = []) => {
-    if (!b.length) return a;
-    const fresh = new Map(b.map((x) => [x.id, x]));
-    const have = new Set(a.map((x) => x.id));
-    return [...a.map((x) => fresh.get(x.id) ?? x), ...b.filter((x) => !have.has(x.id))];
-  };
-  return {
-    ...base,
-    processes: merge(base.processes, part.processes),
-    nodes: merge(base.nodes, part.nodes),
-    templates: merge(base.templates, part.templates),
-    occurrences: merge(base.occurrences, part.occurrences),
-    findings: merge(base.findings ?? [], part.findings),
-  };
-}
-
 const SETTINGS_KEY = 'ida_graph_settings';
 
-export interface NotificationKinds { throw: boolean; finding: boolean }
-
-interface Settings { hideHealthy: boolean; inspectorOpen: boolean; notificationKinds: NotificationKinds; spikesOpen: boolean }
+interface Settings { hideHealthy: boolean; inspectorOpen: boolean }
 
 function loadSettings(): Settings {
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') as Partial<Settings>;
-    const kinds = saved.notificationKinds;
-    return {
-      hideHealthy: saved.hideHealthy === true,
-      inspectorOpen: saved.inspectorOpen !== false,
-      notificationKinds: { throw: kinds?.throw !== false, finding: kinds?.finding !== false },
-      spikesOpen: saved.spikesOpen !== false,
-    };
+    return { hideHealthy: saved.hideHealthy === true, inspectorOpen: saved.inspectorOpen !== false };
   } catch {
-    return { hideHealthy: false, inspectorOpen: true, notificationKinds: { throw: true, finding: true }, spikesOpen: true };
+    return { hideHealthy: false, inspectorOpen: true };
   }
 }
 
@@ -247,72 +168,24 @@ export const useStore = create<State>()((set, get) => {
     setTimeout(() => { if (get().focus?.seq === seq) set({ focus: null }); }, 1600 + extraMs);
   };
 
-  /** The replay window stays put while the playhead is inside it; once it leaves, the window moves to trail it. */
-  const trailing = (index: ReplayIndex | null, window: [number, number], t: number): [number, number] =>
-    !index || (t >= window[0] && t <= window[1]) ? window : windowAround(index, t);
-
-  /**
-   * Selects `selection` and shows it on the graph, first changing zoom level if it isn't drawn at the current one.
-   * `scope` is the level to show it at, whatever the current one.
-   */
-  const reveal = (selection: NonNullable<Selection>, extra: Partial<State> = {}, scope?: Level) => {
+  /** Selects `selection` and shows it on the graph, first changing zoom level if it isn't drawn at the current one. */
+  const reveal = (selection: NonNullable<Selection>, extra: Partial<State> = {}) => {
     const { index, level, trail } = get();
     const target = focusTargetOf(index, selection);
-    const to = scope ? (sameLevel(scope, level) ? null : scope) : scopeFor(index, level, selection, target);
+    const to = scopeFor(index, level, selection, target);
     // Node, edge and occurrence selections belong to the level being left.
     set({ ...extra, selection, trail: extendTrail(to ? trail.filter(levelFree) : trail, selection), ...(to && { level: to }) });
     if (target) setFocus(target, to ? ZOOM_MS : 0);
   };
 
-  /**
-   * Keeps an open trace on what the inspector shows. An error or a suspected corrupt payload gets its own trace, on
-   * its last slide (the error or payload itself); an event or run already in the trace moves the trace to its slide,
-   * and one that isn't gets its own trace. Nodes, pathways, event kinds and spikes aren't steps, so they leave it be.
-   */
-  const followSelection = (selection: Selection) => {
-    const { trace, index } = get();
-    if (!trace || !index || !selection) return;
-    const occurrenceId = occurrenceOfSelection(index, selection);
-    if (!occurrenceId) return;
-    const slides = trace.path.slides;
-    if (selection.type === 'occurrence' || selection.type === 'run') {
-      const k = slides.findIndex((s) => s.item.occ.id === occurrenceId);
-      if (k >= 0) return set({ trace: { ...trace, at: k, auto: false } });
-    }
-    const target: TraceTarget = selection.type === 'throw' || selection.type === 'finding'
-      ? { type: selection.type, id: selection.id, occurrenceId }
-      : { type: 'occurrence', id: occurrenceId, occurrenceId };
-    const t = trace.path.target;
-    if (t.type === target.type && t.id === target.id) return set({ trace: { ...trace, at: slides.length - 1, auto: false } });
-    const path = tracePath(index, target);
-    if (path) set({ trace: { ...trace, path, at: path.slides.length - 1, auto: false } });
-  };
-
-  /** Inspects slide `k` of a trace, zoomed into the handlers of the process it happens in. */
-  const showSlide = (path: TracePath, k: number) => {
-    const processId = path.slides[k]?.processId;
-    reveal(slideSelection(path, k), {}, processId ? normalizeLevel(get().index, { kind: 'handlers', processId }) : undefined);
-  };
-
   let pending: Recording | null = null;
-  /** A project stream's services and links: what `pending` needs to be drawn as a system view. */
-  let pendingSystem: SystemMeta | null = null;
-  /** The services and links of the system view on screen, when it is one. */
-  let currentSystem: SystemMeta | null = null;
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   const flush = () => {
     flushTimer = null;
     if (!pending) return;
-    // A trace freezes the view; what arrives meanwhile waits (bounded like a live recording) until it ends.
-    if (get().trace) {
-      pending = keepNewest(pending);
-      return;
-    }
     const rec = pending;
     pending = null;
-    const sys = pendingSystem ?? currentSystem;
-    pendingSystem = null;
-    applyRecording(rec, true, undefined, sys ?? undefined);
+    applyRecording(rec, true);
   };
   const schedule = () => {
     if (!flushTimer) flushTimer = setTimeout(flush, 250);
@@ -337,19 +210,12 @@ export const useStore = create<State>()((set, get) => {
     return out;
   }
 
-  function applyRecording(streamed: Recording, live: boolean, name?: string, system?: SystemMeta) {
+  function applyRecording(streamed: Recording, live: boolean, name?: string) {
     // A live stream never ends, so only its newest events are kept. A saved recording is loaded whole.
     const recording = live ? keepNewest(streamed) : streamed;
-    currentSystem = system ?? null;
-    const prev = get();
-    const keepView = live && prev.index !== null;
-    // A fresh system snapshot counts its times from a later start: move the playhead and window by as much, so they
-    // stay on the same moments.
-    const moved = keepView && system && prev.index?.system && prev.recording ? prev.recording.startedAt - recording.startedAt : 0;
-    // A live system view keeps counting times from where it started (moved with the clock, like the playhead).
-    const origin = keepView && system && prev.index?.system ? prev.index.origin + moved : undefined;
-    const index = buildIndex(recording, system, origin);
-    const s = moved ? { ...prev, t: prev.t + moved, window: [prev.window[0] + moved, prev.window[1] + moved] as [number, number] } : prev;
+    const index = buildIndex(recording);
+    const s = get();
+    const keepView = live && s.index !== null;
     const mode: 'live' | 'replay' = keepView ? s.mode : live ? 'live' : 'replay';
     const following = mode === 'live';
     // The newest events: a big recording opens on its latest stretch, and a following live view slides along.
@@ -366,10 +232,9 @@ export const useStore = create<State>()((set, get) => {
       t: keepView && !following ? Math.min(Math.max(s.t, kept[0]), kept[1])
         : following && live ? followT(index.end, keepView ? s.t : null) : full[0],
       speed: keepView ? s.speed : pickSpeed(full[1] - full[0]),
-      level: keepView ? s.level : topLevel(index),
+      level: keepView ? s.level : { kind: 'process' },
       selection: keepView ? s.selection : null,
       trail: keepView ? s.trail : [],
-      trace: keepView ? s.trace : null,
       playing: false,
       following, mode,
       liveShift: following && live && keepView ? shiftsFor(s.index, index, s.t, s.liveShift) : new Map(),
@@ -378,11 +243,11 @@ export const useStore = create<State>()((set, get) => {
 
   return {
     recording: null, index: null, sourceName: '', t: 0, playing: false, speed: 1, window: [0, 0],
-    level: { kind: 'process' }, ...loadSettings(), selection: null, trail: [], focus: null, live: 'off', following: true, mode: 'live', liveShift: new Map(), trace: null,
+    level: { kind: 'process' }, ...loadSettings(), selection: null, trail: [], focus: null, live: 'off', following: true, mode: 'live', liveShift: new Map(),
 
-    load(recording, name, system) {
+    load(recording, name) {
       get().disconnectLive();
-      applyRecording(recording, false, name, system);
+      applyRecording(recording, false, name);
     },
     setMode(mode) {
       const { index, t, live } = get();
@@ -397,15 +262,13 @@ export const useStore = create<State>()((set, get) => {
       }
     },
     setT(t) {
-      const { index, window } = get();
-      const at = index ? Math.min(Math.max(t, index.start), index.end) : t;
-      set({ t: at, window: trailing(index, window, at), following: false, mode: 'replay' });
+      const [w0, w1] = get().window;
+      set({ t: Math.min(Math.max(t, w0), w1), following: false, mode: 'replay' });
     },
     togglePlay() {
-      const { playing, t, index, window } = get();
+      const { playing, t, window } = get();
       if (playing) return set({ playing: false });
-      const at = index && t >= index.end ? index.start : t;
-      set({ playing: true, t: at, window: trailing(index, window, at), following: false, mode: 'replay' });
+      set({ playing: true, t: t >= window[1] ? window[0] : t, following: false, mode: 'replay' });
     },
     pause() { set({ playing: false }); },
     tick(wallMs) {
@@ -416,9 +279,8 @@ export const useStore = create<State>()((set, get) => {
         return;
       }
       const next = t + wallMs * speed;
-      const end = index ? index.end : window[1];
-      if (next >= end) set({ t: end, window: trailing(index, window, end), playing: false });
-      else set({ t: next, window: trailing(index, window, next) });
+      if (next >= window[1]) set({ t: window[1], playing: false });
+      else set({ t: next });
     },
     setSpeed(speed) { set({ speed }); },
     setWindow(window, keep = 'end') {
@@ -427,16 +289,7 @@ export const useStore = create<State>()((set, get) => {
       const [a, b] = index ? capWindow(index, sorted, keep) : sorted;
       set({ window: [a, b], t: Math.min(Math.max(t, a), b), following: false, mode: 'replay' });
     },
-    setLevel(level) { set({ level: normalizeLevel(get().index, level), selection: null, trail: [] }); },
-    setSpikesOpen(spikesOpen) {
-      set({ spikesOpen });
-      saveSettings({ spikesOpen });
-    },
-    setNotificationKind(kind, shown) {
-      const notificationKinds = { ...get().notificationKinds, [kind]: shown };
-      set({ notificationKinds });
-      saveSettings({ notificationKinds });
-    },
+    setLevel(level) { set({ level, selection: null, trail: [] }); },
     setHideHealthy(hideHealthy) {
       set({ hideHealthy });
       saveSettings({ hideHealthy });
@@ -449,7 +302,6 @@ export const useStore = create<State>()((set, get) => {
       // Clicking the graph itself needs no pan; anything else (a link in the inspector) shows where it is.
       if (selection && !opts?.fromGraph) reveal(selection);
       else set((s) => ({ selection, trail: !selection ? [] : [selection] }));
-      followSelection(selection);
       // Clicking something on the graph is asking to see it, so a hidden inspector opens.
       if (selection && opts?.fromGraph && !get().inspectorOpen) get().setInspectorOpen(true);
     },
@@ -457,49 +309,16 @@ export const useStore = create<State>()((set, get) => {
     selectAt(selection, occurrenceId) {
       const item = get().index?.byId.get(occurrenceId);
       if (!item) return;
-      const { window, index } = get();
+      const { window: [w0, w1], index } = get();
       const ts = item.occ.ts;
-      reveal(selection, { t: ts, playing: false, following: false, mode: 'replay', window: trailing(index, window, ts) });
-      followSelection(selection);
+      // Widen to take in the event, then trim from the far side so the window slides there instead of growing.
+      reveal(selection, {
+        t: ts, playing: false, following: false, mode: 'replay',
+        window: index ? capWindow(index, [Math.min(w0, ts), Math.max(w1, ts)], ts < w0 ? 'start' : 'end') : [Math.min(w0, ts), Math.max(w1, ts)],
+      });
     },
     inspectNode(nodeId) { reveal({ type: 'node', id: nodeId }); },
-    startTrace(target) {
-      const { index, mode, trace } = get();
-      const path = index && tracePath(index, target);
-      if (!path) return;
-      // A new trace opens on its root. One opened from inside a trace (a link in the inspector) lands on what was
-      // clicked, so the inspector and the trace keep showing the same thing.
-      const at = trace ? path.slides.length - 1 : 0;
-      set({ trace: { path, at, auto: false, prevMode: trace?.prevMode ?? mode }, playing: false, following: false, liveShift: new Map() });
-      showSlide(path, at);
-      if (!get().inspectorOpen) get().setInspectorOpen(true);
-    },
-    traceStep(k) {
-      const trace = get().trace;
-      if (!trace) return;
-      const at = Math.min(Math.max(Math.round(k), 0), trace.path.slides.length - 1);
-      // Stepping by hand stops the autoplay; reaching the end stops it too.
-      set({ trace: { ...trace, at, auto: trace.auto && at < trace.path.slides.length - 1 } });
-      showSlide(trace.path, at);
-    },
-    setTraceAuto(auto) {
-      const trace = get().trace;
-      if (!trace) return;
-      // Playing from the last slide starts over.
-      if (auto && trace.at === trace.path.slides.length - 1) {
-        set({ trace: { ...trace, at: 0, auto } });
-        showSlide(trace.path, 0);
-      } else set({ trace: { ...trace, auto } });
-    },
-    endTrace() {
-      const trace = get().trace;
-      if (!trace) return;
-      set({ trace: null });
-      if (get().live !== 'off') {
-        flush();
-        get().setMode('live');
-      } else set({ mode: trace.prevMode });
-    },
+
     connectLive(url, name) {
       get().disconnectLive();
       set({ live: 'connecting' });
@@ -508,31 +327,11 @@ export const useStore = create<State>()((set, get) => {
       es.onopen = () => set({ live: 'on' });
       es.onerror = () => set({ live: es.readyState === EventSource.CLOSED ? 'error' : 'connecting' });
       es.onmessage = (ev) => {
-        const msg = JSON.parse(ev.data) as RecorderMessage | SystemMessage;
+        const msg = JSON.parse(ev.data) as RecorderMessage;
         if (msg.type === 'snapshot') {
           pending = msg.recording;
           flush();
           set({ sourceName: `live · ${name ?? url}` });
-        } else if (msg.type === 'system-snapshot') {
-          const { recording, ...rest } = msg.view;
-          pending = recording;
-          pendingSystem = rest;
-          flush();
-          set({ sourceName: `live · ${name ?? url}` });
-        } else if (msg.type === 'system-batch') {
-          const base = pending ?? get().recording;
-          const sys = pendingSystem ?? currentSystem;
-          if (!base || !sys) return;
-          pending = mergeRecording(base, msg.recording);
-          const known = new Set(sys.services.map((x) => x.sessionId));
-          const linked = new Set(msg.links.map((l) => l.occurrenceId));
-          pendingSystem = {
-            ...sys,
-            services: [...sys.services, ...msg.services.filter((x) => !known.has(x.sessionId))],
-            links: [...sys.links.filter((l) => !linked.has(l.occurrenceId)), ...msg.links],
-            to: Math.max(sys.to, msg.recording.startedAt + Math.max(0, ...msg.recording.occurrences.map((o) => o.ts))),
-          };
-          schedule();
         } else if (msg.type === 'finding') {
           const base = pending ?? get().recording;
           // A finding re-sent under the same id is an existing one that was traced to its source error.
@@ -567,12 +366,11 @@ export const useStore = create<State>()((set, get) => {
       if (flushTimer) clearTimeout(flushTimer);
       flushTimer = null;
       pending = null;
-      pendingSystem = null;
       if (get().live !== 'off') set({ live: 'off' });
     },
     unload() {
       get().disconnectLive();
-      set({ recording: null, index: null, sourceName: '', selection: null, trail: [], focus: null, playing: false, level: { kind: 'process' }, trace: null });
+      set({ recording: null, index: null, sourceName: '', selection: null, trail: [], focus: null, playing: false, level: { kind: 'process' } });
     },
   };
 });

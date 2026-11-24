@@ -9,8 +9,7 @@ const FADE_MS = 600; // matches the background-color transition on .shell:has(.h
 export function SignIn() {
   const session = useSession();
   const location = useLocation();
-  // "Get started" links open the form on account creation; everything else opens it on sign-in.
-  const [mode, setMode] = useState<'in' | 'up'>(() => ((location.state as { mode?: string } | null)?.mode === 'up' ? 'up' : 'in'));
+  const [mode, setMode] = useState<'in' | 'up'>('in');
   const [orgName, setOrgName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

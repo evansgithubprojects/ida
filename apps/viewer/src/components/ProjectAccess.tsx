@@ -63,7 +63,7 @@ export function ProjectAccess({ projectId, orgId }: { projectId: string; orgId: 
       ) : (
         <div className="access-actions"><Link className="button" to={`/orgs/${orgId}/members`}>Add member</Link></div>
       )}
-      <p className="muted">Viewers can look at recordings. Editors can also manage project keys and connect an app.</p>
+      <p className="muted">Viewers can look at recordings. Editors can also manage ingest keys and connect an app.</p>
     </section>
   );
 }

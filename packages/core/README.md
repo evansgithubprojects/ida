@@ -1,9 +1,9 @@
-# @ida-dev/core
+# @eda-debugger/core
 
-Recorder for [Ida](../../README.md): templates, causality, corruption detection and JSON export. No DOM or Node-only imports, except the optional `@ida-dev/core/bridge-node`.
+Recorder for [Ida](../../README.md): templates, causality, corruption detection and JSON export. No DOM or Node-only imports, except the optional `@eda-debugger/core/bridge-node`.
 
 ```bash
-npm install @ida-dev/core
+npm install @eda-debugger/core
 ```
 
 You normally pair it with an adapter ([`adapter-eventemitter`](../adapter-eventemitter/README.md), [`adapter-eventtarget`](../adapter-eventtarget/README.md)), which calls the recorder for you.
@@ -11,8 +11,8 @@ You normally pair it with an adapter ([`adapter-eventemitter`](../adapter-evente
 ## Quick start
 
 ```ts
-import { enable } from '@ida-dev/core';
-import { enableEventEmitterRecording } from '@ida-dev/adapter-eventemitter';
+import { enable } from '@eda-debugger/core';
+import { enableEventEmitterRecording } from '@eda-debugger/adapter-eventemitter';
 
 const recorder = enable({ windowMs: 60_000 });
 enableEventEmitterRecording(recorder);
@@ -46,7 +46,7 @@ enableEventEmitterRecording();
 
 Passing a recorder to an adapter (`enableEventEmitterRecording(recorder)`) skips routing: that recorder gets everything.
 
-To upload recorders to a project in the web app, see [`@ida-dev/cloud`](../cloud/README.md).
+To upload recorders to a project in the web app, see [`@eda-debugger/cloud`](../cloud/README.md).
 
 ### `RecorderOptions`
 
@@ -58,7 +58,7 @@ To upload recorders to a project in the web app, see [`@ida-dev/cloud`](../cloud
 | `capture` | `{ events }` | none | Alias of `deepLogging`. |
 | `templateKey` | `(parts) => string` | `defaultTemplateKey` | How events are grouped into templates. Default: emitter + event name + handler set + payload shape. |
 | `corruption` | `CorruptionOptions` | see below | Detection of suspected corrupt payloads. |
-| `context` | `CausalityContext` | `defaultContext()` | Tracks which event is being handled. `AsyncStorageContext` on Node 20.16+ / 22.3+ (follows `await` and timers), `SyncStackContext` elsewhere. |
+| `context` | `CausalityContext` | `SyncStackContext` | Tracks which event is being handled. Swap it to support async hops. |
 | `autoStart` | `boolean` | `true` | Start recording immediately. When `false`, call `recorder.start()`. |
 | `now` | `() => number` | `performance.now` | Clock for timestamps, in milliseconds. |
 
@@ -105,16 +105,16 @@ Core can't see inside a handler, so declare what talks to the outside world with
 ## Analyzing a recording
 
 ```ts
-import { analyze } from '@ida-dev/core';
+import { analyze } from '@eda-debugger/core';
 const findings = analyze(JSON.parse(fs.readFileSync('recording.json', 'utf8')));
 ```
 
 `analyze(recording, options?)` replays the live detection rules in time order, so it also finds payloads emitted before their handler threw. `options` are the same detection options as `corruption`.
 
-## Live viewing: `@ida-dev/core/bridge-node`
+## Live viewing: `@eda-debugger/core/bridge-node`
 
 ```ts
-import { startBridge } from '@ida-dev/core/bridge-node';
+import { startBridge } from '@eda-debugger/core/bridge-node';
 const bridge = await startBridge(recorder, { port: 7777 });
 // in the viewer, open the recorder dropdown and choose "View Remote Endpoint"; later: await bridge.close();
 ```
@@ -142,7 +142,3 @@ recorder.dispatch(
 Call every listener through `invoke` so its timing, errors and any events it emits are attributed to it. Causality tracking is swappable through `CausalityContext` (for example `AsyncLocalStorage`).
 
 To support routing, find the recorders with `recordersFor(emitter)` and record through all of them with `dispatchAll(recorders, info, run)`, which nests their `dispatch` calls and runs the listeners once.
-
-## Documentation
-
-Quick starts, guides and the full API reference are in the **Docs** section of the Ida web app, and in the repo's [`docs/`](../../docs/overview.md) folder.

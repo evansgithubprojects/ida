@@ -28,7 +28,7 @@ export const can = {
 
 /** What each level of access to a project may do. Again the server enforces it; this only decides what to show. */
 export const canInProject = {
-  /** Project keys and connecting an app. */
+  /** Ingest keys and connecting an app. */
   manageKeys: (a: ProjectAccessLevel) => a === 'editor' || a === 'admin',
   /** Deleting the project and choosing who can open it. */
   administer: (a: ProjectAccessLevel) => a === 'admin',

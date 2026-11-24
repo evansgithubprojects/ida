@@ -1,12 +1,12 @@
-import type { Finding, Occurrence } from '@ida-dev/core';
+import type { Finding, Occurrence } from '@eda-debugger/core';
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { callChain, errorCode, eventKey, fmtRate, RATE_STEP_MS, recipientsOf, throwId, throwIdFor, type ReplayIndex } from '../replay';
 import { useStore } from '../store';
 
-export { fmtMs } from '../replay';
+export const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${ms.toFixed(ms < 10 ? 2 : 0)}ms`);
 
-export function Badge({ tone, children, title }: { tone: 'full' | 'template' | 'error' | 'warn' | 'external' | 'muted' | 'spike'; children: ReactNode; title?: string }) {
+export function Badge({ tone, children, title }: { tone: 'full' | 'template' | 'error' | 'warn' | 'external' | 'muted'; children: ReactNode; title?: string }) {
   return <span className={`badge badge-${tone}`} title={title}>{children}</span>;
 }
 
@@ -126,12 +126,12 @@ export function HandlerLink({ id, label, during }: { id: string; label?: string;
   const scope = useStore((s) => outOfScopeProcess(s, id));
   const thrown = useStore((s) => (during && s.index ? throwIdFor(s.index, during, id) : null));
   const inspectNode = useStore((s) => s.inspectNode);
-  const startTrace = useStore((s) => s.startTrace);
+  const selectAt = useStore((s) => s.selectAt);
   const full = scope && scope !== name ? `${scope} › ${name}` : name;
   return (
     <InspectLink
       label={thrown ? `error ${errorCode(thrown)} in ${full}` : full}
-      onOpen={() => (thrown && during ? startTrace({ type: 'throw', id: thrown, occurrenceId: during }) : inspectNode(id))}
+      onOpen={() => (thrown && during ? selectAt({ type: 'throw', id: thrown }, during) : inspectNode(id))}
     >
       <NodeRef id={id} label={name} />
     </InspectLink>
@@ -220,17 +220,14 @@ export function FindingSummary({ index, finding }: { index: ReplayIndex; finding
 export function FindingChain({ index, finding }: { index: ReplayIndex; finding: Finding }) {
   const item = index.byId.get(finding.occurrenceId);
   if (!item) return <span className="muted">event no longer recorded</span>;
-  // Every recipient, side by side in one pill: they all received the same event, so none follows another.
-  const handlers = item.template.handlerIds;
-  const external = finding.externalTargets.filter((t) => !handlers.some((id) => index.nodes.get(id)?.label === t));
-  const recipients = handlers.length + external.length > 0 && (
-    <span className="recipients-pill" title="Every handler and external system this payload reached">
-      {handlers.map((id) => <span key={id} className="recipient"><HandlerLink id={id} during={item.occ.id} /></span>)}
-      {external.map((t) => <span key={t} className="recipient"><span className="entity-ref"><EntityIcon kind="external" />{t}</span></span>)}
-    </span>
-  );
+  const recipients = finding.externalTargets.length
+    ? finding.externalTargets.map((t) => {
+      const handler = item.template.handlerIds.find((id) => index.nodes.get(id)?.label === t);
+      return handler ? <HandlerLink key={t} id={handler} during={item.occ.id} /> : <span key={t} className="entity-ref"><EntityIcon kind="external" />{t}</span>;
+    })
+    : item.template.handlerIds.map((id) => <HandlerLink key={id} id={id} during={item.occ.id} />);
   const source = finding.taintSource;
-  return <CallChain index={index} occurrenceId={item.occ.id} threw={source?.handlerId} errorId={source ? throwId(source.occurrenceId, source.handlerId) : undefined} tail={recipients ? [recipients] : []} />;
+  return <CallChain index={index} occurrenceId={item.occ.id} threw={source?.handlerId} errorId={source ? throwId(source.occurrenceId, source.handlerId) : undefined} tail={recipients} />;
 }
 
 /** How long ago a step ended, e.g. "35s ago" or "2m 05s ago". */
@@ -245,17 +242,11 @@ const CHART_H = 48;
 export interface RateSeries { label: string; values: number[]; color: string; current?: { value: number; spike: boolean } }
 
 /**
- * Labels for a chart that isn't of the last few minutes: what each point is (`point`, e.g. "+2s"), and what the axis
- * reads at either end.
- */
-export interface ChartSpan { point(i: number): string; start: string; end: string; description: string }
-
-/**
  * Events per second over the last few minutes, oldest first, one value per `RATE_STEP_MS` step. Several series share
  * one plot and scale (`max`), each in its own color with a legend. The readout above shows the newest values, or
- * the ones under the pointer. With `span`, the points are of some other stretch of time, labelled by it.
+ * the ones under the pointer.
  */
-export function RateChart({ series, max, span }: { series: RateSeries[]; max: number; span?: ChartSpan }) {
+export function RateChart({ series, max }: { series: RateSeries[]; max: number }) {
   const [hover, setHover] = useState<number | null>(null);
   const n = series[0]?.values.length ?? 0;
   const top = max > 0 ? max : 1;
@@ -264,7 +255,7 @@ export function RateChart({ series, max, span }: { series: RateSeries[]; max: nu
   const y = (v: number) => CHART_H - 1 - (v / top) * (CHART_H - 3);
   const shown = hover ?? n - 1;
   // The newest point reads what the graph's label shows, which can be a spike ahead of the last completed step.
-  const atNow = !span && (hover === null || hover === n - 1);
+  const atNow = hover === null || hover === n - 1;
   const minutes = Math.round((n * RATE_STEP_MS) / 60_000);
   const spiking = atNow && series.some((r) => r.current?.spike);
   return (
@@ -277,14 +268,14 @@ export function RateChart({ series, max, span }: { series: RateSeries[]; max: nu
             <strong>{fmtRate(atNow && r.current ? r.current.value : r.values[shown] ?? 0)}/s</strong>
           </span>
         ))}
-        <span className={spiking ? 'spike' : 'muted'}>{span ? span.point(shown) : !atNow ? agoLabel((n - 1 - hover!) * RATE_STEP_MS) : spiking ? 'spike' : `last ${RATE_STEP_MS / 1000} s`}</span>
+        <span className={spiking ? 'spike' : 'muted'}>{!atNow ? agoLabel((n - 1 - hover!) * RATE_STEP_MS) : spiking ? 'spike' : `last ${RATE_STEP_MS / 1000} s`}</span>
       </figcaption>
       <div className="rate-plot">
         <svg
           viewBox={`0 0 ${CHART_W} ${CHART_H}`}
           preserveAspectRatio="none"
           role="img"
-          aria-label={span ? `${span.description}, peak ${fmtRate(max)} per second` : `${series.map((r) => `${r.label} ${fmtRate(r.values[n - 1] ?? 0)}`).join(', ')} events per second now, peak ${fmtRate(max)} per second over the last ${minutes} minutes`}
+          aria-label={`${series.map((r) => `${r.label} ${fmtRate(r.values[n - 1] ?? 0)}`).join(', ')} events per second now, peak ${fmtRate(max)} per second over the last ${minutes} minutes`}
           onPointerMove={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             setHover(Math.min(n - 1, Math.max(0, Math.round(((e.clientX - r.left) / r.width) * (n - 1)))));
@@ -302,7 +293,7 @@ export function RateChart({ series, max, span }: { series: RateSeries[]; max: nu
           <span key={r.label} className="rate-dot" style={{ left: `${(x(shown) / CHART_W) * 100}%`, top: `${(y(r.values[shown] ?? 0) / CHART_H) * 100}%`, background: r.color }} />
         ))}
       </div>
-      <div className="rate-axis muted"><span>{span ? span.start : `${minutes} min ago`}</span><span>peak {fmtRate(max)}/s</span><span>{span ? span.end : 'now'}</span></div>
+      <div className="rate-axis muted"><span>{minutes} min ago</span><span>peak {fmtRate(max)}/s</span><span>now</span></div>
     </figure>
   );
 }

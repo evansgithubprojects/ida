@@ -1,9 +1,9 @@
-import { onRecorder, type IngestBatch, type Recorder, type RecorderMessage } from '@ida-dev/core';
+import { onRecorder, type IngestBatch, type Recorder, type RecorderMessage } from '@eda-debugger/core';
 import { fitMessage, jsonBytes } from './fit';
 import { memoryStore, Spool, type SpoolStore } from './spool';
 
 export interface CloudOptions {
-  /** The project key from the web app (`ida_…`). It can only write, so it is safe in a browser bundle. */
+  /** The project's ingest key from the web app (`ida_…`). It can only write, so it is safe in a browser bundle. */
   projectKey: string;
   /** The server, e.g. `https://api.example.com`. */
   endpoint: string;
@@ -18,7 +18,7 @@ export interface CloudOptions {
   maxBatchBytes?: number;
   /**
    * Where batches wait while the server can't be reached. `false` keeps nothing: what can't be sent is dropped.
-   * @default files under `.ida/spool` in Node, IndexedDB in browsers
+   * @default files under `.eda-debugger/spool` in Node, IndexedDB in browsers
    */
   spool?: SpoolStore | false;
   /** Most bytes the spool keeps; past that the oldest data is dropped and reported as a gap. @default 50 MiB */
@@ -57,74 +57,11 @@ interface Stream {
   seq: number;
   pending: RecorderMessage[];
   unsubscribe: () => void;
-  /** Recent clock-offset samples against the server, newest last. */
-  clock: ClockSample[];
-}
-
-/** One NTP-style measurement: server clock minus recorder clock, give or take `errorMs`. */
-interface ClockSample { offsetMs: number; errorMs: number }
-
-/** Samples kept per stream. The best of the recent ones is used, so a slow request or drift over hours doesn't stick. */
-const CLOCK_SAMPLES = 8;
-
-/** The most precise recent sample: the one with the shortest network delay. */
-const bestClock = (s: Stream): ClockSample | undefined =>
-  s.clock.reduce<ClockSample | undefined>((best, c) => (!best || c.errorMs < best.errorMs ? c : best), undefined);
-
-/**
- * Server minus client clock from the four timestamps of one request, as NTP does: sent (t0), received by the server
- * (t1), answered (t2), response read (t3). Assumes the network takes as long each way; the error is at most half
- * the time spent on the network.
- */
-export function clockSample(t0: number, t1: number, t2: number, t3: number): ClockSample | undefined {
-  const delay = (t3 - t0) - (t2 - t1);
-  if (!(delay >= 0) || ![t0, t1, t2, t3].every(Number.isFinite)) return undefined;
-  return { offsetMs: ((t1 - t0) + (t2 - t3)) / 2, errorMs: delay / 2 };
 }
 
 const BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 30_000, 60_000];
 
-/** A configuration mistake: the one-line problem comes first so it is what a skimmer reads, then what to do about it. */
-function configError(problem: string, fix: string, caller: Function): TypeError {
-  const err = new TypeError(`[ida] ${problem}\n  ${fix}`);
-  // Start the stack at the user's `configure(...)` call, not inside this package (V8 only; elsewhere it is just longer).
-  (Error as { captureStackTrace?: (e: Error, fn: Function) => void }).captureStackTrace?.(err, caller);
-  return err;
-}
-
-/**
- * Fails at startup, with what to do, when the project key or endpoint is missing or can't be right. Left unchecked, a
- * missing key only shows up later as "can't reach <endpoint>" or a refused upload, which points at the wrong thing.
- * `caller` is the function the stack should start below: `configure`, so the first frame is the user's own call.
- */
-export function checkOptions(opts: Pick<CloudOptions, 'projectKey' | 'endpoint'>, caller: Function = checkOptions): void {
-  const key = typeof opts.projectKey === 'string' ? opts.projectKey.trim() : '';
-  if (!key) {
-    throw configError(
-      'configure() is missing a projectKey.',
-      "Create a project in the web app, make a project key and pass it: configure({ projectKey: process.env.IDA_PROJECT_KEY, endpoint }).",
-      caller,
-    );
-  }
-  // Keys made before the rename start with `eda_` and still work.
-  if (!/^(ida|eda)_/.test(key)) {
-    throw configError(
-      "configure() was given a projectKey that isn't a project key.",
-      "Project keys start with 'ida_'. Use one from the project's Project keys in the web app, not an account, API or Supabase key.",
-      caller,
-    );
-  }
-  if (typeof opts.endpoint !== 'string' || !opts.endpoint.trim()) {
-    throw configError(
-      'configure() is missing an endpoint.',
-      "Pass the URL of your Ida server: configure({ projectKey, endpoint: 'https://api.example.com' }).",
-      caller,
-    );
-  }
-}
-
 export function createUploader(opts: CloudOptions, defaultStore: () => SpoolStore | null, defaultRuntime: string): Uploader {
-  checkOptions(opts, createUploader);
   const doFetch = opts.fetch ?? fetch;
   const url = `${opts.endpoint.replace(/\/$/, '')}/v1/ingest`;
   const flushMs = opts.flushMs ?? 1000;
@@ -149,13 +86,13 @@ export function createUploader(opts: CloudOptions, defaultStore: () => SpoolStor
     opts.onStatus?.(s);
     if (opts.quiet) return;
     if (s.state === 'offline') {
-      console.warn(`[ida] can't reach ${opts.endpoint} (${s.error}). Recording continues: batches are kept in ${s.where} and will be uploaded when the connection is back.`);
+      console.warn(`[eda-debugger] can't reach ${opts.endpoint} (${s.error}). Recording continues: batches are kept in ${s.where} and will be uploaded when the connection is back.`);
     } else if (s.state === 'recovered') {
-      console.info(`[ida] reconnected to ${opts.endpoint}; uploaded ${s.uploaded} batch${s.uploaded === 1 ? '' : 'es'} recorded while offline.`);
+      console.info(`[eda-debugger] reconnected to ${opts.endpoint}; uploaded ${s.uploaded} batch${s.uploaded === 1 ? '' : 'es'} recorded while offline.`);
     } else if (s.state === 'rejected' && !rejectedOnce) {
       rejectedOnce = true;
       const hint = s.status === 401 || s.status === 403 ? ' Check the project key.' : '';
-      console.error(`[ida] ${opts.endpoint} refused an upload (${s.status}: ${s.error}).${hint} Refused data is dropped.`);
+      console.error(`[eda-debugger] ${opts.endpoint} refused an upload (${s.status}: ${s.error}).${hint} Refused data is dropped.`);
     }
   };
 
@@ -193,8 +130,8 @@ export function createUploader(opts: CloudOptions, defaultStore: () => SpoolStor
     // What the recorder already holds goes first, as one snapshot, so events from before `configure` aren't lost.
     const recording = recorder.export();
     const s: Stream = {
-      recorder, sessionId: recorder.sessionId, startedAt: recording.startedAt, seq: 0,
-      pending: recording.occurrences.length ? [{ type: 'snapshot', recording }] : [], unsubscribe: () => {}, clock: [],
+      recorder, sessionId: crypto.randomUUID(), startedAt: recording.startedAt, seq: 0,
+      pending: recording.occurrences.length ? [{ type: 'snapshot', recording }] : [], unsubscribe: () => {},
     };
     s.unsubscribe = recorder.subscribe((m) => {
       s.pending.push(m);
@@ -207,25 +144,13 @@ export function createUploader(opts: CloudOptions, defaultStore: () => SpoolStor
 
   type Sent = 'ok' | 'retry' | 'refused';
   const post = async (batch: IngestBatch): Promise<{ result: Sent; error: string; status?: number }> => {
-    // Only a live recorder can time the request; a batch an earlier run left in the spool goes without.
-    const stream = streams.find((x) => x.sessionId === batch.sessionId);
-    const clock = stream && bestClock(stream);
-    const t0 = stream?.recorder.wallTime();
     try {
       const res = await doFetch(url, {
         method: 'POST',
         headers: { Authorization: `Bearer ${opts.projectKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(stream ? { ...batch, sentAt: t0, ...(clock && { clock }) } : batch),
+        body: JSON.stringify(batch),
       });
-      if (res.ok) {
-        if (stream) {
-          const t3 = stream.recorder.wallTime();
-          const body = await res.json().catch(() => null) as { receivedAt?: unknown; repliedAt?: unknown } | null;
-          const sample = body && clockSample(t0!, Number(body.receivedAt), Number(body.repliedAt), t3);
-          if (sample) stream.clock = [...stream.clock, sample].slice(-CLOCK_SAMPLES);
-        }
-        return { result: 'ok', error: '' };
-      }
+      if (res.ok) return { result: 'ok', error: '' };
       const error = await res.text().then((t) => { try { return JSON.parse(t).error ?? t; } catch { return t; } }, () => res.statusText);
       // Retry what may succeed later; anything else would fail the same way forever.
       const transient = res.status >= 500 || res.status === 429 || res.status === 408;

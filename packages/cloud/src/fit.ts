@@ -1,4 +1,4 @@
-import type { RecorderMessage } from '@ida-dev/core';
+import type { RecorderMessage } from '@eda-debugger/core';
 
 const encoder = new TextEncoder();
 /** UTF-8 size of `value` as JSON: what it costs in a request body. */
