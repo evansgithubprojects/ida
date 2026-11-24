@@ -85,9 +85,12 @@ export default defineConfig(Object.entries(packages).map(([name, entries]): Opti
     // Rebuild a package only when its own sources change (the default watches the whole repo).
     watch: [`${dir}/src`],
     async onSuccess() {
-      prune(`${dir}/dist`, entries, 'js');
-      // The first build only repeats what `build:packages` just did, declarations included.
+      // The first build only repeats what `build:packages` just did, declarations included, so it doesn't prune: built
+      // from the root, it names shared chunks differently (esbuild writes module paths into them, and chunks are named
+      // by content hash), and the server and demo start alongside it, importing what `build:packages` made. Pruning
+      // then deleted a chunk they were still loading (ERR_MODULE_NOT_FOUND). The next rebuild prunes the leftover.
       if (first) { first = false; return; }
+      prune(`${dir}/dist`, entries, 'js');
       dts();
     },
   };
