@@ -78,7 +78,7 @@ export function Home() {
   const session = useSession();
   const signedIn = !!supabase && !!session;
   const [language, setLanguage] = useState<Language>('node');
-  const cta = signedIn ? { to: '/projects', label: 'Open your projects' } : { to: '/login', label: 'Get started' };
+  const cta = signedIn ? { to: '/projects', label: 'Open your projects', state: undefined } : { to: '/login', label: 'Get started', state: { mode: 'up' } };
 
   return (
     <div className="landing">
@@ -92,7 +92,7 @@ export function Home() {
             any one of them back to where it started.
           </p>
           <div className="landing-actions">
-            <Link className="cta primary" to={cta.to}>{cta.label}</Link>
+            <Link className="cta primary" to={cta.to} state={cta.state}>{cta.label}</Link>
             <a className="cta" href="#how">See how it works</a>
           </div>
         </div>
@@ -144,7 +144,7 @@ export function Home() {
 
       <section className="landing-final">
         <h3>Ready to find what's underneath?</h3>
-        <Link className="cta primary" to={cta.to}>{cta.label}</Link>
+        <Link className="cta primary" to={cta.to} state={cta.state}>{cta.label}</Link>
       </section>
     </div>
   );

@@ -81,7 +81,10 @@ function Shell() {
           </>
         )}
         {supabase && session === null && pathname !== '/login' && (
-          <Link className="cta login-btn" to="/login">Log in</Link>
+          <>
+            <Link className="cta login-btn" to="/login">Log in</Link>
+            <Link className="cta primary login-btn" to="/login" state={{ mode: 'up' }}>Get started</Link>
+          </>
         )}
       </header>
       {supabase && session && !onInvite && <PendingInvites />}

@@ -567,6 +567,7 @@ a.cta:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 }
 
 .toolbar a.login-btn { padding: 5px 14px; color: #fff; border-bottom: 1px solid var(--border-strong); }
+.toolbar a.login-btn.primary { border-color: var(--lg-green-base); }
 
 /* Language tabs over a snippet. */
 .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
