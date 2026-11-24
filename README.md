@@ -1,100 +1,146 @@
 # Ida
 
-Makes event-driven code easy to follow, in JavaScript/TypeScript and Python, within one service and across services linked by Kafka or RabbitMQ. It records every event in a time window, shows how events connect, and replays the timeline so you can watch pathways light up as events fire.
+Ida helps you understand code that runs on events. In event-driven code, one part of your app sends an event and other parts react to it, often in another file or another service. That makes it hard to see what actually happened and why.
 
-An event is **who called it and what it called, including payloads**. Handlers are the nodes; each event points at the event that caused it, so chains form a web.
+Ida records the events your app sends, which handler received each one, what data it carried, and which earlier event caused it. It then draws them as a map you can play back like a video: you watch each step light up in order, pause on any of them, and see the data that was passed.
 
-**Documentation:** quick starts, guides and the full API reference live in [`docs/`](docs/overview.md), and are served by the web app at `/docs`.
+Ida never re-runs your code during playback. It only shows what was recorded.
 
-## Packages
+**Full documentation** is in [`docs/`](docs/overview.md) and is also served by the web app at `/docs`.
 
-| Package | What it does |
-| --- | --- |
-| [`@ida-dev/core`](packages/core/README.md) | Recorder, ring buffer, templates, causality, corruption detection, JSON export. No DOM dependency. |
-| [`@ida-dev/adapter-eventemitter`](packages/adapter-eventemitter/README.md) | Records Node `EventEmitter`. |
-| [`@ida-dev/adapter-eventtarget`](packages/adapter-eventtarget/README.md) | Records DOM `EventTarget` (native events and `dispatchEvent`). |
-| [`@ida-dev/adapter-kafkajs`](packages/adapter-kafkajs/README.md) | Records Kafka producers and consumers made with kafkajs, linked across services. |
-| [`@ida-dev/adapter-amqplib`](packages/adapter-amqplib/README.md) | Records RabbitMQ publishes and deliveries made with amqplib, linked across services. |
-| [`@ida-dev/cloud`](packages/cloud/README.md) | Uploads recorders to a project on the server; spools locally while offline. |
-| [`ida-sdk`](python/README.md) (PyPI) | The Python SDK: recorder, `ida.Emitter`, uploads, Kafka (confluent-kafka) and RabbitMQ (pika). |
-| `docs` | The documentation, in markdown. The web app renders it at `/docs`. |
-| `apps/server` | Ingest and project API (Node, Hono, Postgres), with Supabase sign-in. See [its README](apps/server/README.md). |
-| `apps/viewer` | The web app: projects, recorders and recordings, plus the replay viewer (also usable locally, without an account). |
-| `apps/demo` | A stand-in user app (Node and browser) that uses the built packages and uploads to a project. Dev only. |
+## What it works with
 
-## Quick start
+**Languages**
+
+- JavaScript and TypeScript, in Node and in the browser
+- Python 3.9 or later
+
+**Events it can record**
+
+- Node's built-in `EventEmitter`
+- Browser events such as clicks and inputs, and your own `CustomEvent`s
+- Python events sent with `ida.Emitter`
+- Kafka messages, with kafkajs (JavaScript) or confluent-kafka (Python)
+- RabbitMQ messages, with amqplib (JavaScript) or pika (Python)
+
+When services talk through Kafka or RabbitMQ, Ida links a message sent by one service to the code that handled it in another, even when the two services are written in different languages.
+
+## What you can do with it
+
+- **See the whole system.** Each service appears as a card, with arrows for the messages that pass between services. Kafka topics and RabbitMQ queues sit between the services that use them.
+- **Zoom in.** Go from services, to the parts of one service that send events, to the individual handlers, to everything one handler did: the events it received, how long each one took, and any errors.
+- **Play it back.** Play, pause and scrub through the recording, and choose which stretch of time to replay.
+- **Inspect anything.** Click a card, an arrow or an event to see its details and data.
+- **Follow an error to its cause.** Errors appear as notifications. Clicking one shows a step-by-step path of the events that led to it, across services.
+- **Spot bad data.** When a handler fails and the code keeps going, Ida checks whether the data sent afterwards looks different from before, and flags it as *possibly* bad. You can mark handlers that talk to outside systems, such as a billing API, so warnings about them are raised as high priority.
+- **Watch live.** Recordings upload as your app runs, and the viewer follows them as they arrive.
+
+## Getting started
+
+1. Sign in to the Ida web app and create a project.
+2. Click **Connect an app** to get a **project key**. The key lets your app send recordings to the project. It can't read anything, so it's safe to put in a browser app.
+3. Add a few lines to your app's startup code, before it sets up its events.
+
+**Node**
+
+```bash
+npm install @ida-dev/core @ida-dev/cloud @ida-dev/adapter-eventemitter
+```
 
 ```ts
+import { configure } from '@ida-dev/cloud';
 import { enable } from '@ida-dev/core';
 import { enableEventEmitterRecording } from '@ida-dev/adapter-eventemitter';
 
-const recorder = enable({ windowMs: 60_000 });
-enableEventEmitterRecording(recorder); // one line: patches EventEmitter.prototype.emit
+configure({ projectKey: process.env.IDA_PROJECT_KEY!, endpoint: 'https://your-ida-server' });
+enable();                      // start recording
+enableEventEmitterRecording(); // record every EventEmitter in the app
+```
 
+**Browser**
+
+```bash
+npm install @ida-dev/core @ida-dev/cloud @ida-dev/adapter-eventtarget
+```
+
+```ts
+import { configure } from '@ida-dev/cloud';
+import { enable } from '@ida-dev/core';
+import { enableEventTargetRecording } from '@ida-dev/adapter-eventtarget';
+
+configure({ projectKey: 'ida_…', endpoint: 'https://your-ida-server' });
+enable();
+enableEventTargetRecording();
+```
+
+**Python**
+
+```bash
+pip install ida-sdk                  # add [kafka] and/or [rabbitmq] to record those
+```
+
+```python
+import os
+import ida
+import ida.cloud
+
+ida.cloud.configure(project_key=os.environ["IDA_PROJECT_KEY"], endpoint="https://your-ida-server")
+ida.enable()
+```
+
+4. Run your app, open the project in the web app, and click **Open viewer**.
+
+The [quick start guide](docs/quickstart.md) goes through this step by step. To link services that use Kafka or RabbitMQ, see [Tracing messages across services](docs/guides/brokers.md).
+
+### Without an account
+
+You can also save a recording to a file and open it in the viewer. The file is read in your browser and isn't uploaded.
+
+```ts
+const recorder = enable({ windowMs: 60_000 }); // keep the last 60 seconds
+enableEventEmitterRecording(recorder);
 // ... run your app ...
 fs.writeFileSync('recording.json', JSON.stringify(recorder.export()));
 ```
 
-On a replay screen, open **Recordings** and use **Open file…** (or drop the file on that window) to view `recording.json`, or stream live with `startBridge` from `@ida-dev/core/bridge-node` and connect to it from the recorder dropdown under **View Remote Endpoint**.
+In the viewer, open **Recordings** and click **Open file…**, or drag the file onto the page.
 
-### Projects: upload recorders to the web app
+## Good to know
 
-Create a project in the web app, make an ingest key, and add:
+- **Ida keeps the last stretch of time, not everything.** You choose how long (`windowMs`). Older events are dropped so memory use stays bounded.
+- **The data your events carry isn't saved unless you ask for it.** By default, Ida saves the *shape* of the data (its field names and types) and groups events that look alike, which keeps recordings small. To save the actual values for particular events, list them:
 
-```ts
-import { configure } from '@ida-dev/cloud';
-import { connectRecorder, enable } from '@ida-dev/core';
-import { enableEventEmitterRecording } from '@ida-dev/adapter-eventemitter';
+  ```ts
+  enable({ deepLogging: { events: ['order:confirmed'] } });
+  ```
 
-configure({ projectKey: process.env.IDA_PROJECT_KEY!, endpoint: 'https://your-server' });
-enable();                                       // the default recorder: catches every emitter nothing else claims
-enableEventEmitterRecording();
-connectRecorder('payments').track(paymentsBus); // anywhere: same key, same recorder
-```
+  The viewer shows, for each event, whether its full data was saved.
+- **Losing the connection doesn't lose data.** If your app can't reach the server, recordings wait on disk (or in browser storage) and upload, in order, when the connection comes back. The viewer marks anything that arrived late, or was lost because the waiting space filled up.
+- **Clocks don't have to agree.** Each service's clock can be a little off. Ida corrects for this so messages play back in the order they really happened.
+- **Waiting code is followed in Node and Python.** When a handler waits (an `await`, a timer) and then sends another event, Ida still knows which event caused it. Browsers don't support this yet, so in the browser only events sent straight away are linked.
 
-Without `enable()`, only emitters that a recorder `track()`s are recorded. The adapter prints one console warning the first time an emit has nowhere to go (turn it off with `{ warnIfNoRecorder: false }`).
+## Teams
 
-Each recorder appears under the project with one recording per run of your app, and can be watched live. On a replay screen, **Recordings** lists them, and each row has a **View** button that opens it. If the server can't be reached, batches are kept on disk (Node) or in IndexedDB (browser), the console says so, and they are uploaded in order once the connection is back. The viewer marks events that arrived late and gaps where data was lost.
+Every project belongs to an organization, and signing up creates one with you as its owner. Owners and admins can open every project in the organization and invite people by email. Members open only the projects they're given, either to view or also to manage project keys. See [Projects and teams](docs/projects.md).
 
-### Storage: templates, not full copies
+## Contributing
 
-Each event stores a reference to its **template** (emitter + event name + handler set + payload shape) plus a timestamp, parent link and ids. Values are **not** stored unless you opt in per event ("deep logging"):
+Contributions are welcome. Bug reports and feature ideas go in [GitHub issues](https://github.com/evansgithubprojects/ida/issues). Code changes go in pull requests against the `release` branch.
 
-```ts
-createRecorder({ deepLogging: { events: ['order:confirmed'] } });
-```
-
-The viewer labels every occurrence as `template-only` or `full capture`.
-
-### Suspected corrupt payloads
-
-When a handler throws (or emits an `error` event) and the same handler or emitter keeps emitting, those payloads are compared with earlier ones. With deep logging the values are compared; without it only the shapes are. Findings say *suspected*, never *corrupt*.
-
-```ts
-createRecorder({
-  deepLogging: { events: ['order:confirmed'] },
-  corruption: {
-    notify: 'console',              // or a callback, or both; off by default
-    external: { handlers: [postToBillingApi] }, // payloads reaching these are HIGH priority
-    policy: 'notify',               // 'block' throws instead of calling handlers
-    externalPolicy: 'block',        // stricter policy for external systems only
-  },
-});
-```
-
-Core cannot see inside a handler, so declare what talks to the outside world (`external`, or `recorder.markExternal(fnOrEmitter)`). External findings use `console.error`, carry `priority: 'high'`, and carry a red **EXTERNAL** badge in the viewer's inspector.
-
-## Production
+To run Ida locally you need Node 20 or later and a [Supabase](https://supabase.com) project for sign-in:
 
 ```bash
-npm run build   # packages (dist/), server (apps/server/dist), web app (apps/viewer/dist)
-npm start       # runs the server: node apps/server/dist/main.js
+npm install
+cp apps/server/.env.example apps/server/.env   # set SUPABASE_URL
+cp apps/viewer/.env.example apps/viewer/.env.local
+npm run dev    # the server, the web app at http://localhost:5173, and a demo app that sends events
+npm test
 ```
 
-Set `NODE_ENV=production`, `SUPABASE_URL`, `DATABASE_URL`, `STREAM_SECRET` and `WEB_ORIGINS` for the server (see `apps/server/.env.example`). Build the web app with `VITE_*` set for production and serve `apps/viewer/dist` from any static host. Publish packages with `npm publish -w @ida-dev/<name>`.
+A few things to know before you open a pull request:
 
-Replay never re-runs your code: it plays recorded data back against the graph.
+- **Add or update tests** for what you change, and make sure `npm test` and `npm run typecheck` pass.
+- **The JavaScript and Python packages must record the same way.** The rules they share, and the test cases both must pass, are in [`spec/`](spec/README.md). A change to how events are recorded usually means updating both packages and the spec.
+- **Update the docs** in [`docs/`](docs/overview.md) when you change something people use.
 
-## Scope of the first milestone
-
-Async hops are followed in Node 20.16+ / 22.3+ (`AsyncLocalStorage`) and in Python (`contextvars`); browsers record synchronous causality only until AsyncContext ships, and the `CausalityContext` interface is the seam for it. mitt / eventemitter3 / Vue / React adapters, an in-page overlay and a DevTools extension are not built yet.
+To see what is planned, and find a place to start, read the [roadmap](ROADMAP.md).
