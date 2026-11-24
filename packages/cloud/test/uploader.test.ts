@@ -281,8 +281,8 @@ describe('configuration', () => {
     expect(make({ projectKey: '   ' })).toThrow(/missing a projectKey/);
   });
 
-  it("throws when the key isn't an ingest key", () => {
-    expect(make({ projectKey: 'eyJhbGciOiJIUzI1NiJ9.abc' })).toThrow(/isn't an ingest key/);
+  it("throws when the key isn't a project key", () => {
+    expect(make({ projectKey: 'eyJhbGciOiJIUzI1NiJ9.abc' })).toThrow(/isn't a project key/);
   });
 
   it('throws when the endpoint is missing', () => {

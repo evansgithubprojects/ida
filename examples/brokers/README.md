@@ -19,14 +19,14 @@ Each service records its own events and uploads them to your Ida project. Open t
 ## You need
 
 - A local Ida server and web app. From the repo root, run `npm run dev`. The server listens on port 8787.
-- A project and its ingest key. Sign in to the web app, create a project, and use **Connect an app** to make a key.
+- A project and its project key. Sign in to the web app, create a project, and use **Connect an app** to make a key.
 - Docker, for the brokers. The services can run in Docker too, or on your machine (see below).
 
 ## Run everything in Docker
 
 ```sh
 cd examples/brokers
-cp .env.example .env        # then paste your ingest key into IDA_PROJECT_KEY
+cp .env.example .env        # then paste your project key into IDA_PROJECT_KEY
 cd ../..
 npm run demo:brokers
 ```
@@ -54,7 +54,7 @@ cd examples/brokers
 docker compose up -d kafka rabbitmq
 ./pack.sh && npm install
 
-export IDA_PROJECT_KEY=...   # your ingest key
+export IDA_PROJECT_KEY=...   # your project key
 npm run orders               # in one terminal
 npm run notifier             # in another
 
@@ -70,7 +70,7 @@ Run on your machine, the services default to `localhost:9094` for Kafka, `localh
 
 | Variable | Default | |
 |---|---|---|
-| `IDA_PROJECT_KEY` | (required) | The project's ingest key. |
+| `IDA_PROJECT_KEY` | (required) | The project key. |
 | `IDA_ENDPOINT` | `http://host.docker.internal:8787` in Docker, `http://localhost:8787` otherwise | Where the services upload. |
 | `ORDER_EVERY_MS` | `2000` | How often the storefront places an order. |
 | `KAFKA_BROKERS` | `kafka:9092` in Docker, `localhost:9094` otherwise | |

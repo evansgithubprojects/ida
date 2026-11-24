@@ -18,7 +18,7 @@ Each event points at the event that caused it: if `chargeCard` runs because `ord
 
 1. **Install** the core package and the adapter for what your events go through (Node `EventEmitter`, DOM `EventTarget`, Kafka, RabbitMQ, or Python's `ida.Emitter`).
 2. **Enable** recording once at startup. Adapters hook the dispatcher, so you never instrument emit calls one by one.
-3. **View** the recording in the Ida web app: upload it to a project with an ingest key, stream it live, or export it to a JSON file.
+3. **View** the recording in the Ida web app: upload it to a project with a project key, stream it live, or export it to a JSON file.
 
 In the viewer you can:
 

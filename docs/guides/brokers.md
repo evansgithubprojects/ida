@@ -12,7 +12,7 @@ Your message objects are never changed: the header is added to a copy. Messages 
 
 ## Setup
 
-Every service needs `configure` (or `ida.cloud.configure`) with the **same project's** ingest key, a recorder, and the adapter for its client. Give each service its own recorder key so the system view can tell them apart.
+Every service needs `configure` (or `ida.cloud.configure`) with a project key from the **same project**, a recorder, and the adapter for its client. Give each service its own recorder key so the system view can tell them apart.
 
 :::lang node
 ### Node, kafkajs

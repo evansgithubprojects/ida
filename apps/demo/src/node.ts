@@ -17,7 +17,7 @@ import { createShop } from './shop';
  */
 try { process.loadEnvFile(); } catch { /* no .env */ }
 const waitForKey = (): Promise<never> => {
-  console.log('[demo] No IDA_PROJECT_KEY. Create a project in the web app, make an ingest key, and put it in apps/demo/.env (see .env.example). Waiting...');
+  console.log('[demo] No IDA_PROJECT_KEY. Create a project in the web app, make a project key, and put it in apps/demo/.env (see .env.example). Waiting...');
   return new Promise<never>(() => setInterval(() => {}, 1 << 30));
 };
 const projectKey = process.env.IDA_PROJECT_KEY || (await waitForKey());

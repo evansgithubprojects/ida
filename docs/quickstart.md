@@ -38,12 +38,12 @@ pip install "ida-sdk[rabbitmq]"      # plus pika
 ```
 :::
 
-## 2. Get an ingest key
+## 2. Get a project key
 
 1. Sign in to the web app and create a project (see [Projects and teams](projects.md)).
-2. Click **Connect an app** and create an **ingest key**. It is shown once.
+2. Click **Connect an app** and create a **project key**. It is shown once.
 
-Ingest keys can only upload to their project, never read from it. If one leaks, revoke it in the project and make a new one.
+Project keys can only upload to their project, never read from it. If one leaks, revoke it in the project and make a new one.
 
 :::lang node
 Store the key as the `IDA_PROJECT_KEY` environment variable.

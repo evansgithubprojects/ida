@@ -3,7 +3,7 @@ import { fitMessage, jsonBytes } from './fit';
 import { memoryStore, Spool, type SpoolStore } from './spool';
 
 export interface CloudOptions {
-  /** The project's ingest key from the web app (`ida_…`). It can only write, so it is safe in a browser bundle. */
+  /** The project key from the web app (`ida_…`). It can only write, so it is safe in a browser bundle. */
   projectKey: string;
   /** The server, e.g. `https://api.example.com`. */
   endpoint: string;
@@ -102,15 +102,15 @@ export function checkOptions(opts: Pick<CloudOptions, 'projectKey' | 'endpoint'>
   if (!key) {
     throw configError(
       'configure() is missing a projectKey.',
-      "Create a project in the web app, make an ingest key and pass it: configure({ projectKey: process.env.IDA_PROJECT_KEY, endpoint }).",
+      "Create a project in the web app, make a project key and pass it: configure({ projectKey: process.env.IDA_PROJECT_KEY, endpoint }).",
       caller,
     );
   }
   // Keys made before the rename start with `eda_` and still work.
   if (!/^(ida|eda)_/.test(key)) {
     throw configError(
-      "configure() was given a projectKey that isn't an ingest key.",
-      "Ingest keys start with 'ida_'. Use one made under the project's ingest keys in the web app, not an account, API or Supabase key.",
+      "configure() was given a projectKey that isn't a project key.",
+      "Project keys start with 'ida_'. Use one from the project's Project keys in the web app, not an account, API or Supabase key.",
       caller,
     );
   }

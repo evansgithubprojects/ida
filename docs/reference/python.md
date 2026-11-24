@@ -126,7 +126,7 @@ ida.cloud.configure(project_key: str, endpoint: str, **options) -> Uploader
 
 Starts uploading every keyed recorder, existing and future, from a background thread (`ida-uploader`). At exit, it spends up to 3 seconds uploading what is left.
 
-Raises `ValueError` for a missing project key, a key that isn't an ingest key (`ida_…`), or a missing endpoint, and `RuntimeError` if it was already called.
+Raises `ValueError` for a missing project key, a key that isn't a project key (`ida_…`), or a missing endpoint, and `RuntimeError` if it was already called.
 
 | Option | Default | |
 | --- | --- | --- |

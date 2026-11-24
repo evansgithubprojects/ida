@@ -33,7 +33,7 @@ export interface AppOptions {
   ingestPerMinute?: number;
   /** Who is calling, for the limits on failed sign-ins. Behind a proxy the socket address is the proxy's: pass one that reads its header. */
   clientIp?: (c: Context) => string | undefined;
-  /** Failed ingest-key or sign-in attempts allowed per client address per minute, before it is refused outright. @default 30 */
+  /** Failed project-key or sign-in attempts allowed per client address per minute, before it is refused outright. @default 30 */
   failuresPerMinute?: number;
   /** Requests one signed-in person can make per minute. @default 300 */
   apiPerMinute?: number;

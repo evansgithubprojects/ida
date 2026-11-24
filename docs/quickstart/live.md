@@ -4,7 +4,7 @@ You can watch events arrive while your app runs, in two ways:
 
 | | Project live view | Local bridge |
 | --- | --- | --- |
-| Needs | `@ida-dev/cloud` and an ingest key | Only `@ida-dev/core`, in Node |
+| Needs | `@ida-dev/cloud` and a project key | Only `@ida-dev/core`, in Node |
 | Data goes | to the Ida server, and is kept as a recording | straight from your process to your browser; nothing is stored |
 | Good for | apps running anywhere, teams | quick local debugging |
 

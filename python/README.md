@@ -14,7 +14,7 @@ Python 3.9 or later. The SDK itself has no dependencies; the extras only pin the
 
 ## Setup
 
-Create a project in the web app and make an ingest key, then run this once at startup, before you create any
+Create a project in the web app and make a project key, then run this once at startup, before you create any
 producers, consumers or channels:
 
 ```python
@@ -132,7 +132,7 @@ says when that happens. Past `spool_max_bytes` the oldest batches are dropped, a
 
 | `configure()` option | Default | |
 | --- | --- | --- |
-| `project_key` | required | The project's ingest key (`ida_…`). Keys can only upload. |
+| `project_key` | required | The project key (`ida_…`). Keys can only upload. |
 | `endpoint` | required | The Ida server URL. |
 | `flush_ms` | `1000` | How long messages wait to be batched. |
 | `max_batch` | `500` | Most messages per batch. |

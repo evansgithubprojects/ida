@@ -2,7 +2,7 @@ import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
-/** A new ingest key, `ida_<prefix>_<secret>`. Only `prefix` and `hash` are stored; `key` is shown to the user once. */
+/** A new project key, `ida_<prefix>_<secret>`. Only `prefix` and `hash` are stored; `key` is shown to the user once. */
 export function newIngestKey(): { key: string; prefix: string; hash: string } {
   const prefix = randomBytes(6).toString('hex');
   const key = `ida_${prefix}_${randomBytes(24).toString('base64url')}`;

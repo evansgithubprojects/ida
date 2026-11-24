@@ -6,7 +6,7 @@ The fixtures in `fixtures/` are the conformance suite. Every SDK's tests load th
 
 ## Wire format
 
-An SDK uploads `IngestBatch` JSON to `POST /v1/ingest` with `Authorization: Bearer <ingest key>`:
+An SDK uploads `IngestBatch` JSON to `POST /v1/ingest` with `Authorization: Bearer <project key>`:
 
 | Field | Type | Notes |
 | --- | --- | --- |

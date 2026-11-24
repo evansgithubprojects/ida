@@ -311,7 +311,7 @@ describe('limits against abuse', () => {
   const post = (a: ReturnType<typeof createApp>, path: string, headers: Record<string, string>, body?: string) =>
     a.request(path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
 
-  it('stops answering a client that keeps sending wrong ingest keys, before touching the database', async () => {
+  it('stops answering a client that keeps sending wrong project keys, before touching the database', async () => {
     const a = make({ failuresPerMinute: 3 });
     const wrong = { Authorization: 'Bearer ida_000000000000_' + 'x'.repeat(32), 'x-test-ip': '203.0.113.9' };
     const statuses: number[] = [];

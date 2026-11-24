@@ -28,7 +28,7 @@ enableEventEmitterRecording();
 
 **Throws** at startup, with what to do, when:
 
-- `projectKey` is missing or empty, or isn't an ingest key (`ida_…`);
+- `projectKey` is missing or empty, or isn't a project key (`ida_…`);
 - `endpoint` is missing or empty;
 - `configure` was already called (`close()` the uploader it returned first).
 
@@ -38,7 +38,7 @@ In Node, batches are flushed when the process is about to exit (`beforeExit`). I
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `projectKey` | `string` | required | The project's ingest key (`ida_…`). Keys can only upload, so it is safe in a browser bundle. |
+| `projectKey` | `string` | required | The project key (`ida_…`). Keys can only upload, so it is safe in a browser bundle. |
 | `endpoint` | `string` | required | The Ida server's URL. Batches are posted to `<endpoint>/v1/ingest`. |
 | `flushMs` | `number` | `1000` | How long messages wait to be batched. |
 | `maxBatch` | `number` | `500` | Most messages per batch; a full batch is sent at once. |

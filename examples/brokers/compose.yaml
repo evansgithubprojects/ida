@@ -2,13 +2,13 @@
 #
 #   orders (Node) --Kafka topic "orders"--> payments (Python) --RabbitMQ exchange "receipts"--> notifier (Node)
 #
-# Every service uploads to the Ida server running on your machine (`npm run dev`), into the project whose ingest key
+# Every service uploads to the Ida server running on your machine (`npm run dev`), into the project whose project key
 # you put in .env. See README.md.
 #
 # Host ports are moved off the defaults (9094, 5673, 15673) so the demo doesn't clash with brokers you already run.
 
 x-ida: &ida
-  IDA_PROJECT_KEY: ${IDA_PROJECT_KEY:?Put your project's ingest key in examples/brokers/.env (see .env.example)}
+  IDA_PROJECT_KEY: ${IDA_PROJECT_KEY:?Put your project key in examples/brokers/.env (see .env.example)}
   # host.docker.internal is your machine as seen from inside a container.
   IDA_ENDPOINT: ${IDA_ENDPOINT:-http://host.docker.internal:8787}
 

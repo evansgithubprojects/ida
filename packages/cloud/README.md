@@ -8,7 +8,7 @@ npm install @ida-dev/core @ida-dev/cloud
 
 ## Setup
 
-Create a project in the web app and make an ingest key, then call `configure` once at startup:
+Create a project in the web app and make a project key, then call `configure` once at startup:
 
 ```ts
 import { configure } from '@ida-dev/cloud';
@@ -27,7 +27,7 @@ no recorder to go to.
 
 Every recorder made with `connectRecorder()` or `enable()` is uploaded: those that exist already (including what they recorded before `configure`) and those created later. Each run of your app becomes one recording of each recorder.
 
-Ingest keys can only upload, so a key in a browser bundle can't read anything. Revoke a leaked key in the web app.
+Project keys can only upload, so a key in a browser bundle can't read anything. Revoke a leaked key in the web app.
 
 ## When the server can't be reached
 
@@ -47,7 +47,7 @@ Recording carries on. Batches go to a spool, and the console says where:
 
 | Option | Default | |
 | --- | --- | --- |
-| `projectKey` | required | The project's ingest key (`ida_…`). |
+| `projectKey` | required | The project key (`ida_…`). |
 | `endpoint` | required | The server URL. |
 | `flushMs` | `1000` | How long messages wait to be batched. |
 | `maxBatch` | `500` | Most messages per batch; a full batch is sent at once. |

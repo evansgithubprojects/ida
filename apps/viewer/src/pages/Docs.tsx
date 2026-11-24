@@ -216,7 +216,7 @@ function IntegrationPage({ source: id }: { source: Source }) {
       <h2>{source.label}</h2>
       <p className="lede">{source.blurb}</p>
       <p className="muted">
-        Make an ingest key in your project first, and set it as <code>IDA_PROJECT_KEY</code>. Uploads go to <code>{API_URL}</code>.
+        Make a project key in your project first, and set it as <code>IDA_PROJECT_KEY</code>. Uploads go to <code>{API_URL}</code>.
       </p>
       <LanguagePicker languages={languages} current={language?.id} onPick={choose} />
       {language && (() => {

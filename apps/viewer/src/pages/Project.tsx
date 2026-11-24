@@ -73,7 +73,7 @@ export function Project() {
 
       {manageKeys && (
         <section className="panel-section">
-          <h3>Ingest keys</h3>
+          <h3>Project keys</h3>
           <IngestKeys key={keysVersion} projectId={projectId} onError={setError} />
         </section>
       )}

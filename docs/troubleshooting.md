@@ -23,14 +23,14 @@ Work through these in order:
 
 The adapter is installed without a recorder, there is no default recorder, and no recorder tracks this emitter. Call `enable()` before your events start, or `track()` the emitters you want. If leaving them unrecorded is intended, pass `{ warnIfNoRecorder: false }` to the adapter. The EventTarget ("was dispatched…"), Kafka ("a Kafka message on … went unrecorded") and RabbitMQ adapters print the same kind of warning.
 
-### "configure() is missing a projectKey" / "isn't an ingest key" / "is missing an endpoint"
+### "configure() is missing a projectKey" / "isn't a project key" / "is missing an endpoint"
 
 ```
-TypeError: [ida] configure() was given a projectKey that isn't an ingest key.
-  Ingest keys start with 'ida_'. Use one made under the project's ingest keys in the web app, not an account, API or Supabase key.
+TypeError: [ida] configure() was given a projectKey that isn't a project key.
+  Project keys start with 'ida_'. Use one from the project's Project keys in the web app, not an account, API or Supabase key.
 ```
 
-`configure` checks its options at startup. Make an ingest key under the project's **Ingest keys** (or **Connect an app**), and check that the environment variable is actually set in the process (`process.env.IDA_PROJECT_KEY` is `undefined` if it isn't). In Python these are `ValueError`s.
+`configure` checks its options at startup. Make a project key under the project's **Project keys** (or **Connect an app**), and check that the environment variable is actually set in the process (`process.env.IDA_PROJECT_KEY` is `undefined` if it isn't). In Python these are `ValueError`s.
 
 ### "configure() was already called"
 
@@ -100,9 +100,9 @@ Recording adds a little work to every emit: looking up the template, timing the 
 
 Event names, emitter and handler names, timings, error names, messages and stacks, payload **shapes**, and broker facts (topic, partition, offset, exchange, routing key, queue). Payload **values** only for events you deep-log, and message keys only with `recordKeys`. Nothing is sent unless you call `configure`.
 
-### Is it safe to put the ingest key in front-end code?
+### Is it safe to put the project key in front-end code?
 
-Yes. Ingest keys can only upload to their project, never read. Someone who copies it can only send data into your project; revoke it if that happens.
+Yes. Project keys can only upload to their project, never read. Someone who copies it can only send data into your project; revoke it if that happens.
 
 ### Can I use it in tests?
 

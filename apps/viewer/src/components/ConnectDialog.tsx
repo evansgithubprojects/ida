@@ -3,7 +3,7 @@ import { api } from '../cloud/api';
 import { LANGUAGES, SetupSnippet, sourcesFor, type Language, type Source } from './SetupSnippet';
 
 /**
- * Connects an app to a project in two screens: create an ingest key, then add it to the app. `startAt: 'setup'`
+ * Connects an app to a project in two screens: create a project key, then add it to the app. `startAt: 'setup'`
  * skips the first screen (reopening it later); the new key's secret only exists while the dialog is open.
  */
 export function ConnectDialog({ projectId, startAt, onClose, onKeyCreated }: {
@@ -69,7 +69,7 @@ export function ConnectDialog({ projectId, startAt, onClose, onKeyCreated }: {
         <div className="wizard-track" style={{ transform: startAt === 'key' && screen === 'setup' ? 'translateX(-100%)' : undefined }}>
           {startAt === 'key' && (
             <form className="wizard-screen form" onSubmit={create} inert={screen !== 'key'}>
-              <h3>Create an ingest key</h3>
+              <h3>Create a project key</h3>
               <p className="muted">Your app uses a key to upload its events to this project. Keys can only upload data, and you can revoke one at any time.</p>
               <label>Label (optional)
                 <input placeholder="e.g. staging" maxLength={100} value={label} onChange={(e) => setLabel(e.target.value)} disabled={busy} />

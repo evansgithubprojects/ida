@@ -14,8 +14,8 @@ A project is usually one app or one system of services. Open your organization a
 
 - **Open viewer**: every service in the project, live, linked through Kafka and RabbitMQ (appears once something is uploaded). See [Opening the viewer](viewer/recordings.md).
 - **Recorders**: every recorder your app has uploaded, by key, with when it last sent data. Click one to open the viewer zoomed into it.
-- **Connect an app**: the setup code for your language, with a new ingest key filled in.
-- **Ingest keys**: the keys your apps upload with.
+- **Connect an app**: the setup code for your language, with a new project key filled in.
+- **Project keys**: the keys your apps upload with.
 - **Access**: who can open the project.
 - **Delete project**: deletes every recorder and recording in it; its keys stop working. This can't be undone.
 
@@ -23,9 +23,9 @@ A project is usually one app or one system of services. Open your organization a
 
 Each recorder your app creates (with `enable()` or `connectRecorder(key)`) shows up under its key. Each **run** of your app (each process start) is one **recording** of each recorder. See [Opening the viewer](viewer/recordings.md#past-runs).
 
-## Ingest keys
+## Project keys
 
-Apps upload with an ingest key (`ida_…`), passed to `configure({ projectKey })`.
+Apps upload with a project key (`ida_…`), passed to `configure({ projectKey })`.
 
 - A key can only **upload** to its project. It can't read anything, so shipping one in a browser bundle is safe.
 - A new key is shown **once**. Copy it and keep it somewhere safe, for example as the `IDA_PROJECT_KEY` environment variable.
@@ -47,7 +47,7 @@ Project access, for members:
 | Access | Can |
 | --- | --- |
 | **Viewer** | Look at recordings and the live view. |
-| **Editor** | Also manage ingest keys and connect an app. |
+| **Editor** | Also manage project keys and connect an app. |
 
 Owners and admins manage project access in each project's **Access** section. Someone without access to a project sees the same "not found" as for a project that doesn't exist.
 

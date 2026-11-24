@@ -4,7 +4,7 @@ import { maskKey } from '../cloud/keys';
 import { ago, useApi } from '../cloud/useApi';
 import { NewKeyDialog } from './NewKeyDialog';
 
-/** The project's ingest keys: create one (shown once in a dialog) and revoke. Listed keys are masked. */
+/** The project keys: create one (shown once in a dialog) and revoke. Listed keys are masked. */
 export function IngestKeys({ projectId, onError }: { projectId: string; onError: (message: string | null) => void }) {
   const keys = useApi(`keys:${projectId}`, () => api.keys(projectId));
   const [label, setLabel] = useState('');

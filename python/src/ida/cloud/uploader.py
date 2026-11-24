@@ -53,13 +53,13 @@ def check_options(project_key: Any, endpoint: Any) -> None:
     key = project_key.strip() if isinstance(project_key, str) else ""
     if not key:
         raise ValueError(
-            "[ida] configure() is missing a project_key.\n  Create a project in the web app, make an ingest key and "
+            "[ida] configure() is missing a project_key.\n  Create a project in the web app, make a project key and "
             'pass it: configure(project_key=os.environ["IDA_PROJECT_KEY"], endpoint=...).'
         )
     if not key.startswith(_KEY_PREFIXES):
         raise ValueError(
-            "[ida] configure() was given a project_key that isn't an ingest key.\n  Ingest keys start with 'ida_'. Use "
-            "one made under the project's ingest keys in the web app, not an account, API or Supabase key."
+            "[ida] configure() was given a project_key that isn't a project key.\n  Project keys start with 'ida_'. Use "
+            "one from the project's Project keys in the web app, not an account, API or Supabase key."
         )
     if not isinstance(endpoint, str) or not endpoint.strip():
         raise ValueError(

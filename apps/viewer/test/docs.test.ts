@@ -51,7 +51,7 @@ describe('docs', () => {
     expect(resolveHref('python.md', 'reference/core')).toBe('/docs/reference/python');
     expect(resolveHref('/docs/kafka?lang=python', 'overview')).toBe('/docs/kafka?lang=python');
     expect(resolveHref('https://kafka.js.org', 'overview')).toBe('https://kafka.js.org');
-    expect(resolveHref('quickstart.md?lang=python#2-get-an-ingest-key', 'overview')).toBe('/docs/quickstart?lang=python#2-get-an-ingest-key');
+    expect(resolveHref('quickstart.md?lang=python#2-get-a-project-key', 'overview')).toBe('/docs/quickstart?lang=python#2-get-a-project-key');
   });
 
   describe('language blocks', () => {
