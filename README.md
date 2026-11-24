@@ -1,6 +1,6 @@
 # Ida
 
-Makes event-driven JavaScript easy to follow. It records every event in a time window, shows how events connect, and replays the timeline so you can watch pathways light up as events fire.
+Makes event-driven code easy to follow, in JavaScript/TypeScript and Python, within one service and across services linked by Kafka or RabbitMQ. It records every event in a time window, shows how events connect, and replays the timeline so you can watch pathways light up as events fire.
 
 An event is **who called it and what it called, including payloads**. Handlers are the nodes; each event points at the event that caused it, so chains form a web.
 

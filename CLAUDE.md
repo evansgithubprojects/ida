@@ -1,11 +1,12 @@
 # Ida
 
-A debugging tool that makes event-driven JavaScript code easy to follow. It records every event in a time window, shows how events connect, and replays the timeline visually so you can watch pathways light up as events fire.
+A debugging tool that makes event-driven code easy to follow, within one service and across services that talk through message brokers. It records every event in a time window, shows how events connect, and replays the timeline visually so you can watch pathways light up as events fire.
 
 ## Distribution
 
-- Published on npm.
-- JavaScript frameworks only for the first version.
+- JavaScript / TypeScript SDK on npm (`@ida-dev/*`): core, `cloud`, and adapters for `EventEmitter`, `EventTarget`, kafkajs and amqplib.
+- Python SDK on PyPI (`ida-sdk`, in `python/`): recorder, `ida.Emitter`, uploads, Kafka (confluent-kafka) and RabbitMQ (pika).
+- Every SDK follows `spec/README.md` and must pass the fixtures in `spec/fixtures/`, so the server and viewer can't tell which language a recording came from. More languages can follow the same spec.
 
 ## What an "event" is
 
@@ -81,7 +82,7 @@ These are suggestions from the planning discussion, not final decisions.
 
 - Core recorder with templates
 - `EventEmitter` and `EventTarget` adapters
-- Synchronous causality only
+- Synchronous causality only (since extended: async hops are followed in Node via `AsyncLocalStorage` and in Python via `contextvars`; browsers are still synchronous only)
 - Replay viewer: play/pause/scrub, lit-up pathways, click-to-inspect, replay window control, process → handler → activity zoom
 - A demo app with a simulated event stream to exercise the viewer
 
