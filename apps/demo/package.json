@@ -1,15 +1,21 @@
 {
-  "name": "@eda-debugger/demo",
+  "name": "@ida-dev/demo",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "npm run node",
-    "node": "tsx watch src/node.ts"
+    "dev": "node scripts/dev.mjs",
+    "node": "tsx watch src/node.ts",
+    "brokers": "docker compose up -d --wait",
+    "brokers:down": "docker compose down"
   },
   "dependencies": {
-    "@eda-debugger/adapter-eventemitter": "*",
-    "@eda-debugger/cloud": "*",
-    "@eda-debugger/core": "*"
+    "@ida-dev/adapter-amqplib": "*",
+    "@ida-dev/adapter-eventemitter": "*",
+    "@ida-dev/adapter-kafkajs": "*",
+    "@ida-dev/cloud": "*",
+    "@ida-dev/core": "*",
+    "amqplib": "2.2.0",
+    "kafkajs": "2.2.4"
   }
 }

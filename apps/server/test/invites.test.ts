@@ -30,7 +30,7 @@ beforeAll(async () => {
   // `withMail` lets one test run as if no mail provider was configured.
   app = createApp({
     db,
-    verifyUser: async (t) => (t.startsWith('user-') ? { id: t, email: `${t}@example.com`, name: t.slice(5) } : null),
+    verifyUser: async (t) => (t.startsWith('user-') ? { id: t, email: `${t}@example.com`, emailVerified: !t.startsWith('user-unv'), name: t.slice(5) } : null),
     streamSecret: 's',
     webAppUrl: 'https://app.example.com',
     sendMail: (m) => (withMail ? sendMail(m) : Promise.reject(new Error('unused'))),
@@ -208,6 +208,25 @@ describe('accepting', () => {
     expect(seen.email).toBeUndefined();
   });
 
+  it('does not match an invitation to an email address the person has not confirmed', async () => {
+    const { owner, org } = await setup();
+    const unconfirmed = `user-unv${randomUUID().slice(0, 6)}`; // signed up with this address but never followed the confirmation link
+    sent.length = 0;
+    const made = (await call('POST', `/v1/orgs/${org}/invites`, owner, { email: emailOf(unconfirmed) })).body;
+    const token = lastToken();
+    expect((await call('GET', '/v1/invites', unconfirmed)).body).toEqual([]);
+    const seen = (await call('POST', '/v1/invites/lookup', unconfirmed, { token })).body;
+    expect(seen).toMatchObject({ orgName: 'Acme', forYou: false });
+    expect(seen.email).toBeUndefined();
+    const refused = await call('POST', '/v1/invites/accept', unconfirmed, { token });
+    expect(refused.status).toBe(403);
+    expect(refused.body.error).toContain('confirm your email address');
+    expect((await call('POST', '/v1/invites/accept', unconfirmed, { id: made.id })).status).toBe(403);
+    // Still open for the real owner of the address, and the unconfirmed person never became a member.
+    expect((await call('GET', `/v1/orgs/${org}/invites`, owner)).body.map((i: { id: string }) => i.id)).toContain(made.id);
+    expect((await call('GET', `/v1/orgs/${org}`, unconfirmed)).status).toBe(404);
+  });
+
   it('limits guessing', async () => {
     let last = 0;
     for (let n = 0; n < 12; n++) last = (await call('POST', '/v1/invites/accept', 'user-guesser', { token: `guess-${n}` })).status;
@@ -239,7 +258,7 @@ describe('resending', () => {
 describe('with no mail provider', () => {
   it('returns the link to the admin instead', async () => {
     const { owner, org } = await setup();
-    const bare = createApp({ db, verifyUser: async (t) => ({ id: t, email: `${t}@example.com` }), streamSecret: 's', webAppUrl: 'https://app.example.com/', now: () => clock });
+    const bare = createApp({ db, verifyUser: async (t) => ({ id: t, email: `${t}@example.com`, emailVerified: true }), streamSecret: 's', webAppUrl: 'https://app.example.com/', now: () => clock });
     const res = await bare.request(`/v1/orgs/${org}/invites`, { method: 'POST', headers: { Authorization: `Bearer ${owner}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'x@example.com' }) });
     const body = (await res.json()) as { link: string };
     expect(res.status).toBe(201);

@@ -1,4 +1,5 @@
-import { RECORDING_VERSION, type Recording } from '@eda-debugger/core';
+import { RECORDING_VERSION, type Recording } from '@ida-dev/core';
+import { getConnInfo } from '@hono/node-server/conninfo';
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
@@ -10,11 +11,13 @@ import type { Db } from './db';
 import { ingest, parseBatch, SessionConflict } from './ingest';
 import { newIngestKey, parseIngestKey, sameHash, signStreamToken, verifyStreamToken } from './keys';
 import { notFound, cleanName, iso, UUID } from './http';
+import { rateLimiter } from './limit';
 import { LiveHub } from './live';
 import { inviteRoutes } from './invites';
 import type { Mailer } from './mail';
 import { orgRoutes } from './orgs';
-import { sessionRecording } from './recordings';
+import { MAX_RECORDING_OCCURRENCES, sessionRecording, sessionRecordingWindow } from './recordings';
+import { systemView } from './system';
 
 export interface AppOptions {
   db: Db;
@@ -28,6 +31,18 @@ export interface AppOptions {
   maxBatchBytes?: number;
   /** Ingest requests allowed per key per minute. @default 600 */
   ingestPerMinute?: number;
+  /** Who is calling, for the limits on failed sign-ins. Behind a proxy the socket address is the proxy's: pass one that reads its header. */
+  clientIp?: (c: Context) => string | undefined;
+  /** Failed project-key or sign-in attempts allowed per client address per minute, before it is refused outright. @default 30 */
+  failuresPerMinute?: number;
+  /** Requests one signed-in person can make per minute. @default 300 */
+  apiPerMinute?: number;
+  /** How often an open live stream re-checks that its viewer still has access, in ms. @default 30000 */
+  streamRecheckMs?: number;
+  /** How often a project's live stream sends a fresh snapshot (default 60 s). */
+  systemResyncMs?: number;
+  /** Most live streams one person can hold open at once. @default 20 */
+  maxStreamsPerUser?: number;
   /** Sends invitation emails. Leave out to only hand the link to the admin who invited. */
   sendMail?: Mailer;
   /** The web app's address, for links in emails. @default the first of `webOrigins` */
@@ -40,6 +55,11 @@ type Env = { Variables: { user: User } };
 
 /** A recorder counts as live when it sent something this recently. */
 const LIVE_MS = 30_000;
+/** The system view's window when none is given, and the longest one allowed. */
+const SYSTEM_WINDOW_MS = 5 * 60_000;
+const SYSTEM_MAX_WINDOW_MS = 24 * 60 * 60_000;
+/** Most occurrences one system view returns; matches the SDK's default `maxEvents`. */
+const SYSTEM_MAX_OCCURRENCES = 50_000;
 
 export function createApp(opts: AppOptions) {
   const { db, verifyUser, streamSecret } = opts;
@@ -67,6 +87,15 @@ export function createApp(opts: AppOptions) {
     return ++w.n > (opts.ingestPerMinute ?? 600);
   };
 
+  // Failed attempts per client address. Counted only when a key or token is wrong, so honest clients never see it, and
+  // checked before the database is touched, so guessing keys can't be used to hammer it.
+  const failures = rateLimiter(opts.failuresPerMinute ?? 30, 60_000, now);
+  const clientIp = (c: Context): string => {
+    if (opts.clientIp) return opts.clientIp(c) ?? 'unknown';
+    try { return getConnInfo(c).remote.address ?? 'unknown'; } catch { return 'unknown'; } // no socket, as in tests
+  };
+  const tooMany = (c: Context) => c.json({ error: 'too many requests' }, 429, { 'Retry-After': '60' });
+
   const maxBatchBytes = opts.maxBatchBytes ?? 2 * 1024 * 1024;
   const tooLarge = (c: Context) => c.json({ error: 'batch too large' }, 413);
   app.use('/v1/ingest', cors({ origin: '*', allowHeaders: ['Authorization', 'Content-Type'], allowMethods: ['POST'] }));
@@ -82,22 +111,27 @@ export function createApp(opts: AppOptions) {
     },
     bodyLimit({ maxSize: maxBatchBytes, onError: tooLarge }), // bodies without a Content-Length
     async (c) => {
+      // Taken first, for the SDK's clock estimate (see `clock` on IngestBatch).
+      const receivedAt = now();
+      const ip = clientIp(c);
+      if (failures.over(ip)) return tooMany(c);
       const presented = parseIngestKey(bearer(c) ?? '');
-      if (!presented) return c.json({ error: 'missing or malformed project key' }, 401);
+      if (!presented) { failures.hit(ip); return c.json({ error: 'missing or malformed project key' }, 401); }
       const [key] = await db.query<{ id: string; project_id: string; key_hash: string }>(
         'select id, project_id, key_hash from project_keys where prefix = $1 and revoked_at is null',
         [presented.prefix],
       );
-      if (!key || !sameHash(key.key_hash, presented.hash)) return c.json({ error: 'unknown or revoked project key' }, 401);
+      if (!key || !sameHash(key.key_hash, presented.hash)) { failures.hit(ip); return c.json({ error: 'unknown or revoked project key' }, 401); }
       if (limited(presented.prefix)) return c.json({ error: 'too many requests' }, 429);
 
       const batch = parseBatch(await c.req.json().catch(() => null));
       if (typeof batch === 'string') return c.json({ error: batch }, 400);
       try {
-        const { recorderId, stored } = await ingest(db, key.project_id, batch);
+        const { recorderId, stored, moved } = await ingest(db, key.project_id, batch, receivedAt);
         void db.query('update project_keys set last_used_at = now() where id = $1', [key.id]);
-        if (stored) hub.publish(recorderId, { sessionId: batch.sessionId, messages: batch.messages });
-        return c.json({ ok: true, duplicate: !stored });
+        await db.query('insert into key_recorders (key_id, recorder_id) values ($1, $2) on conflict do nothing', [key.id, recorderId]);
+        if (stored) hub.publish(recorderId, { sessionId: batch.sessionId, messages: batch.messages, ...(moved && { moved }) }, key.project_id);
+        return c.json({ ok: true, duplicate: !stored, receivedAt, repliedAt: now() });
       } catch (err) {
         if (err instanceof SessionConflict) return c.json({ error: err.message }, 409);
         throw err;
@@ -105,33 +139,104 @@ export function createApp(opts: AppOptions) {
     },
   );
 
-  // --- Live stream (web app, authenticated by a short-lived stream token) ---
+  // --- Live stream (web app, authenticated by a short-lived, single-use stream token) ---
+
+  const usedTokens = new Map<string, number>(); // nonce -> expiry, so a token works once
+  const claimToken = (nonce: string, expires: number) => {
+    const t = now();
+    for (const [n, e] of usedTokens) if (e < t) usedTokens.delete(n);
+    if (usedTokens.has(nonce)) return false;
+    usedTokens.set(nonce, expires);
+    return true;
+  };
+  const openStreams = new Map<string, number>(); // user -> streams currently open
+  const maxStreams = opts.maxStreamsPerUser ?? 20;
 
   // The viewer opens this with EventSource from the web app's origin, so the browser needs CORS headers on the stream itself.
   app.use('/v1/live', cors({ origin: opts.webOrigins ?? [], allowMethods: ['GET'] }));
   app.get('/v1/live', async (c) => {
-    const recorderId = verifyStreamToken(streamSecret, c.req.query('token') ?? '', now());
-    if (!recorderId) return c.json({ error: 'invalid or expired stream token' }, 401);
+    const ip = clientIp(c);
+    if (failures.over(ip)) return tooMany(c);
+    // A project stream opens on this many ms of history. Checked first, so a bad value doesn't use up the token.
+    const span = c.req.query('span') === undefined ? SYSTEM_WINDOW_MS : Number(c.req.query('span'));
+    if (!Number.isInteger(span) || span < 1 || span > SYSTEM_MAX_WINDOW_MS) return c.json({ error: 'span must be 1 ms to 24 hours' }, 400);
+    const grant = verifyStreamToken(streamSecret, c.req.query('token') ?? '', now());
+    // One use only: a copy of the URL (from a log, say) is useless once the viewer has connected.
+    if (!grant || !claimToken(grant.nonce, grant.expires)) { failures.hit(ip); return c.json({ error: 'invalid or expired stream token' }, 401); }
+    const { recorderId, projectId, userId } = grant;
+    // The token was made for this person; make sure they still have access right now.
+    if (!allows(await projectAccess(db, userId, projectId), 'viewer')) return c.json({ error: 'invalid or expired stream token' }, 401);
+    if ((openStreams.get(userId) ?? 0) >= maxStreams) return c.json({ error: 'too many open live streams' }, 429);
+    openStreams.set(userId, (openStreams.get(userId) ?? 0) + 1);
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      const left = (openStreams.get(userId) ?? 1) - 1;
+      if (left > 0) openStreams.set(userId, left); else openStreams.delete(userId);
+    };
     return streamSSE(c, async (stream) => {
-      let current: string | null = null;
-      const snapshot = async (sessionId: string | null) => {
-        const recording = sessionId ? await sessionRecording(db, sessionId) : null;
-        current = sessionId;
-        await stream.writeSSE({ data: JSON.stringify({ type: 'snapshot', recording: recording ?? emptyRecording(now()) }) });
-      };
-      // Live batches queue up while a snapshot is being read, so none slip between the two.
-      let chain: Promise<void> = snapshot(await latestSession(db, recorderId));
-      const stop = hub.watch(recorderId, (b) => {
-        chain = chain.then(async () => {
-          // A new run of the app: its timestamps start over, so the viewer starts from that session's snapshot.
-          if (b.sessionId !== current) return snapshot(b.sessionId);
-          for (const m of b.messages) await stream.writeSSE({ data: JSON.stringify(m) });
+      stream.onAbort(release); // also covers a client leaving before the first snapshot is sent
+      let chain: Promise<void> = Promise.resolve();
+      const write = (data: unknown) => stream.writeSSE({ data: JSON.stringify(data) });
+      let stop: () => void;
+      let resync: ReturnType<typeof setInterval> | undefined;
+      if (recorderId) {
+        let current: string | null = null;
+        const snapshot = async (sessionId: string | null) => {
+          const recording = sessionId ? await sessionRecording(db, sessionId) : null;
+          current = sessionId;
+          await write({ type: 'snapshot', recording: recording ?? emptyRecording(now()) });
+        };
+        // Live batches queue up while a snapshot is being read, so none slip between the two.
+        chain = snapshot(await latestSession(db, recorderId));
+        stop = hub.watch(recorderId, (b) => {
+          chain = chain.then(async () => {
+            // A new run of the app: its timestamps start over, so the viewer starts from that session's snapshot.
+            if (b.sessionId !== current) return snapshot(b.sessionId);
+            for (const m of b.messages) await write(m);
+          });
         });
-      });
+      } else {
+        // The whole project: a system view of the last `span` ms, then each batch merged onto that view's clock.
+        let from = 0;
+        let placed = new Set<string>();
+        const snapshot = async () => {
+          const to = now();
+          from = to - span;
+          const view = await systemView(db, projectId, from, to, SYSTEM_MAX_OCCURRENCES);
+          placed = new Set(view.services.map((x) => x.sessionId));
+          await write({ type: 'system-snapshot', view });
+        };
+        chain = snapshot();
+        stop = hub.watchProject(projectId, (b) => {
+          chain = chain.then(async () => {
+            // A session the snapshot hasn't placed yet (a new run, or one quiet until now), or stored times that moved
+            // (a clock estimate or shift; see settleClocks): start over, so everything is drawn where it now is.
+            if (b.moved || !placed.has(b.sessionId)) return snapshot();
+            const occurrenceIds = b.messages.flatMap((m) => (m.type === 'occurrence' ? [m.occurrence.id] : []));
+            const findingIds = b.messages.flatMap((m) => (m.type === 'finding' ? [m.finding.id] : []));
+            const { recording, services, links } = await systemView(db, projectId, from, now(), SYSTEM_MAX_OCCURRENCES, { sessionId: b.sessionId, occurrenceIds, findingIds });
+            await write({ type: 'system-batch', recording, services, links });
+          });
+        });
+        // A fresh snapshot now and then, in case anything moved that a batch didn't announce.
+        resync = setInterval(() => { chain = chain.then(snapshot); }, opts.systemResyncMs ?? 60_000);
+      }
       const ping = setInterval(() => { chain = chain.then(() => stream.writeSSE({ event: 'ping', data: '' })); }, 25_000);
-      await new Promise<void>((resolve) => stream.onAbort(resolve));
+      let end!: () => void;
+      const ended = new Promise<void>((resolve) => { end = resolve; });
+      stream.onAbort(end);
+      // An open stream keeps checking its viewer: if their access is removed, it ends instead of running on.
+      const recheck = setInterval(() => {
+        projectAccess(db, userId, projectId).then((a) => { if (!allows(a, 'viewer')) end(); }, () => {});
+      }, opts.streamRecheckMs ?? 30_000);
+      await ended;
       clearInterval(ping);
+      clearInterval(recheck);
+      clearInterval(resync);
       stop();
+      release();
     });
   });
 
@@ -140,14 +245,24 @@ export function createApp(opts: AppOptions) {
   // Every method a project route answers to must be listed, or the browser's preflight blocks it before it is sent.
   app.use('/v1/projects/*', cors({ origin: opts.webOrigins ?? [], allowHeaders: ['Authorization', 'Content-Type'], allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] }));
   app.use('/v1/projects', cors({ origin: opts.webOrigins ?? [], allowHeaders: ['Authorization'], allowMethods: ['GET'] }));
-  app.use('/v1/sessions/*', cors({ origin: opts.webOrigins ?? [], allowHeaders: ['Authorization'], allowMethods: ['GET'] }));
+  app.use('/v1/sessions/*', cors({ origin: opts.webOrigins ?? [], allowHeaders: ['Authorization'], allowMethods: ['GET'], exposeHeaders: ['X-Ida-Truncated'] }));
+  const perUser = rateLimiter(opts.apiPerMinute ?? 300, 60_000, now);
   const authed = async (c: Context<Env>, next: () => Promise<void>) => {
+    // A path like /v1/projects matches both its own pattern and `/v1/projects/*`; once is enough.
+    if (c.get('user')) return next();
+    const ip = clientIp(c);
+    if (failures.over(ip)) return tooMany(c);
     const user = await verifyUser(bearer(c) ?? '');
-    if (!user) return c.json({ error: 'sign in required' }, 401);
+    if (!user) { failures.hit(ip); return c.json({ error: 'sign in required' }, 401); }
+    // Before anything is written: ensureUser below touches the database.
+    if (perUser.hit(user.id)) return tooMany(c);
     c.set('user', user);
     await ensureUser(db, user);
     await next();
   };
+  // The user API only takes small JSON bodies (names, roles, a list of grants); refuse anything bigger unread.
+  const smallBodies = bodyLimit({ maxSize: 64 * 1024, onError: (c) => c.json({ error: 'request body too large' }, 413) });
+  for (const path of ['/v1/projects', '/v1/projects/*', '/v1/me', '/v1/orgs', '/v1/orgs/*', '/v1/invites', '/v1/invites/*']) app.use(path, smallBodies);
   const userApi = { origin: opts.webOrigins ?? [], allowHeaders: ['Authorization', 'Content-Type'], allowMethods: ['GET', 'POST', 'PATCH', 'DELETE'] };
   for (const path of ['/v1/me', '/v1/orgs', '/v1/orgs/*', '/v1/invites', '/v1/invites/*']) { app.use(path, cors(userApi)); app.use(path, authed); }
   app.route('/v1', orgRoutes(db));
@@ -241,11 +356,13 @@ export function createApp(opts: AppOptions) {
   app.get('/v1/projects/:projectId/keys', async (c) => {
     const g = await guard(c, 'editor');
     if (g instanceof Response) return g;
-    const rows = await db.query<{ id: string; prefix: string; label: string; created_at: string; last_used_at: string | null; revoked_at: string | null }>(
-      'select id, prefix, label, created_at, last_used_at, revoked_at from project_keys where project_id = $1 order by created_at desc',
+    const rows = await db.query<{ id: string; prefix: string; label: string; created_at: string; last_used_at: string | null; revoked_at: string | null; recorders: string[] }>(
+      `select k.id, k.prefix, k.label, k.created_at, k.last_used_at, k.revoked_at,
+              coalesce((select array_agg(r.key order by r.key) from key_recorders kr join recorders r on r.id = kr.recorder_id where kr.key_id = k.id), '{}') as recorders
+         from project_keys k where k.project_id = $1 order by k.created_at desc`,
       [c.req.param('projectId')],
     );
-    return c.json(rows.map((k) => ({ id: k.id, prefix: `ida_${k.prefix}_`, label: k.label, createdAt: iso(k.created_at), lastUsedAt: iso(k.last_used_at), revokedAt: iso(k.revoked_at) })));
+    return c.json(rows.map((k) => ({ id: k.id, prefix: `ida_${k.prefix}_`, label: k.label, createdAt: iso(k.created_at), lastUsedAt: iso(k.last_used_at), revokedAt: iso(k.revoked_at), recorders: k.recorders })));
   });
 
   app.post('/v1/projects/:projectId/keys', async (c) => {
@@ -319,7 +436,30 @@ export function createApp(opts: AppOptions) {
   app.post('/v1/projects/:projectId/recorders/:recorderKey/stream-token', async (c) => {
     const r = await ownRecorder(c);
     if (r instanceof Response) return r;
-    return c.json({ token: signStreamToken(streamSecret, r.id, 60_000, now()) });
+    return c.json({ token: signStreamToken(streamSecret, { recorderId: r.id, projectId: c.req.param('projectId'), userId: c.get('user').id }, 30_000, now()) });
+  });
+
+  app.post('/v1/projects/:projectId/stream-token', async (c) => {
+    const g = await guard(c, 'viewer');
+    if (g instanceof Response) return g;
+    return c.json({ token: signStreamToken(streamSecret, { projectId: g.id, userId: c.get('user').id }, 30_000, now()) });
+  });
+
+  // Every service's events in one wall-clock window, linked across services. `from` / `to` are epoch ms.
+  app.get('/v1/projects/:projectId/system', async (c) => {
+    const g = await guard(c, 'viewer');
+    if (g instanceof Response) return g;
+    const num = (name: string) => {
+      const v = c.req.query(name);
+      return v === undefined ? undefined : /^\d+(\.\d+)?$/.test(v) ? Number(v) : NaN;
+    };
+    const to = num('to') ?? now();
+    const from = num('from') ?? to - SYSTEM_WINDOW_MS;
+    const limit = num('limit') ?? SYSTEM_MAX_OCCURRENCES;
+    if (![from, to, limit].every(Number.isFinite) || from > to) return c.json({ error: 'from and to must be epoch milliseconds, from <= to' }, 400);
+    if (to - from > SYSTEM_MAX_WINDOW_MS) return c.json({ error: 'the window can be at most 24 hours' }, 400);
+    if (!Number.isInteger(limit) || limit < 1 || limit > SYSTEM_MAX_OCCURRENCES) return c.json({ error: `limit must be 1-${SYSTEM_MAX_OCCURRENCES}` }, 400);
+    return c.json(await systemView(db, g.id, from, to, limit));
   });
 
   app.get('/v1/sessions/:sessionId/recording', async (c) => {
@@ -330,7 +470,22 @@ export function createApp(opts: AppOptions) {
       [id],
     );
     if (!owner || !(await projectAccess(db, c.get('user').id, owner.project_id))) return notFound(c);
-    return c.json(await sessionRecording(db, id));
+    // `from` / `to` pick a window (ms since the session started) and `limit` caps the events; by default everything up
+    // to the cap comes back, newest kept. `X-Ida-Truncated: true` says some older events were left out.
+    const num = (name: string) => {
+      const v = c.req.query(name);
+      return v === undefined ? undefined : /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : NaN;
+    };
+    const [from, to, limit] = [num('from'), num('to'), num('limit')];
+    if ([from, to, limit].some((n) => n !== undefined && !Number.isFinite(n)) || (from !== undefined && to !== undefined && from > to)) {
+      return c.json({ error: 'from and to must be numbers of milliseconds, from <= to' }, 400);
+    }
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > MAX_RECORDING_OCCURRENCES)) {
+      return c.json({ error: `limit must be 1-${MAX_RECORDING_OCCURRENCES}` }, 400);
+    }
+    const page = await sessionRecordingWindow(db, id, { from, to, limit });
+    if (!page) return notFound(c);
+    return c.json(page.recording, 200, page.truncated ? { 'X-Ida-Truncated': 'true' } : {});
   });
 
   return app;

@@ -1,10 +1,11 @@
-import type { Finding } from '@eda-debugger/core';
+import type { Finding } from '@ida-dev/core';
 import { memo, useDeferredValue, useMemo, useRef, useState } from 'react';
 import { useModel, useRates } from '../hooks';
-import type { GraphModel } from '../graph/model';
-import { RATE_HISTORY, activityOf, chainOf, errorCode, throwIdFor, countFired, edgeId, eventKey, eventLabel, inWindow, isProblemRun, notifications, parseRunId, parseThrowId, recipientsOf, runById, throwId, type IndexedOccurrence, type Notification, type ReplayIndex, type Run, type Tier } from '../replay';
+import { levelInto, serviceOfProcess, type GraphModel, type ModelNode } from '../graph/model';
+import { RATE_HISTORY, activityOf, chainOf, errorCode, throwIdFor, countFired, edgeId, eventKey, eventLabel, inWindow, isProblemRun, notifications, parseRunId, parseThrowId, recipientsOf, runById, serviceOfOccurrence, throwId, fmtRate, type IndexedOccurrence, type Notification, type ReplayIndex, type Run } from '../replay';
+import { spikeById, spikeItems, spikesAmong, spikeText, SPIKE_BASELINE_MS, type Spike } from '../replay/spikes';
 import { TRAIL_MAX, useStore, type LiveStatus, type Selection } from '../store';
-import { Badge, CallChain, ErrorId, CaptureBadge, EventLink, EventRef, FindingBadges, FindingChain, FindingSummary, fmtMs, HandlerLink, InspectLink, Json, NodeRef, RateChart, Section, shortValue } from './common';
+import { Badge, CallChain, ErrorId, CaptureBadge, EventLink, EventRef, FindingBadges, FindingChain, FindingSummary, fmtMs, HandlerLink, InspectLink, Json, NodeRef, RateChart, Section, shortValue, type ChartSpan } from './common';
 
 export function Inspector() {
   const index = useStore((s) => s.index)!;
@@ -12,6 +13,8 @@ export function Inspector() {
   return (
     <aside className="inspector" id="inspector">
       <Crumbs index={index} />
+      {/* A quiet reminder of what is being inspected: every section below is about this one payload. */}
+      {showsCorruptPayload(index, selection) && <p className="inspector-title"><span className="warn-mark">⚠</span> Corrupt payload</p>}
       {!selection && <Overview index={index} />}
       {selection?.type === 'event' && <EventDetail index={index} id={selection.id} />}
       {selection?.type === 'node' && <NodeDetail index={index} id={selection.id} />}
@@ -20,8 +23,17 @@ export function Inspector() {
       {selection?.type === 'occurrence' && <OccurrenceDetail index={index} id={selection.id} />}
       {selection?.type === 'throw' && <ErrorDetail index={index} id={selection.id} />}
       {selection?.type === 'finding' && <FindingSelection index={index} id={selection.id} />}
+      {selection?.type === 'spike' && <SpikeDetail index={index} id={selection.id} />}
     </aside>
   );
+}
+
+/** Whether the selection opens the corrupt payload inspector (`CorruptPayloadDetail`) with something in it. */
+function showsCorruptPayload(index: ReplayIndex, selection: ReturnType<typeof useStore.getState>['selection']): boolean {
+  const occurrenceId = selection?.type === 'finding' ? index.findingsById.get(selection.id)?.occurrenceId
+    : selection?.type === 'occurrence' ? selection.id
+    : undefined;
+  return !!occurrenceId && index.byId.has(occurrenceId) && !!index.findingsByOcc.get(occurrenceId)?.length;
 }
 
 /** The level being looked at, then everything inspected on it so far. The first crumb returns to the level overview. */
@@ -53,15 +65,20 @@ function Crumbs({ index }: { index: ReplayIndex }) {
       const item = f && index.byId.get(f.occurrenceId);
       return item ? `suspect: ${eventLabel(index, item)}` : t.id;
     }
+    if (t.type === 'spike') {
+      const s = spikeById(index, t.id);
+      return s ? `spike: ${s.label}` : t.id;
+    }
     const item = index.byId.get(t.id);
     return item ? eventLabel(index, item) : t.id;
   };
   const labelNode = (t: NonNullable<Selection>) => {
-    if (t.type === 'node') return model?.nodes.find((n) => n.id === t.id)?.kind === 'process' ? label(t) : <NodeRef id={t.id} label={label(t)} />;
-    if (t.type === 'edge' || t.type === 'throw' || t.type === 'finding' || t.type === 'run') return label(t);
+    if (t.type === 'node') return ['process', 'service', 'stub'].includes(model?.nodes.find((n) => n.id === t.id)?.kind ?? '') ? label(t) : <NodeRef id={t.id} label={label(t)} />;
+    if (t.type === 'edge' || t.type === 'throw' || t.type === 'finding' || t.type === 'run' || t.type === 'spike') return label(t);
     return <EventRef>{label(t)}</EventRef>;
   };
-  const root = level.kind === 'handlers' ? index.processLabel.get(level.processId) ?? level.processId : 'Processes';
+  const root = level.kind === 'handlers' ? index.processLabel.get(level.processId) ?? level.processId
+    : level.kind === 'services' ? 'Services' : level.service ?? 'Emitters';
   return (
     <nav className="inspector-crumbs" aria-label="Inspection trail">
       <button className={selection ? '' : 'current'} onClick={() => select(null)} title="Overview of this level">{root}</button>
@@ -84,7 +101,13 @@ function Overview({ index }: { index: ReplayIndex }) {
   // Inside a process, the overview covers only the traffic that touches that process.
   const items = useMemo(() => {
     const all = inWindow(index, window);
-    if (level.kind !== 'handlers' || !model) return all;
+    if (!model) return all;
+    if (level.kind === 'process' && level.service) {
+      // Inside a service: the traffic it took part in.
+      const own = (id: string) => index.system?.nodeService.get(id) === level.service;
+      return all.filter((i) => i.hops.some((h) => own(h.src) || own(h.dst)));
+    }
+    if (level.kind !== 'handlers') return all;
     const inside = (id: string) => !model.mapNode(id)?.startsWith('p:');
     return all.filter((i) => i.hops.some((h) => inside(h.src) || inside(h.dst)));
   }, [index, window, level, model]);
@@ -96,8 +119,13 @@ function Overview({ index }: { index: ReplayIndex }) {
         <dl className="facts">
           <dt>Events</dt><dd>{items.length} in window ({index.items.length} total)</dd>
         </dl>
-        <p className="hint">Click a node or pathway to inspect it. Double-click a process to zoom in. Click a handler to see its activity.</p>
+        <p className="hint">
+          {level.kind === 'services'
+            ? 'Each card is a service; topics, exchanges and queues sit between the services that use them. Dotted pathways carry messages from one service to another. Double-click a card to zoom in.'
+            : 'Click a node or pathway to inspect it. Double-click an emitter to zoom in. Click a handler to see its activity.'}
+        </p>
       </Section>
+      {SHOW_SPIKES && <SpikeList index={index} items={items} empty="No spikes in this window." />}
       <NotificationList index={index} title="Notifications" list={list} empty="No throws or suspected corrupt payloads in this window." />
     </>
   );
@@ -112,13 +140,33 @@ function LiveDot({ status }: { status: Exclude<LiveStatus, 'off'> }) {
   );
 }
 
-/** Throws and suspected corrupt payloads in the order given; clicking one inspects it. */
-function NotificationList({ index, title, list, empty }: { index: ReplayIndex; title: string; list: Notification[]; empty: string }) {
+/**
+ * Throws and suspected corrupt payloads in the order given, filtered by the kinds checked above the list (shared by
+ * every list, and remembered); clicking one traces it.
+ */
+function NotificationList({ index, title, list: all, empty }: { index: ReplayIndex; title: string; list: Notification[]; empty: string }) {
+  const kinds = useStore((s) => s.notificationKinds);
+  const setKind = useStore((s) => s.setNotificationKind);
+  const list = useMemo(() => all.filter((n) => kinds[n.kind]), [all, kinds]);
   const { cap, setMore } = useRowCap();
   const rows = useDeferredValue(list.slice(0, cap));
+  const count = (kind: Notification['kind']) => all.filter((n) => n.kind === kind).length;
   return (
-    <Section title={title} aside={list.length}>
-      {list.length === 0 && <p className="hint">{empty}</p>}
+    <Section title={title} aside={list.length === all.length ? all.length : `${list.length} of ${all.length}`}>
+      {all.length > 0 && (
+        <div className="notification-filter" role="group" aria-label="Show">
+          <label className="checkbox">
+            <input type="checkbox" checked={kinds.finding} onChange={(e) => setKind('finding', e.target.checked)} />
+            Corrupt payloads ({count('finding')})
+          </label>
+          <label className="checkbox">
+            <input type="checkbox" checked={kinds.throw} onChange={(e) => setKind('throw', e.target.checked)} />
+            Errors ({count('throw')})
+          </label>
+        </div>
+      )}
+      {all.length === 0 && <p className="hint">{empty}</p>}
+      {all.length > 0 && list.length === 0 && <p className="hint">Nothing here matches the filter.</p>}
       <ul className="list">
         {rows.map((n) => <NotificationRow key={`${n.kind}:${n.id}`} index={index} start={index.origin} n={n} />)}
       </ul>
@@ -128,21 +176,70 @@ function NotificationList({ index, title, list, empty }: { index: ReplayIndex; t
 }
 
 /**
+ * Spikes are hidden for now. They are only found among the events still in the window, so the burst of traffic that
+ * makes a spike also pushes it out of the window, and with it out of its menu. Keeping spikes past the window belongs
+ * with a bigger product decision, so the menus stay off until then; the spike inspector and detection are kept.
+ */
+const SHOW_SPIKES = false;
+
+/**
+ * The spikes among `items` (see `spikesAmong`), oldest first, in a menu of their own above the notifications, so the
+ * errors a burst of traffic causes can't push its spike out of sight. Open or closed is shared and remembered.
+ */
+function SpikeList({ index, items, empty }: { index: ReplayIndex; items: IndexedOccurrence[]; empty: string }) {
+  const open = useStore((s) => s.spikesOpen);
+  const setOpen = useStore((s) => s.setSpikesOpen);
+  const select = useStore((s) => s.select);
+  const spikes = useMemo(() => spikesAmong(index, items), [index, items]);
+  const { cap, setMore } = useRowCap();
+  return (
+    <details className="section spike-menu" open={open} onToggle={(e) => { const now = e.currentTarget.open; if (now !== open) setOpen(now); }}>
+      <summary><h3>Spikes<span className="aside">{spikes.length}</span></h3></summary>
+      {spikes.length === 0 && <p className="hint">{empty}</p>}
+      <ul className="list">
+        {spikes.slice(0, cap).map((s) => (
+          <li key={s.id}>
+            <button className="row" onClick={() => select({ type: 'spike', id: s.id })} title="Inspect this spike">
+              <span className="row-head">
+                <Badge tone="spike">▲ Spike</Badge>
+                <span className="row-time muted" title={clockTime(index.recording.startedAt + s.from)}>
+                  {fmtMs(s.from - index.origin)}<span className="row-time-hint">since init</span>
+                </span>
+              </span>
+              <span className="row-text">{spikeText(s, fmtRate)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      <ShowMore total={spikes.length} cap={cap} onMore={() => setMore(true)} />
+    </details>
+  );
+}
+
+/** An epoch time as the local clock reads it, to the millisecond: "14:02:31.120". */
+const clockTime = (epochMs: number) => {
+  const d = new Date(epochMs);
+  const pad = (n: number, w = 2) => String(n).padStart(w, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+};
+
+/**
  * One notification. A live view rebuilds the index several times a second and the list can hold hundreds of
  * rows, so a row only re-renders when its own notification changes (or the recording's start moves, which
  * shifts its time). `index` is left out of the comparison: what a row reads from it is fixed for its finding.
  */
 const NotificationRow = memo(
   function NotificationRow({ index, start, n }: { index: ReplayIndex; start: number; n: Notification }) {
-    const selectAt = useStore((s) => s.selectAt);
+    const startTrace = useStore((s) => s.startTrace);
     return (
       <li>
-        <button className={`row ${n.external ? 'row-high' : ''}`} onClick={() => selectAt({ type: n.kind, id: n.id }, n.occurrenceId)}>
+        <button className={`row ${n.external ? 'row-high' : ''}`} onClick={() => startTrace({ type: n.kind, id: n.id, occurrenceId: n.occurrenceId })} title="Step through what led to this">
           <span className="row-head">
             {n.kind === 'throw' ? <><Badge tone="error">✕ Error</Badge><ErrorId id={n.id} /></> : <Badge tone="warn">⚠ Corrupt Payload</Badge>}
-            <TierBadge tier={n.tier} />
             {n.external && <Badge tone="external">EXTERNAL</Badge>}
-            <span className="muted">{fmtMs(n.rank.ts - start)}</span>
+            <span className="row-time muted" title={clockTime(index.recording.startedAt + n.ts)}>
+              {fmtMs(n.ts - start)}<span className="row-time-hint">since init</span>
+            </span>
           </span>
           <span className="row-text">{n.finding ? <FindingSummary index={index} finding={n.finding} /> : n.text}</span>
         </button>
@@ -150,8 +247,8 @@ const NotificationRow = memo(
     );
   },
   (a, b) =>
-    a.start === b.start && a.n.kind === b.n.kind && a.n.id === b.n.id && a.n.tier === b.n.tier && a.n.external === b.n.external
-    && a.n.rank.ts === b.n.rank.ts && a.n.text === b.n.text && a.n.finding === b.n.finding && a.n.occurrenceId === b.n.occurrenceId,
+    a.start === b.start && a.n.kind === b.n.kind && a.n.id === b.n.id && a.n.external === b.n.external
+    && a.n.ts === b.n.ts && a.n.text === b.n.text && a.n.finding === b.n.finding && a.n.occurrenceId === b.n.occurrenceId,
 );
 
 /**
@@ -210,7 +307,7 @@ function NodeName({ model, id }: { model: GraphModel; id: string }) {
   const select = useStore((s) => s.select);
   const m = model.nodes.find((n) => n.id === id);
   const label = m?.label ?? id;
-  if (m?.kind === 'process' || m?.kind === 'stub') return <InspectLink label={label} onOpen={() => select({ type: 'node', id })}>{label}</InspectLink>;
+  if (m?.kind === 'process' || m?.kind === 'stub' || m?.kind === 'service') return <InspectLink label={label} onOpen={() => select({ type: 'node', id })}>{label}</InspectLink>;
   return <HandlerLink id={id} label={label} />;
 }
 
@@ -234,7 +331,7 @@ function EventDetail({ index, id }: { index: ReplayIndex; id: string }) {
     }
     return model.edges.filter((e) => fired.has(e.id)).map((edge) => ({ edge, n: fired.get(edge.id)! })).sort((a, b) => b.n - a.n);
   }, [model, items]);
-  const recent = useMemo(() => notifications(index, items).sort((a, b) => b.rank.ts - a.rank.ts).slice(0, RECENT_NOTIFICATIONS), [index, items]);
+  const recent = useMemo(() => notifications(index, items).sort((a, b) => b.ts - a.ts).slice(0, RECENT_NOTIFICATIONS), [index, items]);
   if (!ev || !model) return <p className="hint">That event is no longer in the recording.</p>;
   const shapes = [...new Set(all.map((i) => i.template.payloadShape))];
   return (
@@ -262,6 +359,7 @@ function EventDetail({ index, id }: { index: ReplayIndex; id: string }) {
           ))}
         </ul>
       </Section>
+      {SHOW_SPIKES && <SpikeList index={index} items={items} empty="No spikes of this event in this window." />}
       <NotificationList index={index} title="Recent notifications" list={recent} empty="No throws or suspected corrupt payloads for this event in this window." />
     </>
   );
@@ -291,14 +389,15 @@ function NodeDetail({ index, id }: { index: ReplayIndex; id: string }) {
   }
   return (
     <>
-      <Section title={m.kind === 'process' || m.kind === 'stub' ? m.label : <NodeRef id={m.id} label={m.label} />} aside={<Badge tone="muted">{m.kind}</Badge>}>
+      <Section title={m.kind === 'process' || m.kind === 'stub' || m.kind === 'service' ? m.label : <NodeRef id={m.id} label={m.label} />} aside={<Badge tone="muted">{m.broker ?? (m.service && m.kind === 'stub' ? 'service' : m.kind === 'process' ? 'emitter' : m.kind)}</Badge>}>
         <dl className="facts">
-          <dt>Process</dt><dd>{index.processLabel.get(m.processId)}</dd>
+          {m.processId && <><dt>Emitter</dt><dd>{index.processLabel.get(m.processId)}</dd></>}
+          <SystemFacts index={index} m={m} />
           <dt>Traffic</dt><dd>{m.detail}</dd>
           <dt>Throws</dt><dd>{threw ? <Badge tone="error">✕ {threw}</Badge> : 'none'}</dd>
           {runs && <><dt>Activity</dt><dd>handled {handled.length} · emitted {runs.length - handled.length} · avg {fmtMs(avg)}</dd></>}
         </dl>
-        {(m.kind === 'process' || m.kind === 'stub') && <button className="primary" onClick={() => setLevel({ kind: 'handlers', processId: m.processId })}>Zoom into process</button>}
+        {levelInto(m) && <button className="primary" onClick={() => setLevel(levelInto(m)!)}>Zoom into {m.service ? 'service' : m.broker ?? 'emitter'}</button>}
       </Section>
       {m.kind !== 'stub' && <RateSection id={id} kind="node" />}
       <EventList title="Receiving" events={receiving} />
@@ -306,6 +405,96 @@ function NodeDetail({ index, id }: { index: ReplayIndex; id: string }) {
       {runs && <ActivitySection index={index} runs={runs} window={window} />}
     </>
   );
+}
+
+const CAUSALITY: Record<string, string> = {
+  sync: 'sync',
+  inferred: 'inferred (after an await or a timer)',
+  propagated: 'from another service, in a message header',
+};
+
+const META_NAMES: Record<string, string> = {
+  topic: 'Topic', partition: 'Partition', offset: 'Offset', group: 'Consumer group', key: 'Key', exchange: 'Exchange',
+  routingKey: 'Routing key', queue: 'Queue', deliveryTag: 'Delivery tag', redelivered: 'Redelivered', messages: 'Messages',
+  firstOffset: 'First offset', lastOffset: 'Last offset',
+};
+
+/** One broker fact recorded with a message. */
+function MetaFact({ name, value }: { name: string; value: unknown }) {
+  const shown = value === '' && name === 'exchange' ? '(default exchange)' : typeof value === 'string' ? value : JSON.stringify(value);
+  return <><dt>{META_NAMES[name] ?? name}</dt><dd><code>{shown}</code></dd></>;
+}
+
+/**
+ * In a system view, where a consumed message came from and where a published one went. Only a parent in the window
+ * can be jumped to; one outside it, or one that was never recorded, is said so.
+ */
+function CrossService({ index, item }: { index: ReplayIndex; item: IndexedOccurrence }) {
+  const seek = useStore((s) => s.seekToOccurrence);
+  const sys = index.system;
+  const consumers = sys?.consumers.get(item.occ.id) ?? [];
+  if (!sys) return item.occ.remoteParent ? <><dt>From</dt><dd className="muted">another service (open the system view to follow it)</dd></> : null;
+  const link = sys.links.get(item.occ.id);
+  const serviceOf = (occId: string) => {
+    const i = index.byId.get(occId);
+    return i ? serviceOfOccurrence(index, i) : undefined;
+  };
+  return (
+    <>
+      {link && (
+        <>
+          <dt>Published by</dt>
+          <dd>
+            {link.status === 'in-view' ? (
+              <button className="link" onClick={() => seek(sys.parentId(link))}>
+                {serviceOf(sys.parentId(link)) ?? 'another service'} · <EventRef>{eventLabel(index, index.byId.get(sys.parentId(link))!)}</EventRef>
+              </button>
+            ) : link.status === 'outside-window'
+              ? <span className="muted">a service, before this window</span>
+              : <span className="muted">a service Ida doesn't record (or another project)</span>}
+          </dd>
+        </>
+      )}
+      {consumers.length > 0 && (
+        <>
+          <dt>Consumed by</dt>
+          <dd>
+            <ul className="handler-list">
+              {consumers.map((l) => (
+                <li key={l.occurrenceId}>
+                  <button className="link" onClick={() => seek(l.occurrenceId)}>
+                    {serviceOf(l.occurrenceId) ?? 'a service'} · <EventRef>{eventLabel(index, index.byId.get(l.occurrenceId)!)}</EventRef>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </dd>
+        </>
+      )}
+    </>
+  );
+}
+
+/** In a system view: which service a node is in, or for a service, its runs; for a broker, which broker it is. */
+function SystemFacts({ index, m }: { index: ReplayIndex; m: ModelNode }) {
+  const sys = index.system;
+  if (!sys) return null;
+  const broker = m.broker && index.processes.get(m.processId)?.broker;
+  if (broker) {
+    return <><dt>Broker</dt><dd>{broker.type === 'kafka' ? 'Kafka' : 'RabbitMQ'}{broker.cluster ? ` · ${broker.type === 'kafka' ? 'cluster' : 'vhost'} ${broker.cluster}` : ''}</dd></>;
+  }
+  const service = m.service ? sys.services.get(m.service) : undefined;
+  if (service) {
+    const runtimes = [...new Set(service.sessions.map((s) => [s.sdk && `${s.sdk.language === 'js' ? 'JavaScript' : 'Python'} SDK ${s.sdk.version}`, s.runtime].filter(Boolean).join(' · ')))];
+    return (
+      <>
+        <dt>Runs</dt><dd>{service.sessions.length} in this window{service.sessions.length > 1 && <span className="muted"> (restarts or instances)</span>}</dd>
+        <dt>Runtime</dt><dd>{runtimes.map((r) => <div key={r}>{r || <span className="muted">unknown</span>}</div>)}</dd>
+      </>
+    );
+  }
+  const owner = m.rawId ? sys.nodeService.get(m.rawId) : serviceOfProcess(index, m.processId);
+  return owner ? <><dt>Service</dt><dd>{owner}</dd></> : null;
 }
 
 /** What a handler did over time (handled above the line, emitted below), then its runs. Clean runs are hidden until asked for. */
@@ -564,9 +753,15 @@ export function OccurrenceDetail({ index, id }: { index: ReplayIndex; id: string
   );
 }
 
-/** When and where an event happened, who handled it, and (unless `chain` is false) the events that led to it. */
-function EventFacts({ index, item, chain: showChain = true }: { index: ReplayIndex; item: IndexedOccurrence; chain?: boolean }) {
+/**
+ * When and where an event happened, who handled it, and (unless `chain` is false) the events that led to it. `event`
+ * adds a field linking to the event itself, for inspectors whose title isn't already that link; `handlers` false
+ * leaves out who handled it, for inspectors that show the recipients elsewhere.
+ */
+function EventFacts({ index, item, chain: showChain = true, event = false, handlers = true }: { index: ReplayIndex; item: IndexedOccurrence; chain?: boolean; event?: boolean; handlers?: boolean }) {
   const seek = useStore((s) => s.seekToOccurrence);
+  const startTrace = useStore((s) => s.startTrace);
+  const tracing = useStore((s) => s.trace !== null);
   const chain = chainOf(index, item.occ.id);
   const showNode = (nid: string) => <HandlerLink id={nid} />;
   const results = item.occ.handlerResults;
@@ -574,8 +769,9 @@ function EventFacts({ index, item, chain: showChain = true }: { index: ReplayInd
     <>
       <dl className="facts">
         <dt>At</dt><dd>{fmtMs(item.occ.ts - index.origin)} · took {fmtMs(item.occ.durationMs)}</dd>
+        {event && <><dt>Event</dt><dd><EventLink id={eventKey(item.template)} /></dd></>}
         <dt>Emitted by</dt><dd>{showNode(item.occ.sourceNodeId)}</dd>
-        <dt>Handlers</dt>
+        {handlers && <><dt>Handlers</dt>
         <dd>
           {item.occ.blocked ? <span className="muted">none, blocked by policy</span> : results.length === 0 && <span className="muted">none</span>}
           <ul className="handler-list">
@@ -586,9 +782,18 @@ function EventFacts({ index, item, chain: showChain = true }: { index: ReplayInd
               </li>
             ))}
           </ul>
-        </dd>
-        <dt>Causality</dt><dd>{item.occ.causality}</dd>
+        </dd></>}
+        <dt>Causality</dt><dd>{CAUSALITY[item.occ.causality] ?? item.occ.causality}</dd>
+        <CrossService index={index} item={item} />
+        {item.occ.meta && Object.entries(item.occ.meta).map(([k, v]) => (
+          <MetaFact key={k} name={k} value={v} />
+        ))}
       </dl>
+      {!tracing && (
+        <button className="trace-start" onClick={() => startTrace({ type: 'occurrence', id: item.occ.id, occurrenceId: item.occ.id })} title="Step through what led to this event, across services (T)">
+          Trace what led here
+        </button>
+      )}
       {showChain && <div className="chain" aria-label="Causal chain">
         {chain.map((c, k) => (
           <span key={c.occ.id}>
@@ -604,7 +809,7 @@ function EventFacts({ index, item, chain: showChain = true }: { index: ReplayInd
 /** The payload, led by what was flagged in it when it is suspected corrupt. */
 function PayloadSection({ item, findings = [] }: { item: IndexedOccurrence; findings?: Finding[] }) {
   return (
-    <Section title="Payload" aside={<CaptureBadge occ={item.occ} />}>
+    <Section title="Data" aside={<CaptureBadge occ={item.occ} />}>
       {findings.map((f) => (
         <div key={f.id}>
           <ul className="reasons">{f.reasons.map((r, k) => <li key={k}>{r.message}</li>)}</ul>
@@ -630,12 +835,6 @@ function PayloadSection({ item, findings = [] }: { item: IndexedOccurrence; find
       )}
     </Section>
   );
-}
-
-const TIER_TONE = { critical: 'external', high: 'error', medium: 'warn', low: 'muted' } as const;
-
-function TierBadge({ tier }: { tier: Tier }) {
-  return <Badge tone={TIER_TONE[tier]} title="Severity, from confidence and whether an external system is reached">{tier}</Badge>;
 }
 
 /** Where payloads went, external systems first. Clicking a row shows that recipient on the graph. */
@@ -666,9 +865,122 @@ function Recipients({ index, findings }: { index: ReplayIndex; findings: Finding
 }
 
 /** A handler failure and everything it is suspected of corrupting. */
+/** How much of the rate before and after a spike its chart shows: the minute it is measured against, and a bit after. */
+const SPIKE_CHART_BEFORE_MS = SPIKE_BASELINE_MS;
+const SPIKE_CHART_AFTER_MS = 30_000;
+
+/** One way into a spike: the event that caused its events and the handler that emitted them, or neither for a root. */
+interface SpikeCause { key: string; parent: IndexedOccurrence | null; sourceNodeId: string; count: number }
+
+/** A burst of one kind of event: how big and when, what sent it, where it went, and what went wrong meanwhile. */
+function SpikeDetail({ index, id }: { index: ReplayIndex; id: string }) {
+  const setT = useStore((s) => s.setT);
+  const select = useStore((s) => s.select);
+  const spike = spikeById(index, id);
+  const items = useMemo(() => (spike ? spikeItems(index, spike) : []), [index, spike]);
+  const chart = useMemo(() => (spike ? spikeChart(index, spike) : null), [index, spike]);
+  const causes = useMemo(() => {
+    const byKey = new Map<string, SpikeCause>();
+    for (const i of items) {
+      const parent = i.occ.parentId ? index.byId.get(i.occ.parentId) ?? null : null;
+      const key = `${parent ? eventKey(parent.template) : ''}|${i.occ.sourceNodeId}`;
+      const have = byKey.get(key);
+      if (have) have.count++; else byKey.set(key, { key, parent, sourceNodeId: i.occ.sourceNodeId, count: 1 });
+    }
+    return [...byKey.values()].sort((a, b) => b.count - a.count);
+  }, [index, items]);
+  const reached = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const i of items) for (const h of i.template.handlerIds) counts.set(h, (counts.get(h) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [items]);
+  const problems = useMemo(
+    () => (spike ? notifications(index, index.items.filter((i) => i.occ.ts >= spike.from && i.occ.ts <= spike.to)) : []),
+    [index, spike],
+  );
+  if (!spike || !chart) return <p className="hint">That spike is no longer in the recording.</p>;
+  const serviceOf = (nodeId: string) => index.system?.nodeService.get(nodeId) ?? null;
+  return (
+    <>
+      <Section title={<EventLink id={spike.eventKey} />}>
+        <div className="row-badges"><Badge tone="spike">▲ Spike</Badge></div>
+        <p className="hint">{spikeText(spike, fmtRate)}.</p>
+        <dl className="facts">
+          <dt>Peak</dt><dd>{fmtRate(spike.peak)}/s</dd>
+          <dt>Usual</dt><dd>{fmtRate(spike.usual)}/s <span className="muted">over the minute before</span></dd>
+          <dt>Higher</dt><dd>{spike.usual > 0 ? `${Math.round(spike.peak / spike.usual)}×` : 'from nothing'}</dd>
+          <dt>Started</dt><dd title={clockTime(index.recording.startedAt + spike.from)}>{fmtMs(spike.from - index.origin)} <span className="muted">since init</span></dd>
+          <dt>Lasted</dt><dd>{fmtMs(spike.to - spike.from)}</dd>
+          <dt>Events</dt><dd>{spike.count}</dd>
+        </dl>
+        <button onClick={() => setT(spike.from)} title="Move the playhead to where the spike starts">Show start</button>
+      </Section>
+      <Section title="Rate">
+        <RateChart series={[{ label: 'Events', values: chart.values, color: IN_COLOR }]} max={peak(chart.values)} span={chart.span} />
+      </Section>
+      <Section title="What caused it" aside={causes.length}>
+        <ul className="list">
+          {causes.map((c) => {
+            const service = serviceOf(c.sourceNodeId);
+            return (
+              <li key={c.key} className="row">
+                <span className="row-head">
+                  {c.parent ? (
+                    <>
+                      <button className="link" onClick={() => select({ type: 'event', id: eventKey(c.parent!.template) })}><EventRef>{eventLabel(index, c.parent)}</EventRef></button>
+                      <span className="muted">▸</span>
+                      <HandlerLink id={c.sourceNodeId} />
+                    </>
+                  ) : (
+                    <span>Started here, by <NodeRef id={c.sourceNodeId} /> <span className="muted">(no event caused it)</span></span>
+                  )}
+                  <span className="muted">{c.count}</span>
+                </span>
+                {service && <span className="row-text">in {service}</span>}
+              </li>
+            );
+          })}
+        </ul>
+      </Section>
+      <Section title="Where it went" aside={reached.length}>
+        {reached.length === 0 && <p className="hint">No handlers listen to this event.</p>}
+        <ul className="list">
+          {reached.map(([handlerId, count]) => {
+            const service = serviceOf(handlerId);
+            return (
+              <li key={handlerId} className="row">
+                <span className="row-head"><HandlerLink id={handlerId} /><span className="muted">{count}</span></span>
+                {service && <span className="row-text">in {service}</span>}
+              </li>
+            );
+          })}
+        </ul>
+      </Section>
+      <NotificationList index={index} title="Problems during it" list={problems} empty="No errors or suspected corrupt payloads while it lasted." />
+    </>
+  );
+}
+
+/** The spike's event per second, from the minute before it to a little after, with the chart's labels for that span. */
+function spikeChart(index: ReplayIndex, spike: Spike): { values: number[]; span: ChartSpan } {
+  const lo = Math.max(Math.floor((spike.from - SPIKE_CHART_BEFORE_MS) / 1000), Math.floor(index.start / 1000));
+  const hi = Math.min(Math.floor((spike.to + SPIKE_CHART_AFTER_MS) / 1000), Math.floor(index.end / 1000));
+  const values = new Array<number>(Math.max(1, hi - lo + 1)).fill(0);
+  for (const i of index.items) {
+    if (eventKey(i.template) !== spike.eventKey) continue;
+    const b = Math.floor(i.occ.ts / 1000) - lo;
+    if (b >= 0 && b < values.length) values[b]! += 1;
+  }
+  const at = (k: number) => {
+    const ms = (lo + k) * 1000 - spike.from;
+    return ms < 0 ? `${fmtMs(-ms)} before` : `${fmtMs(ms)} after start`;
+  };
+  return { values, span: { point: at, start: at(0), end: at(values.length - 1), description: `${spike.label} per second around its spike` } };
+}
+
 function ErrorDetail({ index, id }: { index: ReplayIndex; id: string }) {
   const seek = useStore((s) => s.seekToOccurrence);
-  const selectAt = useStore((s) => s.selectAt);
+  const startTrace = useStore((s) => s.startTrace);
   const src = parseThrowId(index, id);
   const item = src && index.byId.get(src.occurrenceId);
   if (!src || !item) return <p className="hint">That error is no longer in the recording.</p>;
@@ -676,10 +988,9 @@ function ErrorDetail({ index, id }: { index: ReplayIndex; id: string }) {
   const tainted = index.findingsBySource.get(id) ?? [];
   const propagated = index.propagations.get(id) ?? [];
   const external = tainted.filter((f) => f.priority === 'high').length;
-  const rank = notifications(index, [item]).find((n) => n.id === id)?.tier;
   return (
     <>
-      <Section title={<><ErrorId id={id} /> <HandlerLink id={src.handlerId} /> {thrown ? 'threw' : 'reported an error'}</>} aside={rank && <TierBadge tier={rank} />}>
+      <Section title={<><ErrorId id={id} /> <HandlerLink id={src.handlerId} /> {thrown ? 'threw' : 'reported an error'}</>}>
         <dl className="facts">
           {thrown && <><dt>Error</dt><dd>{thrown.message}</dd></>}
           <dt>At</dt><dd>{fmtMs((thrown?.at ?? item.occ.ts) - index.origin)}</dd>
@@ -710,7 +1021,7 @@ function ErrorDetail({ index, id }: { index: ReplayIndex; id: string }) {
           <ul className="list">
             {tainted.map((f) => (
               <li key={f.id}>
-                <button className={`row ${f.priority === 'high' ? 'row-high' : ''}`} onClick={() => selectAt({ type: 'finding', id: f.id }, f.occurrenceId)}>
+                <button className={`row ${f.priority === 'high' ? 'row-high' : ''}`} onClick={() => startTrace({ type: 'finding', id: f.id, occurrenceId: f.occurrenceId })}>
                   <span className="row-head">
                     <Badge tone="warn">⚠ Corrupt Payload</Badge>
                     {f.priority === 'high' && <Badge tone="external">EXTERNAL</Badge>}
@@ -735,16 +1046,14 @@ function FindingSelection({ index, id }: { index: ReplayIndex; id: string }) {
 
 /**
  * The one inspector for a suspected corrupt payload, whether it was opened from a notification, an error, a
- * pathway or the timeline: the error it is traced to, the event itself, the payload and what was flagged in it, and
- * where it went.
+ * pathway or the timeline: the error it is traced to, the payload and what was flagged in it, the pathway from that
+ * error to where the payload went, then the event itself.
  */
 function CorruptPayloadDetail({ index, occurrenceId }: { index: ReplayIndex; occurrenceId: string }) {
-  const selectAt = useStore((s) => s.selectAt);
+  const startTrace = useStore((s) => s.startTrace);
   const item = index.byId.get(occurrenceId);
   const findings = index.findingsByOcc.get(occurrenceId) ?? [];
   if (!item || findings.length === 0) return <p className="hint">That payload is no longer in the recording.</p>;
-  const ranked = notifications(index, [item]).filter((n) => n.kind === 'finding');
-  const tier = ranked[0]?.tier;
   const sources = [...new Map(findings.flatMap((f) => (f.taintSource ? [[throwId(f.taintSource.occurrenceId, f.taintSource.handlerId), f.taintSource] as const] : []))).entries()];
   const external = [...new Set(findings.flatMap((f) => f.externalTargets))];
   return (
@@ -755,8 +1064,8 @@ function CorruptPayloadDetail({ index, occurrenceId }: { index: ReplayIndex; occ
             const sourceItem = index.byId.get(source.occurrenceId);
             const message = sourceItem?.throws.find((t) => t.handlerId === source.handlerId)?.message;
             return sourceItem ? (
-              <button key={id} className="link source-error" onClick={() => selectAt({ type: 'throw', id }, source.occurrenceId)}>
-                <ErrorId id={id} /> <NodeRef id={source.handlerId} /> {message ? `threw: ${message}` : 'reported an error'} →
+              <button key={id} className="link source-error" onClick={() => startTrace({ type: 'throw', id, occurrenceId: source.occurrenceId })}>
+                <ErrorId id={id} /> <NodeRef id={source.handlerId} /> {message ? `threw: ${message}` : 'reported an error'}
               </button>
             ) : (
               <p key={id} className="hint">The source error is no longer in the recording.</p>
@@ -764,21 +1073,22 @@ function CorruptPayloadDetail({ index, occurrenceId }: { index: ReplayIndex; occ
           })}
         </Section>
       )}
-      <Section title={<EventLink id={eventKey(item.template)} />} aside={tier && <TierBadge tier={tier} />}>
-        <div className="row-badges">
-          <Badge tone="warn">⚠ Corrupt Payload</Badge>
-          {external.length > 0 && <Badge tone="external" title={external.join(', ')}>EXTERNAL · {external.join(', ')}</Badge>}
-          {[...new Set(findings.map((f) => f.confidence))].map((c) => <Badge key={c} tone="muted">{c} confidence</Badge>)}
-          {findings.some((f) => f.basis === 'shape') && <Badge tone="muted">shape comparison only</Badge>}
-          {findings.some((f) => f.retroactive) && <Badge tone="muted">found after the fact</Badge>}
-        </div>
-        {/* Findings on one event differ only in what was flagged, so they share a chain unless traced to different throws. */}
+      {/* Findings on one event differ only in what was flagged, so they share a chain unless traced to different throws. */}
+      <PayloadSection item={item} findings={findings} />
+      <Section title="Pathway">
         {[...new Map(findings.map((f) => [f.taintSource?.handlerId, f])).values()].map((f) => (
           <p key={f.id} className="finding-chain"><FindingChain index={index} finding={f} /></p>
         ))}
-        <EventFacts index={index} item={item} chain={false} />
       </Section>
-      <PayloadSection item={item} findings={findings} />
+      <Section title="Details">
+        <div className="row-badges">
+          {external.length > 0 && <Badge tone="external" title={`Reached ${external.join(', ')}`}>EXTERNAL RECIPIENT</Badge>}
+          {[...new Set(findings.map((f) => f.confidence))].map((c) => <Badge key={c} tone="muted">{c} confidence</Badge>)}
+          {findings.some((f) => f.basis === 'shape') && <Badge tone="muted">shape comparison only</Badge>}
+          {findings.some((f) => f.retroactive) && <Badge tone="muted" title="Sent before the error it is traced to, in the same handler run, and flagged once that run failed">created before error</Badge>}
+        </div>
+        <EventFacts index={index} item={item} chain={false} event handlers={false} />
+      </Section>
     </>
   );
 }

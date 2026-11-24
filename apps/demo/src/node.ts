@@ -1,7 +1,7 @@
 import type { EventEmitter } from 'node:events';
-import { configure } from '@eda-debugger/cloud';
-import { connectRecorder, setDefaultRecorder } from '@eda-debugger/core';
-import { enableEventEmitterRecording } from '@eda-debugger/adapter-eventemitter';
+import { configure } from '@ida-dev/cloud';
+import { connectRecorder, setDefaultRecorder } from '@ida-dev/core';
+import { enableEventEmitterRecording } from '@ida-dev/adapter-eventemitter';
 import { createAttacks } from './attacks';
 import { createAuth } from './auth';
 import { startDashboard } from './dashboard';
@@ -9,17 +9,19 @@ import { createShop } from './shop';
 
 /**
  * The shop, uploaded to a project. Payments get their own recorder; everything else goes to `shop`.
- *   npm run node -w @eda-debugger/demo [-- --outage]   (reads EDA_PROJECT_KEY from apps/demo/.env)
+ *   npm run node -w @ida-dev/demo [-- --outage]   (reads IDA_PROJECT_KEY from apps/demo/.env)
  * The attack simulator is served at http://localhost:5175 (DEMO_PORT): brute force and corrupt-request overload.
  * `--outage` cuts the connection for 8 s out of every 20, to watch the spool and the recovery.
+ * `--brokers` (or DEMO_BROKERS=1) also sends orders through Kafka and RabbitMQ to `warehouse` and `shipping`, for the
+ * system view. `npm run dev` starts the brokers and turns it on; alone, start them with `npm run brokers`.
  */
 try { process.loadEnvFile(); } catch { /* no .env */ }
 const waitForKey = (): Promise<never> => {
-  console.log('[demo] No EDA_PROJECT_KEY. Create a project in the web app, make an ingest key, and put it in apps/demo/.env (see .env.example). Waiting...');
+  console.log('[demo] No IDA_PROJECT_KEY. Create a project in the web app, make a project key, and put it in apps/demo/.env (see .env.example). Waiting...');
   return new Promise<never>(() => setInterval(() => {}, 1 << 30));
 };
-const projectKey = process.env.EDA_PROJECT_KEY || (await waitForKey());
-const endpoint = process.env.EDA_ENDPOINT ?? 'http://localhost:8787';
+const projectKey = process.env.IDA_PROJECT_KEY || (await waitForKey());
+const endpoint = process.env.IDA_ENDPOINT ?? 'http://localhost:8787';
 const outage = process.argv.includes('--outage');
 
 let down = false;
@@ -65,6 +67,20 @@ const markExternal = (fn: Function) => { shop.markExternal(fn); payments.markExt
 const auth = createAuth(label, markExternal);
 const app = createShop(auth, label, markExternal);
 const attacks = createAttacks(auth);
+
+// The broker leg (Kafka + RabbitMQ, see brokers.ts) is opt-in so the demo runs without Docker.
+if (process.argv.includes('--brokers') || ['1', 'true'].includes(process.env.DEMO_BROKERS ?? '')) {
+  const { startBrokers } = await import('./brokers');
+  const brokers = await startBrokers({
+    payments,
+    warehouse: connectRecorder('warehouse', options),
+    shipping: connectRecorder('shipping', options),
+    paymentsBus: app.payments,
+  });
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.once(signal, () => { void brokers.close().finally(() => process.exit(0)); });
+  }
+}
 
 let rounds = 0;
 startDashboard({ port: Number(process.env.DEMO_PORT) || 5175, attacks, auth, idaUrl: process.env.IDA_URL ?? 'http://localhost:5173', normal: () => ({ rounds }) });

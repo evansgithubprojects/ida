@@ -1,6 +1,16 @@
+import { brokerProcessId, type BrokerKind } from './propagation';
 import type { GraphNode, Process } from './types';
 
 const GENERIC = new Set(['EventEmitter', 'EventTarget', 'Object', 'Function', '']);
+
+/** Identifies a topic, exchange or queue. See `DispatchInfo.broker`. */
+export interface BrokerRef {
+  type: 'kafka' | 'rabbitmq';
+  kind: BrokerKind;
+  name: string;
+  /** Kafka: a cluster name of your choosing; RabbitMQ: the vhost. */
+  cluster?: string;
+}
 
 export interface EmitterRef {
   node: GraphNode;
@@ -23,9 +33,10 @@ export class Registry {
   labelEmitter(emitter: object, label: string): void { this.emitterLabels.set(emitter, label); }
   labelHandler(fn: Function, label: string): void { this.handlerLabels.set(fn, label); }
 
-  emitter(obj: object, hint?: string): EmitterRef {
+  emitter(obj: object, hint?: string, broker?: BrokerRef): EmitterRef {
     const known = this.emitters.get(obj);
     if (known) return known;
+    if (broker) return this.brokerEmitter(obj, broker);
     const base = this.emitterLabels.get(obj) ?? hint ?? (obj as { constructor?: { name?: string } }).constructor?.name ?? '';
     let label = base;
     if (!this.emitterLabels.has(obj) && (!hint || GENERIC.has(base))) {
@@ -41,6 +52,26 @@ export class Registry {
       this.fresh.processes.push(process);
     }
     const node: GraphNode = { id: `em${++this.seq.em}`, processId: process.id, label, kind: 'emitter' };
+    this.nodes.set(node.id, node);
+    this.fresh.nodes.push(node);
+    const ref = { node, process };
+    this.emitters.set(obj, ref);
+    return ref;
+  }
+
+  /** A topic, exchange or queue: its process id is deterministic, so every service's recording shares it. */
+  private brokerEmitter(obj: object, b: BrokerRef): EmitterRef {
+    const id = brokerProcessId(b.type, b.kind, b.name, b.cluster);
+    let process = this.processes.get(id);
+    if (!process) {
+      process = {
+        id, label: this.emitterLabels.get(obj) ?? (b.name || (b.kind === 'exchange' ? '(default exchange)' : b.name)),
+        kind: b.kind, broker: { type: b.type, ...(b.cluster && { cluster: b.cluster }) },
+      };
+      this.processes.set(id, process);
+      this.fresh.processes.push(process);
+    }
+    const node: GraphNode = { id: `em${++this.seq.em}`, processId: id, label: process.label, kind: 'emitter' };
     this.nodes.set(node.id, node);
     this.fresh.nodes.push(node);
     const ref = { node, process };

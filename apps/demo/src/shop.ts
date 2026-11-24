@@ -68,6 +68,8 @@ export function createShop(auth: Auth, label: (e: EventEmitter, name: string) =>
 
   return {
     sent,
+    /** The Payments emitter, for the broker leg (brokers.ts). */
+    payments,
     login: (n: number) => auth.login(`u${n}`, 'correct-password', `198.51.100.${(n % 20) + 1}`),
     checkout: (total: number, extra?: string) => {
       try {

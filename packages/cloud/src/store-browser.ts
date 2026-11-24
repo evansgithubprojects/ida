@@ -3,7 +3,7 @@ import type { SpoolStore } from './spool';
 const STORE = 'batches';
 
 /** Keeps spooled batches in IndexedDB, so they survive a reload. */
-export function indexedDbStore(name = 'eda-debugger-spool'): SpoolStore {
+export function indexedDbStore(name = 'ida-spool'): SpoolStore {
   let opened: Promise<IDBDatabase> | null = null;
   const open = () => (opened ??= new Promise<IDBDatabase>((resolve, reject) => {
     const req = indexedDB.open(name, 1);

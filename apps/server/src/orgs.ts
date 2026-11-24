@@ -8,6 +8,8 @@ export type Env = { Variables: { user: User } };
 
 export const RANK: Record<OrgRole, number> = { member: 1, admin: 2, owner: 3 };
 const ROLES: readonly string[] = ['owner', 'admin', 'member'];
+/** Most organizations one person can create, so nobody can fill the database with them. */
+export const MAX_ORGS_PER_USER = 10;
 
 export interface OrgRow { id: string; name: string; created_by: string; created_at: string }
 const org = (o: OrgRow, role: OrgRole) => ({ id: o.id, name: o.name, role, createdAt: iso(o.created_at) });
@@ -49,6 +51,8 @@ export function orgRoutes(db: Db) {
   app.post('/orgs', async (c) => {
     const name = cleanName((await c.req.json().catch(() => ({}))).name);
     if (!name) return c.json({ error: 'name is required (1-100 characters)' }, 400);
+    const [made] = await db.query<{ n: number }>('select count(*)::int as n from orgs where created_by = $1', [c.get('user').id]);
+    if (made!.n >= MAX_ORGS_PER_USER) return c.json({ error: `you can create at most ${MAX_ORGS_PER_USER} organizations` }, 409);
     const created = await db.transaction(async (tx) => {
       const [o] = await tx.query<OrgRow>('insert into orgs (name, created_by) values ($1, $2) returning id, name, created_by, created_at', [name, c.get('user').id]);
       await tx.query(`insert into org_members (org_id, user_id, role) values ($1, $2, 'owner')`, [o!.id, c.get('user').id]);

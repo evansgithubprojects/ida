@@ -1,0 +1,49 @@
+# Render Blueprint: the API server and the web app. Create it from the dashboard (New > Blueprint).
+# Variables marked `sync: false` are asked for on first deploy and kept in Render, never in this file.
+services:
+  # apps/server: Node + Hono. Long-running, so it must be a web service, not serverless.
+  - type: web
+    name: ida-server
+    runtime: node
+    plan: starter # the free plan sleeps, which drops live streams and ingest uploads
+    buildCommand: npm ci && npm run build:packages && npm run build -w @ida-dev/server
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SUPABASE_URL
+        sync: false # https://<project>.supabase.co
+      - key: DATABASE_URL
+        sync: false # Supabase Postgres connection string
+      - key: STREAM_SECRET
+        generateValue: true
+      - key: WEB_ORIGINS
+        sync: false # the web app's URL, e.g. https://ida-web.onrender.com
+      # Invitation emails (optional; without a key the link is shown to the inviting admin).
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: WEB_APP_URL
+        sync: false
+
+  # apps/viewer: static build. The VITE_* values are baked in at build time.
+  - type: web
+    name: ida-web
+    runtime: static
+    buildCommand: npm ci && npm run build:packages && npm run build -w @ida-dev/viewer
+    staticPublishPath: apps/viewer/dist
+    autoDeploy: true
+    envVars:
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+        sync: false # the publishable key only, never a secret key
+      - key: VITE_API_URL
+        sync: false # the server's URL, e.g. https://ida-server.onrender.com
+    routes:
+      # Single-page app: let the router handle every path.
+      - type: rewrite
+        source: /*
+        destination: /index.html

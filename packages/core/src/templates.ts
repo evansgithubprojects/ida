@@ -6,6 +6,8 @@ const MAX_KEYS = 40;
 /**
  * Stable, value-free signature of a payload: keys (sorted) and types only.
  * `{id:string,items:number[],total:number}`. NaN/undefined/null are kept distinct on purpose.
+ * Every SDK must produce the same string for the same data: the rules are in `spec/README.md` and checked against
+ * `spec/fixtures/payload-shapes.json`.
  */
 export function payloadShape(value: unknown, depth = 0, seen: Set<object> = new Set()): string {
   if (value === null) return 'null';
@@ -27,6 +29,7 @@ export function payloadShape(value: unknown, depth = 0, seen: Set<object> = new 
       const inner = [...kinds].sort().join('|');
       return (kinds.size > 1 ? `(${inner})` : inner) + '[]';
     }
+    if (obj instanceof Uint8Array || obj instanceof ArrayBuffer) return 'bytes'; // Buffer too; Python's bytes match
     if (obj instanceof Date) return 'Date';
     if (obj instanceof Error) return 'Error';
     if (obj instanceof Map) return 'Map';

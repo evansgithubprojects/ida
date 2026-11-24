@@ -1,10 +1,11 @@
 import { useEffect, useState, ViewTransition } from 'react';
 import { Link, Navigate, NavLink, Outlet, useNavigate, useOutletContext } from 'react-router';
 import { api, type InviteSent, type Org, type OrgRole, type ProjectRole } from '../cloud/api';
-import { ago, useApi } from '../cloud/useApi';
+import { useApi } from '../cloud/useApi';
 import { can, orgToOpen, useMe, useOrg } from '../cloud/orgs';
 import { useSession } from '../cloud/auth';
 import { CardsSkeleton, OrgPageSkeleton, TableSkeleton } from '../components/Skeleton';
+import { OrgSwitcher } from '../components/OrgSwitcher';
 
 /**
  * `/projects`: sends the user to the org they were last in. Someone in no org yet (invited people who haven't accepted,
@@ -69,8 +70,11 @@ function OrgHeader({ id, name, role }: { id: string; name: string; role: OrgRole
   return (
     <>
       <div className="page-head">
-        <h2>{name}</h2>
-        <span className="muted">You are {role === 'member' ? 'a' : 'an'} {role}</span>
+        <div className="org-title">
+          <h2>{name}</h2>
+          <span className="muted">You are {role === 'member' ? 'a' : 'an'} {role}</span>
+        </div>
+        <OrgSwitcher />
       </div>
       <nav className="org-tabs" aria-label="Organization">
         {ORG_TABS.map(([path, label]) => <NavLink key={label} to={base + path} end={!path}>{label}</NavLink>)}
@@ -122,7 +126,6 @@ function ProjectList({ orgId, canCreate }: { orgId: string; canCreate: boolean }
             <li key={p.id}>
               <Link className="card" to={`/projects/${p.id}`}>
                 <strong>{p.name}</strong>
-                <span className="muted">{p.recorders} recorder{p.recorders === 1 ? '' : 's'} · {ago(p.lastSeenAt)}</span>
               </Link>
             </li>
           ))}

@@ -1,0 +1,21 @@
+{
+  "about": "The ida-parent header. format(parent) must equal header; parse(header) must equal parent, or null when it must be ignored.",
+  "format": [
+    { "parent": { "sessionId": "0b6f3c8e-2d1a-4e5f-9a7b-1c2d3e4f5a6b", "occurrenceId": "e12" }, "header": "1:0b6f3c8e-2d1a-4e5f-9a7b-1c2d3e4f5a6b:e12" }
+  ],
+  "parse": [
+    { "header": "1:0b6f3c8e-2d1a-4e5f-9a7b-1c2d3e4f5a6b:e12", "parent": { "sessionId": "0b6f3c8e-2d1a-4e5f-9a7b-1c2d3e4f5a6b", "occurrenceId": "e12" } },
+    { "header": "1:0B6F3C8E-2D1A-4E5F-9A7B-1C2D3E4F5A6B:e12", "parent": { "sessionId": "0b6f3c8e-2d1a-4e5f-9a7b-1c2d3e4f5a6b", "occurrenceId": "e12" } },
+    { "header": "2:0b6f3c8e-2d1a-4e5f-9a7b-1c2d3e4f5a6b:e12", "parent": null },
+    { "header": "1:not-a-uuid:e12", "parent": null },
+    { "header": "1:0b6f3c8e-2d1a-4e5f-9a7b-1c2d3e4f5a6b:", "parent": null },
+    { "header": "1:0b6f3c8e-2d1a-4e5f-9a7b-1c2d3e4f5a6b:e12:extra", "parent": null },
+    { "header": "", "parent": null }
+  ],
+  "brokerProcessIds": [
+    { "args": ["kafka", "topic", "orders", ""], "id": "kafka::topic:orders" },
+    { "args": ["kafka", "topic", "orders", "prod-eu"], "id": "kafka:prod-eu:topic:orders" },
+    { "args": ["rabbitmq", "exchange", "", "/"], "id": "rabbitmq:/:exchange:(default)" },
+    { "args": ["rabbitmq", "queue", "emails", "/"], "id": "rabbitmq:/:queue:emails" }
+  ]
+}

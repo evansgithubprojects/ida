@@ -1,0 +1,33 @@
+{
+  "name": "@ida-dev/adapter-kafkajs",
+  "version": "0.1.0",
+  "description": "kafkajs adapter for Ida: records produced and consumed Kafka messages and links them across services",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch"
+  },
+  "dependencies": {
+    "@ida-dev/core": "^0.1.0"
+  },
+  "peerDependencies": {
+    "kafkajs": "^2.0.0"
+  },
+  "devDependencies": {
+    "kafkajs": "2.2.4"
+  },
+  "license": "MIT"
+}

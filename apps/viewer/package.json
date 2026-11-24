@@ -1,5 +1,5 @@
 {
-  "name": "@eda-debugger/viewer",
+  "name": "@ida-dev/viewer",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -8,9 +8,10 @@
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
-    "@eda-debugger/core": "*",
+    "@ida-dev/core": "*",
     "@supabase/supabase-js": "^2.118.0",
     "@xyflow/react": "^12.3.0",
+    "marked": "^15.0.12",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router": "^8.5.1",

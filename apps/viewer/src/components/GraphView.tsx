@@ -5,12 +5,13 @@ import {
 import '@xyflow/react/dist/style.css';
 import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { accumulate, layoutBounds, layoutSeen, NODE_H, NODE_W, type Positions, type Seen } from '../graph/layout';
-import { processNodeId, type Level, type ModelEdge, type ModelNode } from '../graph/model';
+import { BrokerLogo, RecorderBadge } from './BrokerLogo';
+import { isBroker, levelDepth, levelInto, parentLevel, processNodeId, sameLevel, serviceNodeId, serviceOfProcess, tracedParts, type Level, type ModelEdge, type ModelNode } from '../graph/model';
 import {
   centreViewport, fitViewport, MAX_ZOOM, sameViewport, saveViewport, takeSavedViewport, MIN_ZOOM, motion, rectOnScreen, toKeyframes, ZOOM_MS, zoomFrames, type Rect, type Viewport,
 } from '../graph/zoom';
-import { useActive, useModel, useRates } from '../hooks';
-import { fmtRate, type Active, type ShownRates } from '../replay';
+import { useActive, useModel, useRates, useTrace } from '../hooks';
+import { fmtRate, type Active, type ReplayIndex, type ShownRates } from '../replay';
 import { useStore } from '../store';
 import { NodeRef } from './common';
 import { GraphSettings } from './GraphSettings';
@@ -32,13 +33,18 @@ interface ViewState {
   focusedEdgeId: string | null;
   /** Graph setting: pathways with no suspect payloads show no count and no pulse. */
   hideHealthy: boolean;
+  /**
+   * Trace mode: the cards and pathways the slideshow has reached (up to the slide shown) and those still ahead;
+   * everything else is hidden.
+   */
+  traced: { nodes: Set<string>; edges: Set<string>; aheadNodes: Set<string>; aheadEdges: Set<string> } | null;
 }
 
 const ViewCtx = createContext<ViewState | null>(null);
 const useView = () => useContext(ViewCtx)!;
 
 type RouteNode = Node<Record<string, never>, 'route'>;
-type RingNode = Node<{ label: string; size: number }, 'ring'>;
+type RingNode = Node<{ label: string; size: number; broker: boolean }, 'ring'>;
 type AnyNode = RouteNode | RingNode;
 type RouteEdge = Edge<Record<string, never>, 'route'>;
 
@@ -46,20 +52,25 @@ const RING_ID = '__ring';
 const hiddenHandle = { opacity: 0, pointerEvents: 'none' } as const;
 
 const NodeCard = memo(function NodeCard({ id }: NodeProps<RouteNode>) {
-  const { nodes, active, rates, selectedId, focusedId } = useView();
+  const { nodes, active, rates, selectedId, focusedId, traced } = useView();
   const model = nodes.get(id);
   if (!model) return null;
   const rateIn = rates?.in.get(id);
   const rateOut = rates?.out.get(id);
   const flashing = active.flashingNodes.has(id);
   const thrown = active.thrownNodes.get(id) ?? 0;
-  const cls = ['node-card', `kind-${model.kind}`, flashing && 'flash', thrown > 0 && 'has-thrown', model.idle && 'idle', selectedId === id && 'selected', focusedId === id && 'focused'];
+  const cls = ['node-card', `kind-${model.kind}`, model.broker && `broker broker-${model.broker}`, model.inBroker && 'in-broker', flashing && 'flash', thrown > 0 && 'has-thrown', model.idle && 'idle', selectedId === id && 'selected', focusedId === id && 'focused', traced && (traced.nodes.has(id) ? 'traced' : 'traced-ahead')];
   return (
-    <div className={cls.filter(Boolean).join(' ')} style={{ width: NODE_W, height: NODE_H }}>
+    <div className={cls.filter(Boolean).join(' ')} style={{ width: NODE_W, minHeight: NODE_H }}>
       <Handle type="target" position={Position.Left} isConnectable={false} style={hiddenHandle} />
-      <div className="node-title" title={model.label}>{model.kind === 'process' || model.kind === 'stub' ? model.label : <NodeRef id={model.id} label={model.label} qualify={false} />}</div>
-      <div className={`node-detail ${rateIn?.spike || rateOut?.spike ? 'spike' : ''}`} title={rateIn?.spike || rateOut?.spike ? 'Spike, held until the next update' : undefined}>
-        {model.kind === 'stub' ? model.detail : `${fmtRate(rateIn?.value ?? 0)}/s in · ${fmtRate(rateOut?.value ?? 0)}/s out`}
+      <div className="node-title" title={model.label}>
+        {model.broker && <BrokerLogo type={model.brokerType} kind={model.broker} />}
+        {model.service && <RecorderBadge recorderKey={model.service} />}
+        {model.kind === 'process' || model.kind === 'stub' || model.kind === 'service' ? model.label : <NodeRef id={model.id} label={model.label} qualify={false} />}
+      </div>
+      <div className={`node-detail ${!traced && (rateIn?.spike || rateOut?.spike) ? 'spike' : ''}`} title={!traced && (rateIn?.spike || rateOut?.spike) ? 'Spike, held until the next update' : undefined}>
+        {/* Rates say nothing about one trace, so trace mode leaves them out. */}
+        {model.kind === 'stub' ? model.detail : traced ? null : `${fmtRate(rateIn?.value ?? 0)}/s in · ${fmtRate(rateOut?.value ?? 0)}/s out`}
       </div>
       {thrown > 0 && <span className="corner corner-error" title={`${thrown} throw(s) so far`}>✕ {thrown}</span>}
       <Handle type="source" position={Position.Right} isConnectable={false} style={hiddenHandle} />
@@ -67,10 +78,10 @@ const NodeCard = memo(function NodeCard({ id }: NodeProps<RouteNode>) {
   );
 });
 
-/** The process being looked into, drawn as a big circle behind its handlers. */
+/** The emitter being looked into, drawn as a big circle behind its handlers, in the colour of its card. */
 const RingNodeView = memo(function RingNodeView({ data }: NodeProps<RingNode>) {
   return (
-    <div className="ring-node" style={{ width: data.size, height: data.size }}>
+    <div className={`ring-node${data.broker ? ' ring-broker' : ''}`} style={{ width: data.size, height: data.size }}>
       <span>{data.label}</span>
     </div>
   );
@@ -97,36 +108,52 @@ const centreOf = (n: InternalNode) => {
   return { cx: n.internals.positionAbsolute.x + w / 2, cy: n.internals.positionAbsolute.y + h / 2, w, h };
 };
 
+/** "source>target" for every pathway, cached per edge map, so a line can tell whether one runs the other way too. */
+const pairsCache = new WeakMap<Map<string, ModelEdge>, Set<string>>();
+function pairsOf(edges: Map<string, ModelEdge>): Set<string> {
+  let pairs = pairsCache.get(edges);
+  if (!pairs) {
+    pairs = new Set([...edges.values()].map((e) => `${e.source}>${e.target}`));
+    pairsCache.set(edges, pairs);
+  }
+  return pairs;
+}
+
+/** How far apart A→B and B→A are drawn, so they don't lie on top of each other. */
+const PAIR_GAP = 6;
+
 /**
- * Straight between card borders, bowed a little to one side. The bow flips with the direction, so A→B and
- * B→A don't lie on top of each other.
+ * A straight line between card borders. When a pathway also runs the other way, each is moved half of
+ * `PAIR_GAP` to its own side (the side flips with the direction), so the two sit side by side.
  */
-function floatingPath(source: InternalNode, target: InternalNode): [string, number, number] {
+function floatingPath(source: InternalNode, target: InternalNode, paired: boolean): [string, number, number] {
   const s = centreOf(source);
   const t = centreOf(target);
   // Cards that nearly touch would tuck the whole line away.
   const tuck = Math.min(EDGE_TUCK, Math.hypot(t.cx - s.cx, t.cy - s.cy) / 8);
-  const [sx, sy] = edgePoint(s.cx, s.cy, s.w, s.h, t.cx, t.cy, tuck);
-  const [tx, ty] = edgePoint(t.cx, t.cy, t.w, t.h, s.cx, s.cy, tuck);
-  const dx = tx - sx;
-  const dy = ty - sy;
-  const len = Math.hypot(dx, dy) || 1;
-  const bow = len * 0.18;
-  const qx = (sx + tx) / 2 - (dy / len) * bow;
-  const qy = (sy + ty) / 2 + (dx / len) * bow;
-  return [`M ${sx} ${sy} Q ${qx} ${qy} ${tx} ${ty}`, 0.25 * sx + 0.5 * qx + 0.25 * tx, 0.25 * sy + 0.5 * qy + 0.25 * ty];
+  let [sx, sy] = edgePoint(s.cx, s.cy, s.w, s.h, t.cx, t.cy, tuck);
+  let [tx, ty] = edgePoint(t.cx, t.cy, t.w, t.h, s.cx, s.cy, tuck);
+  if (paired) {
+    const len = Math.hypot(tx - sx, ty - sy) || 1;
+    const ox = (-(ty - sy) / len) * (PAIR_GAP / 2);
+    const oy = ((tx - sx) / len) * (PAIR_GAP / 2);
+    sx += ox; sy += oy; tx += ox; ty += oy;
+  }
+  // A pair's labels would sit on top of each other at the middle, so each goes a bit nearer its own source.
+  const at = paired ? 0.35 : 0.5;
+  return [`M ${sx} ${sy} L ${tx} ${ty}`, sx + (tx - sx) * at, sy + (ty - sy) * at];
 }
 
 /** How much of a line the travelling pulse covers. */
 const PULSE_LENGTH = 0.2;
 
 const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgeProps<RouteEdge>) {
-  const { edges, active, rates, selectedId, focusedEdgeId, hideHealthy } = useView();
+  const { edges, active, rates, selectedId, focusedEdgeId, hideHealthy, traced } = useView();
   const from = useInternalNode(source);
   const to = useInternalNode(target);
   const edge = edges.get(id);
   if (!edge || !from || !to) return null;
-  const [path, lx, ly] = floatingPath(from, to);
+  const [path, lx, ly] = floatingPath(from, to, pairsOf(edges).has(`${target}>${source}`));
   const flagged = active.flaggedEdges.get(id);
   const litFlagged = active.litFlaggedEdges.has(id);
   // Lines stay dim and still; a lit one only means an event is on it right now, drawn as a pulse that travels from sender to receiver.
@@ -135,7 +162,10 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
   const width = 1.5 + Math.min(3, Math.log2(edge.count + 1) * 0.5);
   // Every event still on its way gets its own pulse, so a busy route shows them all instead of restarting one.
   // A selected or focused pathway stays fully drawn so inspecting it still shows something.
-  const quiet = hideHealthy && selectedId !== id && focusedEdgeId !== id;
+  const onTrace = traced?.edges.has(id);
+  const ahead = !onTrace && !!traced?.aheadEdges.has(id);
+  // Off-trace pathways are hidden altogether (see the edge list), so a trace has none to quiet.
+  const quiet = hideHealthy && selectedId !== id && focusedEdgeId !== id && !traced;
   const shown = rates?.edges.get(id);
   const flights = quiet && !litFlagged ? [] : (active.pulses.get(id) ?? []);
   return (
@@ -143,23 +173,30 @@ const RouteEdgeView = memo(function RouteEdgeView({ id, source, target }: EdgePr
       <BaseEdge
         id={id}
         path={path}
-        className={focusedEdgeId === id ? 'edge-focused' : undefined}
+        className={[focusedEdgeId === id && 'edge-focused', edge.propagated && 'edge-propagated', onTrace && 'edge-traced'].filter(Boolean).join(' ') || undefined}
         style={{
-          stroke: flagged ? 'var(--warn-dim)' : 'var(--edge)', strokeWidth: width, opacity: 0.75,
+          stroke: onTrace || ahead ? 'var(--accent)' : flagged ? 'var(--warn-dim)' : 'var(--edge)', strokeWidth: onTrace ? width + 1 : width, opacity: ahead ? 0.4 : onTrace ? 1 : 0.75,
+          // Dashed: suspected corrupt payloads. Long dashes: small dots, repainted under every moving pulse, cut a busy
+          // graph's frame rate in half. Routes between services stay solid: the graph connects services.
           strokeDasharray: flagged ? '7 5' : undefined,
         }}
       />
-      {flights.map((progress, i) => (
-        <path
-          key={i}
-          d={path} pathLength={1} fill="none" stroke={pulseColor} strokeWidth={width + 1.5} strokeLinecap="round"
-          strokeDasharray={`${PULSE_LENGTH} 2`} strokeDashoffset={PULSE_LENGTH - progress * (1 + PULSE_LENGTH)}
-          style={{ pointerEvents: 'none', filter: `drop-shadow(0 0 5px ${pulseColor})` }}
-        />
-      ))}
-      {!(quiet && !flagged) && <EdgeLabelRenderer>
+      {/* The glow is a wider, faint stroke under each pulse. A CSS drop-shadow filter looks the same but makes the
+          browser repaint every pulse off-screen on every frame, which drops a busy graph to a few frames a second. */}
+      {flights.map((progress, i) => {
+        const dash = { pathLength: 1, strokeDasharray: `${PULSE_LENGTH} 2`, strokeDashoffset: PULSE_LENGTH - progress * (1 + PULSE_LENGTH) };
+        return (
+          <g key={i} style={{ pointerEvents: 'none' }}>
+            <path d={path} {...dash} fill="none" stroke={pulseColor} strokeWidth={width + 8} strokeLinecap="round" opacity={0.25} />
+            <path d={path} {...dash} fill="none" stroke={pulseColor} strokeWidth={width + 1.5} strokeLinecap="round" />
+          </g>
+        );
+      })}
+      {/* In trace mode a pathway's label is only its corrupt-payload mark: rates say nothing about one trace.
+          Quieting healthy pulses keeps the rates: it hides motion, not numbers. */}
+      {(!traced || flagged) && <EdgeLabelRenderer>
         <div className={`edge-label ${selectedId === id ? 'selected' : ''} ${focusedEdgeId === id ? 'focused' : ''}`} style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}>
-          <span className={shown?.spike ? 'spike' : undefined} title={shown?.spike ? `Spike: ${fmtRate(shown.value)}/s, held until the next update` : `${edge.count} in this window`}>{fmtRate(shown?.value ?? 0)}/s</span>
+          {!traced && <span className={shown?.spike ? 'spike' : undefined} title={shown?.spike ? `Spike: ${fmtRate(shown.value)}/s, held until the next update` : `${edge.count} in this window`}>{fmtRate(shown?.value ?? 0)}/s</span>}
           {flagged && <span className="mark mark-warn" title={`Suspected corrupt payloads on this route${flagged.high ? ', some reaching an external system' : ''}`}>⚠{flagged.count}</span>}
         </div>
       </EdgeLabelRenderer>}
@@ -171,7 +208,17 @@ const nodeTypes = { route: NodeCard, ring: RingNodeView };
 const edgeTypes = { route: RouteEdgeView };
 
 const boxOf = (p: { x: number; y: number }): Rect => ({ x: p.x, y: p.y, width: NODE_W, height: NODE_H });
-const sameLevel = (a: Level, b: Level) => a.kind === b.kind && (a.kind === 'process' || (b.kind === 'handlers' && a.processId === b.processId));
+
+/**
+ * The cards a level may be entered through in the level above it, best first: a process's own card, else (for a
+ * service's only process, entered straight from the services level) its service's card.
+ */
+const entryCards = (level: Level, index: ReplayIndex | null): string[] => {
+  if (level.kind === 'process') return level.service ? [serviceNodeId(level.service)] : [];
+  if (level.kind !== 'handlers') return [];
+  const service = serviceOfProcess(index, level.processId);
+  return [processNodeId(level.processId), ...(service ? [serviceNodeId(service)] : [])];
+};
 
 /** What a transition needs to know about a mounted layer: where its nodes are and where the camera is. */
 interface Geometry {
@@ -201,6 +248,16 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
   const focus = useStore((s) => s.focus);
   const setLevel = useStore((s) => s.setLevel);
   const hideHealthy = useStore((s) => s.hideHealthy);
+  const trace = useTrace();
+  const at = useStore((s) => s.trace?.at ?? 0);
+  const traced = useMemo(() => {
+    if (!model || !trace) return null;
+    // Each step only along its own pathways: an event reaches its other handlers too, but the trace doesn't go there.
+    const items = trace.slides;
+    const done = tracedParts(model, items.slice(0, at + 1));
+    const ahead = tracedParts(model, items.slice(at + 1));
+    return { ...done, aheadNodes: ahead.nodes, aheadEdges: ahead.edges };
+  }, [model, trace, at]);
   const { setViewport, getViewport } = useReactFlow<AnyNode, RouteEdge>();
 
   // Re-layout only when the shape of the graph changes, not on every count update.
@@ -242,10 +299,12 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
     return () => { geometry.delete(layerKey); };
   }, [lay, geometry, layerKey]);
 
+  // Trace mode frames the cards the trace reaches (see below); a new node elsewhere doesn't take the camera back.
+  const framing = useRef<{ key: string; before: { camera: Viewport; user: boolean } | null }>({ key: '', before: null });
   const first = useRef(true);
   useEffect(() => {
     if (first.current) { first.current = false; return; }
-    if (!lay || !refit || userCamera.current) return;
+    if (!lay || !refit || userCamera.current || framing.current.key) return;
     const saved = takeSavedViewport(sig);
     camera.current = saved ?? fitViewport(layoutBounds(lay), size.width, size.height);
     fitted.current = saved ? null : camera.current;
@@ -267,10 +326,40 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
     const key = `${focus.seq}|${sig}`;
     if (panned.current === key) return;
     panned.current = key;
+    // Each trace step asks to be shown, but the camera already fits the whole trace.
+    if (traced) return;
     camera.current = centreViewport(ps.map((p) => ({ x: p!.x + NODE_W / 2, y: p!.y + NODE_H / 2 })), Math.max(getViewport().zoom, 1), size);
     void setViewport(camera.current, { duration: motion(400) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus?.seq, refit, sig]);
+
+  // Trace mode zooms the camera to fit what the trace reaches, and ending the trace puts it back where it was. A layer
+  // opened mid-trace (the trace zoomed into a process) starts framed, with no pan; it goes back to the whole graph.
+  const traceKey = traced && lay ? [...traced.nodes, ...traced.aheadNodes].filter((id) => lay.positions.has(id)).sort().join(',') : '';
+  const fresh = useRef(true);
+  useLayoutEffect(() => {
+    if (!lay) return;
+    const wasFresh = fresh.current;
+    fresh.current = false;
+    if ((!refit && !wasFresh) || framing.current.key === traceKey) return;
+    const was = framing.current;
+    if (traceKey) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const id of traceKey.split(',')) {
+        const p = lay.positions.get(id)!;
+        x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x + NODE_W); y1 = Math.max(y1, p.y + NODE_H);
+      }
+      framing.current = { key: traceKey, before: was.before ?? (wasFresh ? null : { camera: camera.current, user: userCamera.current }) };
+      camera.current = fitViewport({ x: x0, y: y0, width: x1 - x0, height: y1 - y0 }, size.width, size.height);
+    } else {
+      framing.current = { key: '', before: null };
+      camera.current = was.before?.camera ?? fitViewport(layoutBounds(lay), size.width, size.height);
+      userCamera.current = was.before?.user ?? false;
+      if (!was.before) fitted.current = camera.current;
+    }
+    void setViewport(camera.current, { duration: wasFresh ? 0 : motion(400) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [traceKey, refit, lay]);
 
   // Stable objects: only a new layout produces new ones.
   const nodes = useMemo<AnyNode[]>(() => {
@@ -280,30 +369,36 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
       const r = lay.ring.radius;
       list.push({
         id: RING_ID, type: 'ring', position: { x: -r, y: -r }, width: 2 * r, height: 2 * r, zIndex: -1,
-        data: { label: index?.processLabel.get(level.processId) ?? level.processId, size: 2 * r },
+        data: { label: index?.processLabel.get(level.processId) ?? level.processId, size: 2 * r, broker: !!index && isBroker(index, level.processId) },
         draggable: false, selectable: false, focusable: false,
       });
     }
+    // Trace mode hides every card the trace doesn't reach; the rest keep their places, so stepping doesn't move them.
+    const offTrace = (id: string) => !!traced && !traced.nodes.has(id) && !traced.aheadNodes.has(id);
     for (const m of model.nodes) {
-      list.push({ id: m.id, type: 'route', position: lay.positions.get(m.id) ?? { x: 0, y: 0 }, data: {}, width: NODE_W, height: NODE_H });
+      list.push({ id: m.id, type: 'route', position: lay.positions.get(m.id) ?? { x: 0, y: 0 }, data: {}, width: NODE_W, hidden: offTrace(m.id) });
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lay, sig]);
+  }, [lay, sig, traced]);
 
   const edges = useMemo<RouteEdge[]>(
-    () => (model ? model.edges.map((e) => ({ id: e.id, source: e.source, target: e.target, type: 'route', data: {} })) : []),
+    () => (model ? model.edges.map((e) => ({
+      id: e.id, source: e.source, target: e.target, type: 'route', data: {},
+      // And every pathway it doesn't take, even between cards it does reach.
+      hidden: !!traced && !traced.edges.has(e.id) && !traced.aheadEdges.has(e.id),
+    })) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sig],
+    [sig, traced],
   );
 
   const view = useMemo<ViewState | null>(
     () => (model && active ? {
       nodes: new Map(model.nodes.map((n) => [n.id, n])), edges: new Map(model.edges.map((e) => [e.id, e])), active, rates: rates?.shown ?? null,
       selectedId: selection && selection.type !== 'occurrence' && selection.type !== 'event' ? selection.id : null,
-      focusedId, focusedEdgeId: focusedEdge?.id ?? null, hideHealthy,
+      focusedId, focusedEdgeId: focusedEdge?.id ?? null, hideHealthy, traced,
     } : null),
-    [model, active, rates, selection, focusedId, focusedEdge, hideHealthy],
+    [model, active, rates, selection, focusedId, focusedEdge, hideHealthy, traced],
   );
 
   if (!model || !view || !lay) return null;
@@ -318,7 +413,13 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
         edgeTypes={edgeTypes}
         colorMode="dark"
         defaultViewport={initialViewport}
-        onMoveEnd={(_, vp) => { camera.current = vp; userCamera.current = !sameViewport(vp, fitted.current); if (refit) saveViewport(sig, vp); }}
+        onMoveEnd={(_, vp) => {
+          camera.current = vp;
+          // A trace's framing is put back when it ends, so it neither counts as the user's camera nor is kept for a reload.
+          if (framing.current.key) return;
+          userCamera.current = !sameViewport(vp, fitted.current);
+          if (refit) saveViewport(sig, vp);
+        }}
         minZoom={MIN_ZOOM}
         maxZoom={MAX_ZOOM}
         zoomOnDoubleClick={false}
@@ -331,7 +432,8 @@ function GraphLayer({ layerKey, level, size, geometry, refit }: LayerProps) {
         onNodeDoubleClick={(_, n) => {
           const m = model.nodes.find((x) => x.id === n.id);
           if (!m) return;
-          if (m.kind === 'process' || m.kind === 'stub') setLevel({ kind: 'handlers', processId: m.processId });
+          const into = levelInto(m);
+          if (into) setLevel(into);
         }}
       >
         <Controls showInteractive={false} />
@@ -348,16 +450,23 @@ function ZoomCrumbs() {
   const index = useStore((s) => s.index);
   const level = useStore((s) => s.level);
   const setLevel = useStore((s) => s.setLevel);
-  const processLabel = level.kind === 'handlers' ? index?.processLabel.get(level.processId) : undefined;
+  // Every level from the top down to this one.
+  const path: Level[] = [];
+  for (let l: Level | null = level; l; l = parentLevel(index, l)) path.unshift(l);
+  const name = (l: Level) => {
+    if (l.kind === 'services') return 'Services';
+    if (l.kind === 'process') return l.service ?? 'Emitters';
+    const service = serviceOfProcess(index, l.processId);
+    return index?.processLabel.get(l.processId) ?? (service ? `${service} emitter` : l.processId);
+  };
   return (
     <nav className="crumbs zoom-crumbs" aria-label="Zoom level">
-      <button className={level.kind === 'process' ? 'current' : ''} onClick={() => setLevel({ kind: 'process' })}>Processes</button>
-      {processLabel && (
-        <>
-          <span>›</span>
-          <button className="current">{processLabel}</button>
-        </>
-      )}
+      {path.map((l, k) => (
+        <span key={k}>
+          {k > 0 && <span>›</span>}
+          <button className={k === path.length - 1 ? 'current' : ''} onClick={() => setLevel(l)}>{name(l)}</button>
+        </span>
+      ))}
     </nav>
   );
 }
@@ -369,6 +478,8 @@ function ZoomCrumbs() {
  */
 export function GraphView({ actions }: { /** Extra buttons shown left of the settings cog. */ actions?: ReactNode } = {}) {
   const level = useStore((s) => s.level);
+  // Read once per transition (not subscribed): which card a zoom goes through doesn't change with each live batch.
+  const indexNow = () => useStore.getState().index;
   const box = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<Size | null>(null);
   const keys = useRef(0);
@@ -395,7 +506,7 @@ export function GraphView({ actions }: { /** Extra buttons shown left of the set
   }, []);
 
   const { current, outgoing } = layers;
-  const zoomOut = !!outgoing && outgoing.level.kind === 'handlers' && current.level.kind === 'process';
+  const zoomOut = !!outgoing && levelDepth(outgoing.level) > levelDepth(current.level);
 
   useLayoutEffect(() => {
     if (!outgoing) return;
@@ -410,10 +521,8 @@ export function GraphView({ actions }: { /** Extra buttons shown left of the set
     // The parent is the layer holding the card that gets zoomed into: the old one going in, the new one coming out.
     const parent = zoomOut ? current : outgoing;
     const child = zoomOut ? outgoing : current;
-    const focusLevel = child.level;
-    const focusId = focusLevel.kind === 'handlers' ? processNodeId(focusLevel.processId) : null;
     const g = geometry.get(parent.key);
-    const p = focusId ? g?.positions.get(focusId) : undefined;
+    const p = entryCards(child.level, indexNow()).map((id) => g?.positions.get(id)).find(Boolean);
 
     const options: KeyframeAnimationOptions = { duration: ms, fill: 'both', easing: 'linear' };
     let anims: Animation[];

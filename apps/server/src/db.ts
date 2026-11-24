@@ -44,6 +44,12 @@ export async function openPglite(dir?: string): Promise<Db> {
   if (dir && !dir.includes('://')) await mkdir(dir, { recursive: true });
   const db = new PGlite(dir, { parsers: { [types.INT8]: (v: string) => Number(v) } });
   await db.waitReady;
+  // Postgres keeps up to max_wal_size (1 GB) of write-ahead log for reuse: most of a dev database's size on disk.
+  // Takes effect from the next start (PGlite has no reload).
+  if (dir && !dir.includes('://')) {
+    await db.exec(`alter system set max_wal_size = '96MB'`);
+    await db.exec(`alter system set min_wal_size = '32MB'`);
+  }
   return {
     async query(sql, params) {
       return (await db.query(sql, params)).rows as never;
@@ -71,5 +77,38 @@ export async function migrate(db: Db): Promise<string[]> {
     });
     applied.push(name);
   }
+  await lockDown(db);
   return applied;
+}
+
+/**
+ * Every table is reached only through this server, which connects as the table owner. On Supabase the schema is also
+ * served by its auto-generated REST API to anyone holding the public anon key, so each table gets row-level security
+ * with no policies (the owner bypasses it, the API roles see nothing), and the API roles lose their grants. Runs after
+ * every migration pass, so a table a future migration adds is locked down too. Safe to repeat. The roles only exist on
+ * Supabase; elsewhere only the first half applies.
+ */
+export async function lockDown(db: Pick<Db, 'query'>): Promise<void> {
+  await db.query(
+    `do $$
+     declare t text;
+     begin
+       for t in select tablename from pg_tables where schemaname = current_schema() loop
+         execute format('alter table %I.%I enable row level security', current_schema(), t);
+       end loop;
+     end $$`,
+  );
+  await db.query(
+    `do $$
+     declare r text;
+     begin
+       foreach r in array array['anon', 'authenticated'] loop
+         if exists (select 1 from pg_roles where rolname = r) then
+           execute format('revoke all on all tables in schema %I from %I', current_schema(), r);
+           execute format('revoke all on all sequences in schema %I from %I', current_schema(), r);
+           execute format('alter default privileges in schema %I revoke all on tables from %I', current_schema(), r);
+         end if;
+       end loop;
+     end $$`,
+  );
 }

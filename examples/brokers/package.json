@@ -1,0 +1,20 @@
+{
+  "name": "ida-brokers-demo",
+  "version": "1.0.0",
+  "description": "The Node services of the Kafka + RabbitMQ demo: orders and notifier.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "orders": "node src/orders.js",
+    "notifier": "node src/notifier.js"
+  },
+  "dependencies": {
+    "@ida-dev/adapter-amqplib": "file:packs/ida-dev-adapter-amqplib-0.1.0.tgz",
+    "@ida-dev/adapter-eventemitter": "file:packs/ida-dev-adapter-eventemitter-0.1.0.tgz",
+    "@ida-dev/adapter-kafkajs": "file:packs/ida-dev-adapter-kafkajs-0.1.0.tgz",
+    "@ida-dev/cloud": "file:packs/ida-dev-cloud-0.1.0.tgz",
+    "@ida-dev/core": "file:packs/ida-dev-core-0.1.0.tgz",
+    "amqplib": "2.2.0",
+    "kafkajs": "2.2.4"
+  }
+}
