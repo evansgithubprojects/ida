@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createRecorder } from '@ida-dev/core';
+import { createRecorder } from '@eda-debugger/core';
 import { inWindow, MAX_WINDOW_EVENTS, runId } from '../src/replay';
 import { extendTrail, focusTargetOf, TRAIL_MAX, useStore, type Selection } from '../src/store';
 
@@ -136,59 +136,6 @@ describe('links across scopes', () => {
   });
 });
 
-describe('trace follows the inspector', () => {
-  let t = 0;
-  const rec = createRecorder({ now: () => (t += 10) });
-  const a = {};
-  const b = {};
-  const send = (e: object, name: string, handlers: Function[]) =>
-    rec.dispatch({ emitter: e, eventName: name, handlers, payload: undefined }, (invoke) => handlers.forEach((h) => invoke(h, () => h())));
-  const boom = function boom() { throw new Error('nope'); };
-  const start = function start() { send(b, 'charge', [boom]); };
-  try { send(a, 'go', [start]); } catch { /* both threw */ }
-  const recording = rec.export();
-
-  const setup = () => {
-    useStore.getState().load(recording, 'test');
-    const index = useStore.getState().index!;
-    const go = index.items.find((i) => i.template.eventName === 'go')!;
-    const charge = index.items.find((i) => i.template.eventName === 'charge')!;
-    const throwId = charge.throws[0]!.id;
-    return { go, charge, throwId };
-  };
-  const trace = () => useStore.getState().trace!;
-
-  it('moves to the slide of an event already in the trace', () => {
-    const { go, charge } = setup();
-    useStore.getState().startTrace({ type: 'occurrence', id: charge.occ.id, occurrenceId: charge.occ.id });
-    useStore.getState().traceStep(1);
-    useStore.getState().seekToOccurrence(go.occ.id);
-    expect(trace().at).toBe(0);
-    expect(trace().path.target.id).toBe(charge.occ.id);
-    useStore.getState().endTrace();
-  });
-
-  it('switches to the trace of an error inspected from inside a trace, on the error itself', () => {
-    const { go, charge, throwId } = setup();
-    useStore.getState().startTrace({ type: 'occurrence', id: go.occ.id, occurrenceId: go.occ.id });
-    useStore.getState().select({ type: 'throw', id: throwId });
-    expect(trace().path.target).toMatchObject({ type: 'throw', id: throwId, occurrenceId: charge.occ.id });
-    expect(trace().at).toBe(trace().path.slides.length - 1);
-    useStore.getState().endTrace();
-  });
-
-  it('opens a trace started from inside another on its last slide, and a fresh one on its root', () => {
-    const { charge, throwId } = setup();
-    useStore.getState().startTrace({ type: 'occurrence', id: charge.occ.id, occurrenceId: charge.occ.id });
-    expect(trace().at).toBe(0);
-    useStore.getState().startTrace({ type: 'throw', id: throwId, occurrenceId: charge.occ.id });
-    expect(trace().path.target.type).toBe('throw');
-    expect(trace().at).toBe(trace().path.slides.length - 1);
-    expect(useStore.getState().selection).toEqual({ type: 'throw', id: throwId });
-    useStore.getState().endTrace();
-  });
-});
-
 describe('the replay window cap', () => {
   const many = (n: number) => {
     let t = 0;
@@ -232,40 +179,9 @@ describe('the replay window cap', () => {
     const old = s.index!.items[10]!;
     useStore.getState().selectAt({ type: 'occurrence', id: old.occ.id }, old.occ.id);
     const after = useStore.getState();
+    expect(after.window[0]).toBe(old.occ.ts);
     expect(after.t).toBe(old.occ.ts);
-    expect(after.window[0]).toBeLessThanOrEqual(old.occ.ts);
-    expect(after.window[1]).toBeGreaterThan(old.occ.ts);
     expect(held()).toBeLessThanOrEqual(MAX_WINDOW_EVENTS);
-  });
-
-  it('scrubbing anywhere in the recording moves the window to trail the playhead', () => {
-    const s = load(1500);
-    const mid = s.index!.items[700]!.occ.ts;
-    useStore.getState().setT(mid);
-    const after = useStore.getState();
-    expect(after.t).toBe(mid);
-    expect(after.window[0]).toBeLessThanOrEqual(mid);
-    expect(after.window[1]).toBeGreaterThan(mid);
-    expect(held()).toBeLessThanOrEqual(MAX_WINDOW_EVENTS);
-  });
-
-  it('leaves the window alone while the playhead stays inside it', () => {
-    const s = load(1500);
-    const before = s.window;
-    useStore.getState().setT(s.index!.items[1200]!.occ.ts);
-    expect(useStore.getState().window).toEqual(before);
-  });
-
-  it('plays past the end of a window by moving it, and stops at the end of the recording', () => {
-    const s = load(1500);
-    useStore.getState().setT(s.index!.start);
-    const first = useStore.getState().window;
-    useStore.getState().togglePlay();
-    for (let i = 0; i < 1000 && useStore.getState().playing; i++) useStore.getState().tick(500);
-    const end = useStore.getState();
-    expect(end.window).not.toEqual(first);
-    expect(end.playing).toBe(false);
-    expect(end.t).toBe(end.index!.end);
   });
 });
 
@@ -276,40 +192,6 @@ describe('graph settings', () => {
     expect(useStore.getState().hideHealthy).toBe(true);
     useStore.getState().setHideHealthy(false);
     expect(useStore.getState().hideHealthy).toBe(false);
-  });
-});
-
-describe('notification filter', () => {
-  it('shows both kinds by default, and saves each one on its own', () => {
-    const saved = new Map<string, string>();
-    vi.stubGlobal('localStorage', { getItem: (k: string) => saved.get(k) ?? null, setItem: (k: string, v: string) => void saved.set(k, v) });
-    try {
-      expect(useStore.getState().notificationKinds).toEqual({ throw: true, finding: true });
-      useStore.getState().setNotificationKind('finding', false);
-      useStore.getState().setNotificationKind('throw', false);
-      useStore.getState().setNotificationKind('throw', true);
-      expect(useStore.getState().notificationKinds).toEqual({ throw: true, finding: false });
-      expect(JSON.parse(saved.get('ida_graph_settings')!).notificationKinds).toEqual({ throw: true, finding: false });
-    } finally {
-      vi.unstubAllGlobals();
-      useStore.getState().setNotificationKind('finding', true);
-    }
-  });
-});
-
-describe('spikes menu', () => {
-  it('is open by default, and is saved closed', () => {
-    const saved = new Map<string, string>();
-    vi.stubGlobal('localStorage', { getItem: (k: string) => saved.get(k) ?? null, setItem: (k: string, v: string) => void saved.set(k, v) });
-    try {
-      expect(useStore.getState().spikesOpen).toBe(true);
-      useStore.getState().setSpikesOpen(false);
-      expect(useStore.getState().spikesOpen).toBe(false);
-      expect(JSON.parse(saved.get('ida_graph_settings')!).spikesOpen).toBe(false);
-    } finally {
-      vi.unstubAllGlobals();
-      useStore.getState().setSpikesOpen(true);
-    }
   });
 });
 
@@ -336,7 +218,7 @@ describe('inspector setting', () => {
     try {
       useStore.getState().setHideHealthy(true);
       useStore.getState().setInspectorOpen(false);
-      expect(JSON.parse(saved.get('ida_graph_settings')!)).toEqual({ hideHealthy: true, inspectorOpen: false, notificationKinds: { throw: true, finding: true }, spikesOpen: true });
+      expect(JSON.parse(saved.get('ida_graph_settings')!)).toEqual({ hideHealthy: true, inspectorOpen: false });
     } finally {
       vi.unstubAllGlobals();
       useStore.getState().setHideHealthy(false);

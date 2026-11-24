@@ -1,4 +1,4 @@
-import type { Recording } from '@ida-dev/core';
+import type { Recording } from '@eda-debugger/core';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { api } from '../cloud/api';
@@ -27,9 +27,8 @@ export async function parseRecording(file: File): Promise<Recording> {
 
 type SourceProps = {
   projectId: string;
-  /** The service whose runs to list; without one, only a local file can be opened. */
-  recorderKey: string | null;
-  /** The run the URL names, if any. */
+  recorderKey: string;
+  /** The saved recording the URL names, if any. */
   currentSessionId?: string;
   source: RecordingSource;
   onSource: (source: RecordingSource) => void;
@@ -39,10 +38,10 @@ type SourceProps = {
 export function RecordingsDialog({ projectId, recorderKey, currentSessionId, source, onSource, onClose }: SourceProps & { onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const sessions = useApi(`sessions:${projectId}:${recorderKey ?? ''}`, () => (recorderKey ? api.sessions(projectId, recorderKey) : Promise.resolve([])), { pollMs: 10_000 });
+  const sessions = useApi(`sessions:${projectId}:${recorderKey}`, () => api.sessions(projectId, recorderKey), { pollMs: 10_000 });
   const [fileError, setFileError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const runUrl = (id: string) => `/projects/${projectId}/view?service=${encodeURIComponent(recorderKey ?? '')}&run=${id}`;
+  const base = `/projects/${projectId}/recorders/${encodeURIComponent(recorderKey)}`;
   const viewing = source.kind === 'cloud' ? currentSessionId : undefined;
 
   useEffect(() => {
@@ -78,22 +77,20 @@ export function RecordingsDialog({ projectId, recorderKey, currentSessionId, sou
       }}
     >
       <button className="icon modal-close" aria-label="Close" onClick={onClose}>×</button>
-      <h3 id="recordings-title">Recordings{recorderKey && <> · <code>{recorderKey}</code></>}</h3>
-      <p className="muted">{recorderKey
-        ? 'Each run of your app is one recording. A run opens with what the other services did meanwhile.'
-        : 'Zoom into a recorder to see its runs.'}</p>
-      {recorderKey && sessions.error && <p className="form-error" role="alert">{sessions.error}</p>}
-      {recorderKey && !sessions.data && !sessions.error && <TableSkeleton heads={['Started', 'Events', 'Runtime', 'Last data', '', '']} />}
-      {recorderKey && sessions.data?.length === 0 && <p className="muted">No recordings yet.</p>}
+      <h3 id="recordings-title">Recordings · <code>{recorderKey}</code></h3>
+      <p className="muted">Each run of your app is one recording.</p>
+      {sessions.error && <p className="form-error" role="alert">{sessions.error}</p>}
+      {!sessions.data && !sessions.error && <TableSkeleton heads={['Started', 'Events', 'Runtime', 'Last data', '']} />}
+      {sessions.data?.length === 0 && <p className="muted">No recordings yet.</p>}
       {!!sessions.data?.length && (
         <div className="recordings-scroll">
           <table className="table">
-            <thead><tr><th>Started</th><th>Events</th><th>Runtime</th><th>Last data</th><th /><th /></tr></thead>
+            <thead><tr><th>Started</th><th>Events</th><th>Runtime</th><th>Last data</th><th /></tr></thead>
             <tbody>
               {sessions.data.map((s) => (
                 <tr key={s.id} aria-current={s.id === viewing ? 'true' : undefined}>
                   <td>
-                    <Link to={runUrl(s.id)} onClick={() => { onSource({ kind: 'cloud' }); onClose(); }}>
+                    <Link to={`${base}/sessions/${s.id}`} onClick={() => { onSource({ kind: 'cloud' }); onClose(); }}>
                       {new Date(s.startedAt).toLocaleString()}
                     </Link>
                     {s.id === viewing && <span className="badge">viewing</span>}
@@ -105,11 +102,6 @@ export function RecordingsDialog({ projectId, recorderKey, currentSessionId, sou
                   <td className="muted">{s.runtime || '—'}</td>
                   <td>{ago(s.lastSeenAt)}</td>
                   <td>{s.live && <span className="live live-on">● live</span>}</td>
-                  <td>
-                    <Link className="button" to={runUrl(s.id)} onClick={() => { onSource({ kind: 'cloud' }); onClose(); }}>
-                      View
-                    </Link>
-                  </td>
                 </tr>
               ))}
             </tbody>

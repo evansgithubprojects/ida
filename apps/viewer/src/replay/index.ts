@@ -1,5 +1,6 @@
-import type { Finding, GraphNode, Occurrence, Process, Recording, Template } from '@ida-dev/core';
-import { buildServiceIndex, type ServiceIndex, type SystemView } from './system';
+import type { Finding, GraphNode, Occurrence, Recording, Template } from '@eda-debugger/core';
+import { compareRank, findingRank, throwRank, tierOf, type Rank, type Tier } from './severity';
+export type { Tier } from './severity';
 
 /** A route an occurrence travelled: source node -> one receiving node. */
 export interface Hop {
@@ -33,15 +34,10 @@ export interface ReplayIndex {
   events: Map<string, EventInfo>;
   items: IndexedOccurrence[];
   byId: Map<string, IndexedOccurrence>;
-  /** Occurrence id -> the occurrences it caused (their `parentId`), oldest first. Crosses services in a system view. */
-  children: Map<string, string[]>;
   nodes: Map<string, GraphNode>;
   /** Handlers (and emitters) that deliver to an external system. */
   externalNodes: Set<string>;
   processLabel: Map<string, string>;
-  processes: Map<string, Process>;
-  /** Set for a system view: which service each node and process belongs to, and the links between services. */
-  system: ServiceIndex | null;
   findingsByOcc: Map<string, Finding[]>;
   findingsById: Map<string, Finding>;
   /** Findings traced to a throw, keyed by `throwId`. */
@@ -51,8 +47,7 @@ export interface ReplayIndex {
   start: number;
   end: number;
   /**
-   * What displayed times count from ("init"). Recorder timestamps are relative to the recorder's start, so this is a
-   * fixed 0. In a system view it is when the first recorder in view started.
+   * What displayed times count from. Recorder timestamps are relative to the recorder's start, so this is a fixed 0.
    * It must not follow `start`: a live view drops its oldest event every flush, which moves `start`, and every
    * time on screen would then change and re-render with it. `start` is for geometry and windowing only.
    */
@@ -157,34 +152,9 @@ export function runById(index: ReplayIndex, id: string): Run | null {
 /** A run that threw, or whose payload is suspected corrupt. */
 export const isProblemRun = (index: ReplayIndex, run: Run) => !!run.error || index.findingsByOcc.has(run.item.occ.id);
 
-/**
- * `system` is the rest of a system view, when `recording` is one. `origin` keeps a live system view's times counting
- * from where they did (see `ReplayIndex.origin`).
- */
-/**
- * A length of time for people to read: "4.20ms", "312ms", "12.34s", then minutes and hours once it gets that long
- * ("2m 03s", "1h 02m 03s"), so a time counted from a long-running app's init stays readable.
- */
-export function fmtMs(ms: number): string {
-  // Thresholds on the rounded value, so 999.6 ms reads "1.00s", not "1000ms", and 59.999 s reads "1m 00s".
-  if (Math.round(ms) < 1000) return `${ms.toFixed(ms < 10 ? 2 : 0)}ms`;
-  if (Math.round(ms / 10) < 6000) return `${(ms / 1000).toFixed(2)}s`;
-  const total = Math.round(ms / 1000);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
-  return h ? `${h}h ${pad(m)}m ${pad(s)}s` : `${m}m ${pad(s)}s`;
-}
-
-/** When the first recorder in a system view started, on the view's clock; undefined when the server doesn't say. */
-function firstInit(system: Omit<SystemView, 'recording'>): number | undefined {
-  const starts = system.services.map((s) => s.startTs).filter((t): t is number => typeof t === 'number');
-  return starts.length ? Math.min(...starts) : undefined;
-}
-
-export function buildIndex(recording: Recording, system?: Omit<SystemView, 'recording'> | null, origin?: number): ReplayIndex {
+export function buildIndex(recording: Recording): ReplayIndex {
   const templates = new Map(recording.templates.map((t) => [t.id, t]));
   const nodes = new Map(recording.nodes.map((n) => [n.id, n]));
-  const processes = new Map(recording.processes.map((p) => [p.id, p]));
   const findingsByOcc = new Map<string, Finding[]>();
   const findingsById = new Map<string, Finding>();
   const findingsBySource = new Map<string, Finding[]>();
@@ -198,19 +168,14 @@ export function buildIndex(recording: Recording, system?: Omit<SystemView, 'reco
   }
   const propagations = new Map<string, { occurrenceId: string; handlerId: string }[]>();
   const items: IndexedOccurrence[] = [];
-  const occById = new Map(recording.occurrences.map((o) => [o.id, o]));
   for (const occ of [...recording.occurrences].sort((a, b) => a.ts - b.ts)) {
     const template = templates.get(occ.templateId);
     if (!template) continue;
     // Events nobody listens to dead-end at their own emitter so they still show up.
     const targets = template.handlerIds.length ? template.handlerIds : [template.emitterId];
-    // A message published to one broker node and consumed from another (a RabbitMQ exchange routing it to a queue)
-    // also travelled between the two: draw that route too, or the exchange and the queue look unconnected.
-    const publishedTo = occ.causality === 'propagated' && occ.parentId ? templates.get(occById.get(occ.parentId)?.templateId ?? '')?.emitterId : undefined;
-    const routed = publishedTo && publishedTo !== template.emitterId && nodes.has(publishedTo) ? [{ src: publishedTo, dst: template.emitterId }] : [];
     items.push({
       occ, template,
-      hops: [...routed, ...targets.map((dst) => ({ src: occ.sourceNodeId, dst }))],
+      hops: targets.map((dst) => ({ src: occ.sourceNodeId, dst })),
       throws: occ.handlerResults
         .filter((r) => r.error)
         .map((r) => ({
@@ -237,43 +202,16 @@ export function buildIndex(recording: Recording, system?: Omit<SystemView, 'reco
     const marked = t.handlerIds.filter((id) => t.external!.includes(nodes.get(id)?.label ?? ''));
     for (const id of marked.length ? marked : [t.emitterId]) externalNodes.add(id);
   }
-  const children = new Map<string, string[]>();
-  for (const { occ } of items) {
-    if (!occ.parentId) continue;
-    const list = children.get(occ.parentId);
-    if (list) list.push(occ.id);
-    else children.set(occ.parentId, [occ.id]);
-  }
   const start = items.length ? (items[0] as IndexedOccurrence).occ.ts : 0;
   const end = items.reduce((m, i) => Math.max(m, i.occ.ts + i.occ.durationMs), start);
   return {
-    recording, events, items, byId: new Map(items.map((i) => [i.occ.id, i])), children, nodes, externalNodes,
-    processLabel: new Map([...processes.values()].map((p) => [p.id, p.label])),
-    processes,
-    system: system ? buildServiceIndex(system, recording) : null,
-    findingsByOcc, findingsById, findingsBySource, propagations, start, end,
-    // A system view's times count from when the first of its recorders started (its init), else its first event. A
-    // live one drops its oldest events as new ones come, so it passes in the origin it opened with: times shown stay
-    // put, and lists keyed on it don't redraw on every batch.
-    origin: system ? origin ?? firstInit(system) ?? start : 0,
+    recording, events, items, byId: new Map(items.map((i) => [i.occ.id, i])), nodes, externalNodes,
+    processLabel: new Map(recording.processes.map((p) => [p.id, p.label])),
+    findingsByOcc, findingsById, findingsBySource, propagations, start, end, origin: 0,
   };
 }
 
 export const edgeId = (src: string, dst: string) => `${src}>${dst}`;
-
-const BROKER_KINDS = new Set(['topic', 'exchange', 'queue']);
-
-/**
- * Whether a hop end counts toward the in/out of the card it is drawn on. A broker's card counts messages: those that
- * reach its topic, exchange or queue, and those it delivers. A consumer's handler is drawn inside the broker (it
- * consumes there), but what that handler does next is the consumer's, not more traffic through the broker.
- */
-export function countsOnCard(index: ReplayIndex, rawId: string, mappedId: string): boolean {
-  if (rawId === mappedId) return true;
-  const n = index.nodes.get(rawId);
-  if (!n || mappedId !== `p:${n.processId}` || !BROKER_KINDS.has(index.processes.get(n.processId)?.kind ?? '')) return true;
-  return n.kind === 'emitter';
-}
 
 export interface ActiveOptions {
   /** How long a lit pathway takes to fade, in recording ms. */
@@ -467,21 +405,6 @@ export function capWindow(index: ReplayIndex, window: [number, number], keep: 's
     : [window[0], (index.items[lo + max - 1] as IndexedOccurrence).occ.ts];
 }
 
-/** How many events past the playhead an automatic window reaches, so playback has room before the window has to move. */
-export const TRAIL_AHEAD_EVENTS = 100;
-
-/**
- * The window that trails playhead `t`: the newest `max` events up to a little past `t`. The viewer moves to it only
- * when `t` leaves the current window, so playing doesn't rebuild the graph on every frame.
- */
-export function windowAround(index: ReplayIndex, t: number, max = MAX_WINDOW_EVENTS, ahead = TRAIL_AHEAD_EVENTS): [number, number] {
-  const n = index.items.length;
-  if (!n) return [index.start, index.end];
-  const hi = Math.min(firstAfter(index.items, t) + ahead, n);
-  const lo = Math.max(hi - max, 0);
-  return [lo === 0 ? index.start : (index.items[lo] as IndexedOccurrence).occ.ts, hi >= n ? index.end : (index.items[hi - 1] as IndexedOccurrence).occ.ts];
-}
-
 /**
  * How many of the ascending `times` have fired by playhead `t`. The playhead starts on the first event, so
  * counting is strict (an event at `t` hasn't ticked yet) and every counter starts at zero; at the end of the
@@ -512,13 +435,6 @@ export function chainOf(index: ReplayIndex, occurrenceId: string): IndexedOccurr
   return chain;
 }
 
-/** The service an occurrence ran in, in a system view: its emitting node's, else its first handler's. */
-export function serviceOfOccurrence(index: ReplayIndex, item: IndexedOccurrence): string | undefined {
-  const sys = index.system;
-  if (!sys) return undefined;
-  return sys.nodeService.get(item.occ.sourceNodeId) ?? sys.nodeService.get(item.template.handlerIds[0] ?? '') ?? undefined;
-}
-
 export type ChainStep = { kind: 'event'; item: IndexedOccurrence } | { kind: 'handler'; nodeId: string };
 
 /**
@@ -546,8 +462,8 @@ export interface Notification {
   id: string;
   kind: 'throw' | 'finding';
   occurrenceId: string;
-  /** When it happened, in recording ms. */
-  ts: number;
+  rank: Rank;
+  tier: Tier;
   text: string;
   external: boolean;
   /** Set for findings with no error thrown. */
@@ -556,28 +472,22 @@ export interface Notification {
   finding?: Finding;
 }
 
-/** Where a notification sits in the list: corrupt payloads with an error behind them, then errors, then the rest. */
-const notificationGroup = (n: Notification) => (n.kind === 'throw' ? 1 : n.unattributed ? 2 : 0);
-
-/**
- * Throws and findings among `items`: corrupt payloads traced to an error first, then errors, then corrupt payloads
- * with no error thrown. Within each, those reaching an external system come first, then oldest first. Spikes have their
- * own list (see `spikesAmong`), so a burst of the errors they cause can't push them out of sight.
- */
+/** Throws and findings among `items`, most severe first. */
 export function notifications(index: ReplayIndex, items: IndexedOccurrence[]): Notification[] {
   const out: Notification[] = [];
   for (const i of items) {
     for (const th of i.throws) {
       if (th.rethrown) continue;
       const id = th.id;
-      const external = (index.findingsBySource.get(id) ?? []).some((f) => f.priority === 'high');
-      out.push({ id, kind: 'throw', occurrenceId: i.occ.id, ts: th.at, text: `${index.nodes.get(th.handlerId)?.label} threw: ${th.message}`, external, unattributed: false });
+      const rank = throwRank(index.findingsBySource.get(id) ?? [], th.at);
+      out.push({ id, kind: 'throw', occurrenceId: i.occ.id, rank, tier: tierOf(rank.score), text: `${index.nodes.get(th.handlerId)?.label} threw: ${th.message}`, external: rank.external, unattributed: false });
     }
     for (const f of index.findingsByOcc.get(i.occ.id) ?? []) {
-      out.push({ id: f.id, kind: 'finding', occurrenceId: i.occ.id, ts: f.ts, text: f.summary, external: f.priority === 'high', unattributed: !f.taintSource, finding: f });
+      const rank = findingRank(f);
+      out.push({ id: f.id, kind: 'finding', occurrenceId: i.occ.id, rank, tier: tierOf(rank.score), text: f.summary, external: rank.external, unattributed: !f.taintSource, finding: f });
     }
   }
-  return out.sort((a, b) => notificationGroup(a) - notificationGroup(b) || Number(b.external) - Number(a.external) || a.ts - b.ts);
+  return out.sort((a, b) => compareRank(a.rank, b.rank));
 }
 
 export interface Recipient {
@@ -640,7 +550,7 @@ interface RateOptions {
 }
 
 /** Calls `visit` for every hop of every event that plays in `[lo, hi)`, scanning from item `scanFrom`. */
-function eachPlayedHop(index: ReplayIndex, lo: number, hi: number, opts: RateOptions, scanFrom: number, visit: (src: string, dst: string, at: number, hop: Hop) => void): void {
+function eachPlayedHop(index: ReplayIndex, lo: number, hi: number, opts: RateOptions, scanFrom: number, visit: (src: string, dst: string, at: number) => void): void {
   const map = opts.mapNode ?? ((id: string) => id);
   for (let i = scanFrom; i < index.items.length; i++) {
     const { occ, hops } = index.items[i] as IndexedOccurrence;
@@ -650,7 +560,7 @@ function eachPlayedHop(index: ReplayIndex, lo: number, hi: number, opts: RateOpt
     for (const hop of hops) {
       const src = map(hop.src);
       const dst = map(hop.dst);
-      if (src && dst) visit(src, dst, at, hop);
+      if (src && dst) visit(src, dst, at);
     }
   }
 }
@@ -665,10 +575,10 @@ export function rateSeries(index: ReplayIndex, t: number, opts: RateOptions = {}
     if (!row) m.set(k, (row = new Array<number>(RATE_HISTORY).fill(0)));
     row[slot]! += 1;
   };
-  eachPlayedHop(index, lo, hi, opts, 0, (src, dst, at, hop) => {
+  eachPlayedHop(index, lo, hi, opts, 0, (src, dst, at) => {
     const slot = Math.floor((at - lo) / RATE_STEP_MS);
-    if (countsOnCard(index, hop.dst, dst)) add(out.in, dst, slot);
-    if (countsOnCard(index, hop.src, src)) add(out.out, src, slot);
+    add(out.in, dst, slot);
+    add(out.out, src, slot);
     if (src !== dst) add(out.edges, edgeId(src, dst), slot);
   });
   // Counted whole, then turned into per-second rates, so a steady 4/s reads exactly 4.
@@ -698,9 +608,9 @@ export function recentRates(index: ReplayIndex, t: number, opts: RateOptions & {
   const lo = t - SPIKE_WINDOW_MS + NUDGE;
   const out: RecentRates = { edges: new Map(), in: new Map(), out: new Map() };
   const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1000 / SPIKE_WINDOW_MS);
-  eachPlayedHop(index, lo, t + NUDGE, opts, firstAtOrAfter(index.items, lo - (opts.maxShiftMs ?? 0)), (src, dst, _at, hop) => {
-    if (countsOnCard(index, hop.dst, dst)) bump(out.in, dst);
-    if (countsOnCard(index, hop.src, src)) bump(out.out, src);
+  eachPlayedHop(index, lo, t + NUDGE, opts, firstAtOrAfter(index.items, lo - (opts.maxShiftMs ?? 0)), (src, dst) => {
+    bump(out.in, dst);
+    bump(out.out, src);
     if (src !== dst) bump(out.edges, edgeId(src, dst));
   });
   return out;

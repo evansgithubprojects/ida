@@ -6,11 +6,9 @@ const src = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
-      '@ida-dev/core': src('./packages/core/src/index.ts'),
-      '@ida-dev/adapter-eventemitter': src('./packages/adapter-eventemitter/src/index.ts'),
-      '@ida-dev/adapter-eventtarget': src('./packages/adapter-eventtarget/src/index.ts'),
-      '@ida-dev/adapter-kafkajs': src('./packages/adapter-kafkajs/src/index.ts'),
-      '@ida-dev/adapter-amqplib': src('./packages/adapter-amqplib/src/index.ts'),
+      '@eda-debugger/core': src('./packages/core/src/index.ts'),
+      '@eda-debugger/adapter-eventemitter': src('./packages/adapter-eventemitter/src/index.ts'),
+      '@eda-debugger/adapter-eventtarget': src('./packages/adapter-eventtarget/src/index.ts'),
     },
   },
   test: {
